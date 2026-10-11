@@ -1,5 +1,5 @@
 import { Html5Qrcode } from 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/+esm';
-import { $, beep } from './utils.js';
+import { $, beep, toast } from './utils.js';
 
 let html5 = null;
 let nativeDetector = null;
@@ -15,6 +15,8 @@ let isOpening = false;
 let currentCameraId = localStorage.getItem('scanner_camera_id') || null;
 let nativeFails = 0;
 let nativeStartTime = 0;
+let hwBuffer = '';
+let hwTimer = null;
 
 function supportsNative() {
   return 'BarcodeDetector' in window;
@@ -24,45 +26,43 @@ function supportsNative() {
 // باز کردن اسکنر
 // ═══════════════════════════════════════════════════════
 export async function openScanner(cb) {
-  if (isOpening) {
-    console.warn('Scanner already opening, ignoring');
-    return;
+  if (isOpening || isClosing) {
+    console.warn('Scanner busy, closing first...');
+    try { await closeScanner(); } catch (e) {}
+    await new Promise(r => setTimeout(r, 400));
   }
   isOpening = true;
 
-  // ⭐ اطمینان از پاکسازی قبلی
-  await forceCleanup();
-
-  callback = cb;
-  isClosing = false;
-  lastScan = '';
-  lastScanTime = 0;
-  nativeFails = 0;
-
-  $('scannerWrap').classList.add('active');
-  $('scannerStatus').textContent = 'در حال راه‌اندازی...';
-
-  // ⭐ گرفتن لیست دوربین‌ها
-  if (cameras.length === 0) {
-    try {
-      const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
-      tmp.getTracks().forEach(t => t.stop());
-      await new Promise(r => setTimeout(r, 400));
-      const devs = await Html5Qrcode.getCameras();
-      cameras = devs || [];
-      buildCameraMenu();
-    } catch (e) {
-      console.warn('Cannot enumerate cameras:', e);
-      cameras = [];
-    }
-  } else {
-    buildCameraMenu();
-  }
-
-  // ⭐ مکث لازم قبل از باز کردن استریم جدید
-  await new Promise(r => setTimeout(r, 400));
-
   try {
+    await forceCleanup();
+
+    callback = cb;
+    lastScan = '';
+    lastScanTime = 0;
+    nativeFails = 0;
+
+    $('scannerWrap').classList.add('active');
+    $('scannerStatus').textContent = 'در حال راه‌اندازی...';
+
+    // لیست دوربین‌ها
+    if (cameras.length === 0) {
+      try {
+        const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
+        tmp.getTracks().forEach(t => t.stop());
+        await new Promise(r => setTimeout(r, 400));
+        const devs = await Html5Qrcode.getCameras();
+        cameras = devs || [];
+        buildCameraMenu();
+      } catch (e) {
+        console.warn('Cannot enumerate cameras:', e);
+        cameras = [];
+      }
+    } else {
+      buildCameraMenu();
+    }
+
+    await new Promise(r => setTimeout(r, 400));
+
     if (supportsNative()) {
       await startNative();
     } else {
@@ -77,16 +77,13 @@ export async function openScanner(cb) {
 }
 
 // ═══════════════════════════════════════════════════════
-// پاکسازی کامل قبل از شروع
+// پاکسازی کامل
 // ═══════════════════════════════════════════════════════
 async function forceCleanup() {
-  // توقف loop
   if (nativeLoopId) {
     cancelAnimationFrame(nativeLoopId);
     nativeLoopId = null;
   }
-
-  // توقف استریم native
   if (nativeStream) {
     try {
       nativeStream.getTracks().forEach(t => {
@@ -95,8 +92,6 @@ async function forceCleanup() {
     } catch (e) {}
     nativeStream = null;
   }
-
-  // پاک کردن video
   if (nativeVideo) {
     try {
       nativeVideo.pause();
@@ -106,10 +101,8 @@ async function forceCleanup() {
     } catch (e) {}
     nativeVideo = null;
   }
-
   nativeDetector = null;
 
-  // توقف html5
   if (html5) {
     try {
       const st = html5.getState ? html5.getState() : null;
@@ -119,11 +112,9 @@ async function forceCleanup() {
     html5 = null;
   }
 
-  // پاک کردن DOM reader
   const reader = $('reader');
   if (reader) reader.innerHTML = '';
 
-  // ⭐ مکث لازم برای آزاد شدن دوربین توسط سیستم‌عامل
   await new Promise(r => setTimeout(r, 500));
 }
 
@@ -139,7 +130,6 @@ async function startNative() {
       ? { video: { deviceId: { exact: currentCameraId }, width: { ideal: 1280 }, height: { ideal: 720 } } }
       : { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } };
 
-    // ⭐ اگر خطای NotReadableError داد، ۳ بار تلاش مجدد
     let attempts = 0;
     while (attempts < 3) {
       try {
@@ -148,18 +138,15 @@ async function startNative() {
       } catch (e) {
         attempts++;
         if (e.name === 'NotReadableError' && attempts < 3) {
-          console.warn(`Camera busy, retry ${attempts}/3...`);
-          $('scannerStatus').textContent = `دوربین مشغول است، تلاش مجدد (${attempts})...`;
+          $('scannerStatus').textContent = `دوربین مشغول، تلاش ${attempts}/3...`;
           await new Promise(r => setTimeout(r, 800));
         } else {
           throw e;
         }
       }
     }
-
     if (!nativeStream) throw new Error('دوربین در دسترس نیست');
 
-    // autofocus
     try {
       const track = nativeStream.getVideoTracks()[0];
       const caps = track.getCapabilities ? track.getCapabilities() : {};
@@ -168,7 +155,6 @@ async function startNative() {
       }
     } catch (e) {}
 
-    // ساخت video
     nativeVideo = document.createElement('video');
     nativeVideo.autoplay = true;
     nativeVideo.playsInline = true;
@@ -181,7 +167,7 @@ async function startNative() {
     reader.innerHTML = '';
     reader.appendChild(nativeVideo);
 
-    $('scannerStatus').textContent = '⚡ اسکنر سریع - بارکد را مقابل دوربین بگیرید';
+    $('scannerStatus').textContent = '⚡ بارکد را مقابل دوربین بگیرید یا از کلیپ‌بورد بچسبانید';
     await nativeVideo.play().catch(() => {});
 
     nativeStartTime = Date.now();
@@ -197,7 +183,6 @@ async function nativeLoop() {
   if (isClosing || !nativeStream || !nativeVideo || !nativeDetector) return;
 
   if (Date.now() - nativeStartTime > 8000 && nativeFails > 100) {
-    console.warn('Native too slow, switching to html5');
     await forceCleanup();
     await startHtml5();
     return;
@@ -208,16 +193,8 @@ async function nativeLoop() {
       const barcodes = await nativeDetector.detect(nativeVideo);
       if (barcodes.length > 0) {
         const val = barcodes[0].rawValue;
-        const now = Date.now();
-        if (!(val === lastScan && now - lastScanTime < 2000)) {
-          lastScan = val; lastScanTime = now;
-          beep();
-          $('scannerStatus').textContent = '✓ شناسایی شد';
-          const savedCb = callback;
-          await closeScanner();
-          setTimeout(() => savedCb && savedCb(val), 300);
-          return;
-        }
+        handleDetected(val);
+        return;
       }
       nativeFails++;
     }
@@ -230,12 +207,8 @@ async function nativeLoop() {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// html5-qrcode
-// ═══════════════════════════════════════════════════════
 async function startHtml5() {
   const reader = $('reader');
-  // ⭐ یک div تازه با id یکتا
   const uid = 'reader_' + Date.now();
   reader.innerHTML = `<div id="${uid}" style="width:100%;height:100%;"></div>`;
 
@@ -257,30 +230,20 @@ async function startHtml5() {
     ? { deviceId: { exact: currentCameraId } }
     : { facingMode: 'environment' };
 
-  // ⭐ تلاش مجدد در صورت خطای دوربین
   let attempts = 0;
   while (attempts < 3) {
     try {
       await html5.start(
         target,
         config,
-        (text) => {
-          const now = Date.now();
-          if (text === lastScan && now - lastScanTime < 2000) return;
-          lastScan = text; lastScanTime = now;
-          beep();
-          $('scannerStatus').textContent = '✓ شناسایی شد';
-          const savedCb = callback;
-          closeScanner().then(() => setTimeout(() => savedCb && savedCb(text), 300));
-        },
+        (text) => handleDetected(text),
         () => {}
       );
-      $('scannerStatus').textContent = 'بارکد را مقابل دوربین بگیرید';
+      $('scannerStatus').textContent = 'بارکد را مقابل دوربین بگیرید یا از کلیپ‌بورد بچسبانید';
       return;
     } catch (e) {
       attempts++;
       if (attempts < 3) {
-        console.warn(`html5 start failed, retry ${attempts}/3...`);
         $('scannerStatus').textContent = `تلاش مجدد (${attempts})...`;
         await forceCleanup();
         await new Promise(r => setTimeout(r, 800));
@@ -295,14 +258,70 @@ async function startHtml5() {
 }
 
 // ═══════════════════════════════════════════════════════
+// پردازش بارکد شناسایی‌شده
+// ═══════════════════════════════════════════════════════
+async function handleDetected(val) {
+  if (isClosing) return;
+  const now = Date.now();
+  if (val === lastScan && now - lastScanTime < 2000) return;
+  lastScan = val;
+  lastScanTime = now;
+
+  beep();
+  $('scannerStatus').textContent = '✓ شناسایی شد: ' + val.substring(0, 30);
+
+  const savedCb = callback;
+  await closeScanner();
+  setTimeout(() => {
+    if (savedCb) savedCb(val);
+  }, 300);
+}
+
+// ═══════════════════════════════════════════════════════
 // بستن
 // ═══════════════════════════════════════════════════════
 export async function closeScanner() {
   if (isClosing) return;
   isClosing = true;
-  await forceCleanup();
-  $('scannerWrap').classList.remove('active');
-  isClosing = false;
+  try {
+    await forceCleanup();
+    $('scannerWrap').classList.remove('active');
+  } finally {
+    isClosing = false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// ورودی بارکدخوان سخت‌افزاری (USB/Bluetooth)
+// ═══════════════════════════════════════════════════════
+function setupHardwareScannerListener() {
+  document.addEventListener('keydown', (e) => {
+    if (!$('scannerWrap').classList.contains('active')) return;
+
+    const tag = (e.target.tagName || '').toUpperCase();
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+
+    if (e.key === 'Escape') {
+      closeScanner();
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      const code = hwBuffer.trim();
+      hwBuffer = '';
+      clearTimeout(hwTimer);
+      if (code.length >= 4) {
+        handleDetected(code);
+      }
+      return;
+    }
+
+    if (e.key.length === 1) {
+      hwBuffer += e.key;
+      clearTimeout(hwTimer);
+      hwTimer = setTimeout(() => { hwBuffer = ''; }, 100);
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -350,16 +369,85 @@ function closeCameraPopup() {
   if (popup) popup.style.display = 'none';
 }
 
-export function initScannerButtons() {
-  $('btnScanClose').onclick = async () => { callback = null; await closeScanner(); };
-  $('btnScanManual').onclick = async () => {
-    const v = prompt('بارکد را وارد کنید:');
-    if (v?.trim()) {
-      const cb = callback;
-      await closeScanner();
-      setTimeout(() => cb && cb(v.trim()), 300);
+// ═══════════════════════════════════════════════════════
+// چسباندن از کلیپ‌بورد
+// ═══════════════════════════════════════════════════════
+async function pasteFromClipboard() {
+  const cb = callback;
+  if (!cb) {
+    toast('اسکنر آماده نیست', 'warning');
+    return;
+  }
+
+  let code = '';
+
+  // روش ۱: Clipboard API
+  try {
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      code = (await navigator.clipboard.readText() || '').trim();
     }
+  } catch (e) {
+    console.warn('Clipboard read failed:', e);
+  }
+
+  // روش ۲: اگر روش ۱ خطا داد یا خالی بود → prompt
+  if (!code) {
+    code = (prompt('بارکد را وارد یا paste کنید:') || '').trim();
+  }
+
+  if (!code) {
+    toast('کلیپ‌بورد خالی است', 'warning');
+    return;
+  }
+
+  beep();
+  $('scannerStatus').textContent = '✓ ' + code.substring(0, 30);
+  await closeScanner();
+  setTimeout(() => cb(code), 250);
+}
+
+// ═══════════════════════════════════════════════════════
+// راه‌اندازی دکمه‌ها
+// ═══════════════════════════════════════════════════════
+export function initScannerButtons() {
+  setupHardwareScannerListener();
+
+  // ⭐ گوش دادن به رویداد ورودی دستی از app.js
+  document.addEventListener('manualBarcode', async (e) => {
+    const val = e.detail;
+    if (!val) return;
+    const cb = callback;
+    if (cb) {
+      await closeScanner();
+      setTimeout(() => cb(val), 250);
+    }
+  });
+
+  // دکمه بستن
+  $('btnScanClose').onclick = async () => {
+    callback = null;
+    await closeScanner();
   };
+
+  // ⭐ دکمه چسباندن از کلیپ‌بورد (اصلی)
+  const btnPaste = $('btnScanPaste');
+  if (btnPaste) {
+    btnPaste.onclick = (e) => {
+      e.stopPropagation();
+      pasteFromClipboard();
+    };
+  }
+
+  // ⭐ دکمه ورودی دستی (اگر باشد)
+  const btnManual = $('btnScanManual');
+  if (btnManual) {
+    btnManual.onclick = (e) => {
+      e.stopPropagation();
+      pasteFromClipboard();
+    };
+  }
+
+  // انتخاب دوربین
   const camBtn = $('btnCameraSelect');
   if (camBtn) {
     camBtn.onclick = (e) => {
@@ -369,6 +457,7 @@ export function initScannerButtons() {
       popup.style.display = popup.style.display === 'block' ? 'none' : 'block';
     };
   }
+
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#btnCameraSelect')) closeCameraPopup();
   });
