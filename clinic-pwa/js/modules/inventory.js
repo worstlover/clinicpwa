@@ -134,7 +134,50 @@ async function removeItem(idx) {
   state.items.splice(idx, 1);
   renderScan();
 }
+async function editItem(idx) {
+  const it = state.items[idx];
+  if (!it) return;
 
+  // مودال تعداد با مقادیر فعلی باز می‌شود
+  const res = await askQty({
+    title: 'ویرایش قلم شمارش‌شده',
+    headerClass: 'bg-primary text-white',
+    drugName: it.drug_name,
+    extraInfo: `شماره بچ فعلی: <code dir="ltr">${escapeHtml(it.batch_number || '—')}</code>`,
+    defaultQty: it.counted_quantity,
+    defaultExpiry: it.expiry_date || '',
+    showExtras: false,   // تاریخ و بچ را کاربر نمی‌تواند تغییر دهد (چون بخشی از هویت بچ است)
+  });
+
+  if (res.qty === it.counted_quantity) return;   // تغییری نشده
+
+  // اگر تعداد صفر شد، حذف کن
+  if (res.qty === 0) {
+    if (confirm('تعداد صفر شد. این قلم حذف شود؟')) {
+      await removeItem(idx);
+      return;
+    }
+    return;
+  }
+
+  // آپدیت در state
+  it.counted_quantity = res.qty;
+
+  // آپدیت در Supabase
+  await sb.from('inv_count_items').upsert({
+    session_id: state.session.id,
+    drug_id: it.drug_id,
+    drug_name: it.drug_name,
+    batch_number: it.batch_number || '',
+    expiry_date: it.expiry_date,
+    counted_quantity: res.qty,
+    barcode: it.barcode
+  }, { onConflict: 'session_id,drug_id,batch_number,expiry_date' });
+
+  renderScan();
+  beep();
+  toast(`تعداد به ${faNum(res.qty)} تغییر یافت`, 'success');
+}
 async function cancelSession() {
   if (!confirm('کل جلسه حذف شود؟')) return;
   await sb.from('inv_sessions').delete().eq('id', state.session.id);
