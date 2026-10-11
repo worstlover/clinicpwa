@@ -26,14 +26,12 @@ setInterval(() => {
   }
 }, 10000);
 
-// ───── بازیابی ذخیره موقت ─────
 async function restoreReceiveState() {
   const saved = localStorage.getItem(AUTOSAVE_KEY);
   if (!saved) return false;
   try {
     const data = JSON.parse(saved);
     if (!data.items?.length) return false;
-    // فقط اگر کمتر از ۲۴ ساعت گذشته باشد
     if (Date.now() - data.savedAt > 24 * 3600 * 1000) {
       localStorage.removeItem(AUTOSAVE_KEY);
       return false;
@@ -51,7 +49,6 @@ async function restoreReceiveState() {
   return false;
 }
 
-// ───── ورود به ماژول ─────
 export async function openReceive() {
   await restoreReceiveState();
   showScreen('Receive');
@@ -211,6 +208,16 @@ async function handleBarcode(raw) {
 }
 
 async function addDrug(drug, barcode = '', parsed = {}) {
+  // ⭐ ذخیره بارکد در دیتابیس (رفع مشکل ۱)
+  if (barcode) {
+    try {
+      await sb.from('drugs_drugbarcode').upsert({
+        drug_id: drug.id,
+        gtin: barcode
+      }, { onConflict: 'gtin' });
+    } catch (e) { /* احتمالاً قبلاً ثبت شده */ }
+  }
+
   const { data: stock } = await sb.from('v_drug_stock').select('total_quantity').eq('drug_id', drug.id).maybeSingle();
   const { data: pend } = await sb.from('v_drug_pending').select('pending_qty').eq('drug_id', drug.id).maybeSingle();
   const available = stock?.total_quantity || 0;
@@ -236,6 +243,7 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     extraInfo,
     defaultQty: 1,
     defaultExpiry: parsed?.exp || '',
+    defaultBatch: parsed?.batch || '',
     showExtras: true
   });
   if (res.qty < 1) return;
@@ -252,14 +260,12 @@ async function addDrug(drug, barcode = '', parsed = {}) {
   if (chk && (chk.level === 'danger' || chk.level === 'expired')) warnings.push({ level: 'danger', text: chk.msg });
   else if (chk && chk.level === 'warning') warnings.push({ level: 'warning', text: chk.msg });
 
-  // شماره بچ فقط توسط سیستم ساخته می‌شود (نه ورودی کاربر، نه خوانده‌شده از QR)
-  const batch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian) || '';
-  const batchKey = batch;
+  const batchKey = res.batch || '';
   const ex = state.items.find(it => it.drug_id === drug.id && (it.batch || '') === batchKey);
   if (ex && ex.expiry === res.expiry_gregorian) ex.qty += res.qty;
   else state.items.push({
     drug_id: drug.id, drug_name: drug.name,
-    qty: res.qty, batch,
+    qty: res.qty, batch: res.batch || '',
     expiry: res.expiry_gregorian || '', expiry_jalali: res.expiry_jalali || '',
     barcode, ordered_qty: ordered, invoice_qty: invoiceQty, warnings
   });
@@ -328,7 +334,6 @@ async function finalize() {
     if (errors.length) alert('⚠ خطاها:\n' + errors.join('\n'));
     else toast('✅ رسید ' + code, 'success');
 
-    // پاک کردن ذخیره موقت
     localStorage.removeItem(AUTOSAVE_KEY);
 
     state.items = [];
