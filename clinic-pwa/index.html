@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d6efd">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>داروخانه کلینیک</title>
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+<link href="styles/main.css" rel="stylesheet">
+</head>
+<body>
+
+<!-- Login -->
+<div id="screenLogin" class="screen active">
+  <div class="login-wrapper">
+    <div class="login-card">
+      <div class="login-logo">💊</div>
+      <h3>داروخانه کلینیک</h3>
+      <div id="loginMsg"></div>
+      <div class="mb-3">
+        <label class="form-label">ایمیل</label>
+        <input type="email" id="loginEmail" class="form-control" value="scanner@clinic.local" dir="ltr">
+      </div>
+      <div class="mb-4">
+        <label class="form-label">رمز عبور</label>
+        <input type="password" id="loginPass" class="form-control" dir="ltr" placeholder="••••••••">
+      </div>
+      <button class="btn btn-primary w-100 btn-lg" id="btnLogin">
+        <i class="bi bi-box-arrow-in-left"></i> ورود
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Header -->
+<div class="app-header hidden" id="appHeader">
+  <button id="btnBack" class="hidden"><i class="bi bi-arrow-right"></i></button>
+  <div class="title" id="headerTitle">داروخانه</div>
+  <button id="btnLogout"><i class="bi bi-box-arrow-left"></i></button>
+</div>
+
+<!-- Home -->
+<div id="screenHome" class="screen">
+  <div class="menu-grid">
+    <div class="text-center mb-4 mt-2">
+      <div style="font-size:1.6rem;">سلام 👋</div>
+      <small class="muted" id="userEmail"></small>
+    </div>
+    <div class="row g-3">
+      <div class="col-6"><button class="menu-card" data-nav="inventory"><div class="icon-bg primary"><i class="bi bi-clipboard-check"></i></div><div class="label">انبارگردانی</div><div class="sub">شمارش و مغایرت</div></button></div>
+      <div class="col-6"><button class="menu-card" data-nav="dispense"><div class="icon-bg success"><i class="bi bi-capsule"></i></div><div class="label">تحویل دارو</div><div class="sub">تحویل نسخه</div></button></div>
+      <div class="col-6"><button class="menu-card" data-nav="receive"><div class="icon-bg warning"><i class="bi bi-truck"></i></div><div class="label">دریافت دارو</div><div class="sub">ورود به انبار</div></button></div>
+      <div class="col-6"><button class="menu-card" data-nav="report"><div class="icon-bg info"><i class="bi bi-graph-up"></i></div><div class="label">گزارش‌ها</div><div class="sub">موجودی و هشدارها</div></button></div>
+    </div>
+  </div>
+</div>
+
+<div id="screenInventory" class="screen"><div class="content" id="invContent"></div></div>
+<div id="screenDispense"  class="screen"><div class="content" id="dispContent"></div></div>
+<div id="screenReceive"   class="screen"><div class="content" id="recvContent"></div></div>
+<div id="screenReport"    class="screen"><div class="content" id="repContent"></div></div>
+
+<!-- Bottom nav -->
+<div class="bottom-nav hidden" id="bottomNav">
+  <a href="#" data-nav="home"><i class="bi bi-house-door-fill"></i>خانه</a>
+  <a href="#" data-nav="inventory"><i class="bi bi-clipboard-check"></i>انبارگردانی</a>
+  <a href="#" data-nav="dispense"><i class="bi bi-capsule"></i>تحویل</a>
+  <a href="#" data-nav="receive"><i class="bi bi-truck"></i>دریافت</a>
+</div>
+
+<!-- Scanner -->
+<div class="scanner-wrap" id="scannerWrap">
+  <div class="scanner-viewport">
+    <div id="reader"></div>
+    <div class="scan-frame"><div class="scan-line"></div></div>
+  </div>
+  <div class="scanner-bar" id="scannerStatus">آماده اسکن...</div>
+  <div class="scanner-controls">
+    <button class="scan-btn" id="btnScanManual"><i class="bi bi-keyboard"></i></button>
+    <button class="scan-btn close" id="btnScanClose"><i class="bi bi-x-lg"></i></button>
+  </div>
+</div>
+
+<!-- Qty modal -->
+<div class="modal fade" id="qtyModal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white" id="qmHeader"><h5 class="modal-title" id="qmTitle">ثبت تعداد</h5></div>
+      <div class="modal-body">
+        <div style="font-weight:700;font-size:1.05rem;" id="qmDrugName">—</div>
+        <div class="muted small mb-3" id="qmExtraInfo"></div>
+        <label class="form-label">تعداد:</label>
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <button class="num-btn" id="qmMinus">−</button>
+          <input type="number" class="form-control num-input" id="qmQty" value="1" min="0" inputmode="numeric">
+          <button class="num-btn" id="qmPlus">+</button>
+        </div>
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+          <button class="quick-num qm-quick" data-n="5">۵</button>
+          <button class="quick-num qm-quick" data-n="10">۱۰</button>
+          <button class="quick-num qm-quick" data-n="20">۲۰</button>
+          <button class="quick-num qm-quick" data-n="50">۵۰</button>
+          <button class="quick-num qm-quick" data-n="100">۱۰۰</button>
+        </div>
+        <div id="qmExtraFields">
+          <div class="mb-3">
+            <label class="form-label"><i class="bi bi-calendar-event"></i> تاریخ انقضا (میلادی)</label>
+            <input type="text" class="form-control" id="qmExpiry" placeholder="YYYY-MM-DD" dir="ltr" style="font-size:1.1rem;letter-spacing:2px;text-align:left;">
+            <span class="shamsi-hint" id="qmShamsi"></span>
+            <div id="qmExpiryBadge" class="mt-2"></div>
+          </div>
+          <div><label class="form-label">شماره بچ:</label><input type="text" class="form-control" id="qmBatch" placeholder="اختیاری" dir="ltr"></div>
+        </div>
+        <div id="qmWarnings" class="mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+        <button class="btn btn-success" id="qmSave">تایید</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Search modal -->
+<div class="modal fade" id="searchModal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark"><h5 class="modal-title"><i class="bi bi-search"></i> جستجوی دارو</h5></div>
+      <div class="modal-body">
+        <div class="alert alert-warning py-2 small" id="smInfo"></div>
+        <input type="text" class="form-control mb-3" id="smQuery" placeholder="نام دارو..." autocomplete="off">
+        <div id="smResults" style="max-height:320px;overflow-y:auto;"></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-light" data-bs-dismiss="modal">انصراف</button></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
