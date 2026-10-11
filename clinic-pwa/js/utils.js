@@ -80,7 +80,21 @@ export function toast(msg, type = 'info') {
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 2400);
 }
-
+// ═══════════════════════════════════════════════════════
+// ساخت شماره بچ (مطابق فرمول Django)
+// فرمول: {نام ۱۲ حرفی بدون فاصله}-{فرم ۴ حرفی بزرگ}-{YYMM}
+// مثال: ناپروکسن-TABL-2605
+// ═══════════════════════════════════════════════════════
+export function makeBatchNumber(drugName, drugForm, expiryGregorian) {
+  if (!drugName || !expiryGregorian) return null;
+  const name = String(drugName).slice(0, 12).replace(/\s+/g, '');
+  const form = drugForm ? String(drugForm).slice(0, 4).toUpperCase() : 'UNK';
+  const d = new Date(expiryGregorian);
+  if (isNaN(d)) return null;
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${name}-${form}-${yy}${mm}`;
+}
 export function checkExpiry(greg) {
   if (!greg) return null;
   try {
