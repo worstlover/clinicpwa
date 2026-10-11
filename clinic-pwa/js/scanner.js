@@ -12,20 +12,18 @@ let lastScanTime = 0;
 let cameras = [];
 let currentCameraId = localStorage.getItem('scanner_camera_id') || null;
 
-// ───── تشخیص پشتیبانی اسکنر نیتیو ─────
 function supportsNative() {
   return 'BarcodeDetector' in window;
 }
 
-// ───── شروع اسکنر (نیتیو اول) ─────
 export async function openScanner(cb) {
   callback = cb;
   $('scannerWrap').classList.add('active');
   $('scannerStatus').textContent = 'در حال راه‌اندازی...';
 
-  // شمارش دوربین‌ها یک بار
   if (cameras.length === 0) {
     try {
+      await navigator.mediaDevices.getUserMedia({ video: true });
       const devs = await Html5Qrcode.getCameras();
       cameras = devs || [];
       buildCameraMenu();
@@ -33,30 +31,27 @@ export async function openScanner(cb) {
   }
 
   if (supportsNative()) {
-    startNative();
+    await startNative();
   } else {
     await startHtml5();
   }
 }
 
-// ───── اسکنر نیتیو (BarcodeDetector) ─────
 async function startNative() {
   try {
     const formats = ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'data_matrix', 'pdf417', 'upc_a', 'upc_e', 'itf', 'codabar'];
     nativeDetector = new BarcodeDetector({ formats });
 
-    // انتخاب دوربین
-    const constraints = {
-      video: currentCameraId
-        ? { deviceId: { exact: currentCameraId } }
-        : { facingMode: 'environment' }
-    };
+    const constraints = currentCameraId
+      ? { video: { deviceId: { exact: currentCameraId }, width: { ideal: 1920 } } }
+      : { video: { facingMode: 'environment', width: { ideal: 1920 } } };
 
     nativeStream = await navigator.mediaDevices.getUserMedia(constraints);
     nativeVideo = document.createElement('video');
     nativeVideo.autoplay = true;
     nativeVideo.playsInline = true;
     nativeVideo.muted = true;
+    nativeVideo.setAttribute('playsinline', '');
     nativeVideo.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;';
     nativeVideo.srcObject = nativeStream;
 
@@ -64,40 +59,38 @@ async function startNative() {
     reader.innerHTML = '';
     reader.appendChild(nativeVideo);
 
-    $('scannerStatus').textContent = '⚡ اسکنر سریع (نیتیو) - بارکد را مقابل دوربین بگیرید';
+    $('scannerStatus').textContent = '⚡ اسکنر سریع - بارکد را مقابل دوربین بگیرید';
 
-    nativeVideo.onloadedmetadata = () => {
-      nativeLoop();
-    };
+    await nativeVideo.play();
+    setTimeout(nativeLoop, 300);
   } catch (e) {
-    console.warn('Native failed, falling back to html5', e);
+    console.warn('Native failed:', e);
     await startHtml5();
   }
 }
 
 async function nativeLoop() {
-  if (!nativeStream || !nativeVideo) return;
+  if (!nativeStream || !nativeVideo || !nativeDetector) return;
   try {
-    const barcodes = await nativeDetector.detect(nativeVideo);
-    if (barcodes.length > 0) {
-      const val = barcodes[0].rawValue;
-      const now = Date.now();
-      if (val === lastScan && now - lastScanTime < 2500) {
-        nativeLoopId = requestAnimationFrame(nativeLoop);
-        return;
+    if (nativeVideo.readyState >= 2) {
+      const barcodes = await nativeDetector.detect(nativeVideo);
+      if (barcodes.length > 0) {
+        const val = barcodes[0].rawValue;
+        const now = Date.now();
+        if (!(val === lastScan && now - lastScanTime < 2500)) {
+          lastScan = val; lastScanTime = now;
+          beep();
+          $('scannerStatus').textContent = '✓ شناسایی شد';
+          await closeScanner();
+          setTimeout(() => callback && callback(val), 200);
+          return;
+        }
       }
-      lastScan = val; lastScanTime = now;
-      beep();
-      $('scannerStatus').textContent = '✓ شناسایی شد';
-      await closeScanner();
-      setTimeout(() => callback && callback(val), 200);
-      return;
     }
   } catch (e) {}
   nativeLoopId = requestAnimationFrame(nativeLoop);
 }
 
-// ───── اسکنر html5-qrcode ─────
 async function startHtml5() {
   if (!html5) html5 = new Html5Qrcode('reader');
   const config = {
@@ -140,7 +133,6 @@ async function startHtml5() {
   }
 }
 
-// ───── بستن اسکنر ─────
 export async function closeScanner() {
   if (nativeLoopId) { cancelAnimationFrame(nativeLoopId); nativeLoopId = null; }
   if (nativeStream) {
@@ -154,7 +146,6 @@ export async function closeScanner() {
   $('scannerWrap').classList.remove('active');
 }
 
-// ───── منوی انتخاب دوربین ─────
 function buildCameraMenu() {
   const popup = document.getElementById('cameraPopup');
   if (!popup) return;
@@ -164,7 +155,7 @@ function buildCameraMenu() {
       const active = (currentCameraId === c.id) || (!currentCameraId && i === 0);
       return `<button data-cam-id="${c.id}" style="display:block;width:100%;text-align:right;
         background:${active ? 'rgba(13,110,253,.5)' : 'rgba(255,255,255,.1)'};
-        color:#fff;border:none;border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer;">
+        color:#fff;border:none;border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer;font-family:inherit;">
         ${active ? '✓ ' : ''}${c.label || 'دوربین ' + (i + 1)}
       </button>`;
     }).join('')}
@@ -178,10 +169,9 @@ async function selectCamera(id) {
   currentCameraId = id;
   localStorage.setItem('scanner_camera_id', id);
   closeCameraPopup();
-  // ری‌استارت با دوربین جدید
   const cb = callback;
   await closeScanner();
-  setTimeout(() => openScanner(cb), 200);
+  setTimeout(() => openScanner(cb), 300);
 }
 
 function closeCameraPopup() {
@@ -189,7 +179,6 @@ function closeCameraPopup() {
   if (popup) popup.style.display = 'none';
 }
 
-// ───── دکمه‌ها ─────
 export function initScannerButtons() {
   $('btnScanClose').onclick = closeScanner;
   $('btnScanManual').onclick = async () => {
@@ -199,13 +188,16 @@ export function initScannerButtons() {
       setTimeout(() => callback && callback(v.trim()), 150);
     }
   };
-  // دکمه انتخاب دوربین
   const camBtn = document.getElementById('btnCameraSelect');
   if (camBtn) {
-    camBtn.onclick = () => {
+    camBtn.onclick = (e) => {
+      e.stopPropagation();
       const popup = document.getElementById('cameraPopup');
       if (!popup) return;
       popup.style.display = popup.style.display === 'block' ? 'none' : 'block';
     };
   }
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#btnCameraSelect')) closeCameraPopup();
+  });
 }
