@@ -133,7 +133,7 @@ export function initQtyModal() {
       }
       res.expiry_gregorian = expG || null;
       res.expiry_jalali = expG ? gregorianToJalali(expG) : '';
-      res.batch = ''; // شماره بچ دستی وارد نمی‌شود؛ سیستم خودش می‌سازد
+      res.batch = $('qmBatch').value.trim();
     }
     const cb = qtyResolve;
     qtyResolve = null;
@@ -144,7 +144,7 @@ export function initQtyModal() {
 }
 
 // ═══════════════════════════════════════════════════════
-// جستجوی دارو
+// جستجوی دارو (تغییر نکرده)
 // ═══════════════════════════════════════════════════════
 let searchModal = null;
 let searchCallback = null;
