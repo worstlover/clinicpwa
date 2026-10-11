@@ -1,5 +1,5 @@
 import { sb } from '../sb.js';
-import { $, faNum, escapeHtml, gregorianToJalali, parseGS1, cleanGTIN, toast, beep } from '../utils.js';
+import { $, faNum, escapeHtml, gregorianToJalali, parseGS1, cleanGTIN, toast, beep, makeBatchNumber } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { openScanner } from '../scanner.js';
 import { askQty, openDrugSearch } from '../modals.js';
@@ -92,6 +92,7 @@ function renderScan() {
 
 function renderList() {
   const list = $('invList');
+  if (!list) return;
   if (!state.items.length) {
     list.innerHTML = '<div class="card text-center py-4 muted">هنوز قلمی ثبت نشده</div>';
     return;
@@ -104,7 +105,7 @@ function renderList() {
           <div class="flex-grow-1">
             <div class="name">${escapeHtml(it.drug_name)}</div>
             <div class="meta">
-              ${it.batch_number ? `بچ: ${escapeHtml(it.batch_number)}<br>` : ''}
+              ${it.batch_number ? `بچ: <code dir="ltr">${escapeHtml(it.batch_number)}</code><br>` : ''}
               ${it.expiry_date ? `انقضا: ${escapeHtml(it.expiry_date)} (${gregorianToJalali(it.expiry_date)})` : ''}
             </div>
           </div>
@@ -141,6 +142,77 @@ async function cancelSession() {
   openInventory();
 }
 
+// ═══════════════════════════════════════════════════════
+// ساخت بچ + بررسی هشدار
+// ═══════════════════════════════════════════════════════
+async function buildBatchAndWarnings(drug, expiryGreg) {
+  if (!expiryGreg) return '';
+
+  const computedBatch = makeBatchNumber(drug.name, drug.form, expiryGreg);
+
+  const { data: exactBatch } = await sb.from('drugs_drugbatch')
+    .select('id, quantity, expiry_date')
+    .eq('drug_id', drug.id)
+    .eq('batch_number', computedBatch)
+    .maybeSingle();
+
+  const { data: allBatches } = await sb.from('drugs_drugbatch')
+    .select('batch_number, expiry_date, quantity')
+    .eq('drug_id', drug.id)
+    .gt('quantity', 0);
+
+  const otherBatches = (allBatches || []).filter(b => b.batch_number !== computedBatch);
+
+  let html = '';
+
+  html += `<div style="background:#f1f5f9;border-radius:10px;padding:10px;margin-bottom:10px;">
+    <div style="font-size:0.8rem;color:#64748b;margin-bottom:4px;">شماره بچ ساخته شده:</div>
+    <code style="font-size:0.95rem;font-weight:700;color:#0d6efd;direction:ltr;display:block;word-break:break-all;">
+      ${escapeHtml(computedBatch)}
+    </code>
+  </div>`;
+
+  if (exactBatch) {
+    const expJ = gregorianToJalali(exactBatch.expiry_date);
+    html += `<div class="alert alert-info py-2 small mb-2">
+      <i class="bi bi-check-circle"></i>
+      <strong>این بچ قبلاً در سیستم موجود است.</strong>
+      موجودی فعلی: <strong>${faNum(exactBatch.quantity)} عدد</strong>
+      <br><small>انقضا: ${expJ}</small>
+    </div>`;
+  } else {
+    html += `<div class="alert alert-secondary py-2 small mb-2">
+      <i class="bi bi-info-circle"></i>
+      این بچ در سیستم ثبت نشده است. با ذخیره، بچ جدید ساخته می‌شود.
+    </div>`;
+  }
+
+  if (otherBatches.length > 0) {
+    const listHtml = otherBatches.slice(0, 5).map(b => {
+      const expJ = gregorianToJalali(b.expiry_date);
+      return `<li style="font-size:0.8rem;">
+        <code dir="ltr">${escapeHtml(b.batch_number)}</code>
+        — ${expJ} — <strong>${faNum(b.quantity)} عدد</strong>
+      </li>`;
+    }).join('');
+
+    html += `<div class="alert alert-warning py-2 small mb-0">
+      <i class="bi bi-exclamation-triangle"></i>
+      <strong>هشدار:</strong> این دارو <strong>${faNum(otherBatches.length)} بچ دیگر</strong> با تاریخ‌های متفاوت دارد:
+      <ul style="margin:8px 0 0 0;padding-right:20px;">${listHtml}</ul>
+      ${otherBatches.length > 5 ? `<div style="margin-top:6px;font-size:0.75rem;">و ${faNum(otherBatches.length - 5)} بچ دیگر...</div>` : ''}
+      <div style="margin-top:8px;font-size:0.8rem;color:#78350f;">
+        توجه: داروهایی با تاریخ انقضای متفاوت باید جداگانه شمارش شوند.
+      </div>
+    </div>`;
+  }
+
+  return html;
+}
+
+// ═══════════════════════════════════════════════════════
+// پردازش بارکد
+// ═══════════════════════════════════════════════════════
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
   const gtin = cleanGTIN(parsed.gtin);
@@ -163,42 +235,54 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     extraInfo: barcode ? `بارکد: <span dir="ltr">${escapeHtml(barcode)}</span>` : '',
     defaultQty: 1,
     defaultExpiry: parsed?.exp || '',
-    defaultBatch: parsed?.batch || '',
-    showExtras: true
+    showExtras: true,
+    batchCheckFn: (expiryGreg) => buildBatchAndWarnings(drug, expiryGreg)
   });
   if (res.qty < 0) return;
 
-  const ex = state.items.find(it =>
+  const computedBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian);
+
+  const existing = state.items.find(it =>
     it.drug_id === drug.id &&
-    (it.batch_number || '') === (res.batch || '') &&
+    (it.batch_number || '') === (computedBatch || '') &&
     (it.expiry_date || '') === (res.expiry_gregorian || '')
   );
-  if (ex) ex.counted_quantity += res.qty;
-  else state.items.push({
-    drug_id: drug.id, drug_name: drug.name,
-    batch_number: res.batch || null,
-    expiry_date: res.expiry_gregorian,
-    counted_quantity: res.qty,
-    barcode: barcode || null
-  });
+  if (existing) {
+    existing.counted_quantity += res.qty;
+  } else {
+    state.items.push({
+      drug_id: drug.id,
+      drug_name: drug.name,
+      batch_number: computedBatch,
+      expiry_date: res.expiry_gregorian,
+      counted_quantity: res.qty,
+      barcode: barcode || null
+    });
+  }
 
   const row = state.items.find(it =>
     it.drug_id === drug.id &&
-    (it.batch_number || '') === (res.batch || '') &&
+    (it.batch_number || '') === (computedBatch || '') &&
     (it.expiry_date || '') === (res.expiry_gregorian || '')
   );
 
   await sb.from('inv_count_items').upsert({
     session_id: state.session.id,
-    drug_id: row.drug_id, drug_name: row.drug_name,
-    batch_number: row.batch_number, expiry_date: row.expiry_date,
-    counted_quantity: row.counted_quantity, barcode: row.barcode
+    drug_id: row.drug_id,
+    drug_name: row.drug_name,
+    batch_number: row.batch_number,
+    expiry_date: row.expiry_date,
+    counted_quantity: row.counted_quantity,
+    barcode: row.barcode
   }, { onConflict: 'session_id,drug_id,batch_number,expiry_date' });
 
   renderScan();
   beep();
 }
 
+// ═══════════════════════════════════════════════════════
+// پایان و بررسی مغایرت
+// ═══════════════════════════════════════════════════════
 async function finish() {
   if (!state.items.length) { toast('هنوز قلمی ثبت نشده', 'warning'); return; }
   if (!confirm('پایان شمارش و بررسی مغایرت؟')) return;
