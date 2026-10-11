@@ -304,6 +304,7 @@ async function finalize() {
     const today = new Date();
     const code = `RCV-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}-${Date.now().toString().slice(-4)}`;
 
+    // ═══════ ۱. درج سربرگ رسید ═══════
     const { data: receipt, error: e1 } = await sb.from('drugs_receipt').insert({
       receipt_number: code,
       supplier_name: state.supplierName || 'نامشخص',
@@ -312,11 +313,13 @@ async function finalize() {
       invoice_id: state.linkedInvoice?.id || null,
       date_received: today.toISOString().slice(0, 10)
     }).select().single();
-    if (e1) throw e1;
+    if (e1) throw new Error('سربرگ: ' + e1.message);
 
     const errors = [];
+    const successes = [];
+
+    // ═══════ ۲. پردازش هر قلم ═══════
     for (const it of state.items) {
-      // ⭐ ساخت بچ اگر خالی بود
       let batchForDb = it.batch || '';
       if (!batchForDb && it.expiry) {
         batchForDb = makeBatchNumber(it.drug_name, '', it.expiry) || '';
@@ -325,43 +328,84 @@ async function finalize() {
         batchForDb = `AUTO-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
       }
 
-      // درج آیتم رسید
+      // ۲.۱. درج آیتم رسید
       const { error: e2 } = await sb.from('drugs_receiptitem').insert({
         receipt_id: receipt.id,
         drug_id: it.drug_id,
         received_quantity: it.qty,
-        batch_number: batchForDb,     // ⭐ هرگز null نمی‌شود
+        batch_number: batchForDb,
         expiry_date: it.expiry,
         force_close_shortage: false
       });
-      if (e2) { errors.push(`${it.drug_name}: ${e2.message}`); continue; }
-
-      // آپدیت یا درج DrugBatch
-      const { data: existing } = await sb.from('drugs_drugbatch')
-        .select('id, quantity')
-        .eq('drug_id', it.drug_id)
-        .eq('batch_number', batchForDb)
-        .maybeSingle();
-
-      if (existing) {
-        await sb.from('drugs_drugbatch').update({
-          quantity: existing.quantity + it.qty,
-          expiry_date: it.expiry
-        }).eq('id', existing.id);
-      } else {
-        await sb.from('drugs_drugbatch').insert({
-          drug_id: it.drug_id,
-          batch_number: batchForDb,
-          expiry_date: it.expiry,
-          quantity: it.qty,
-          supplier_id: state.supplierId,
-          purchase_price: 0,
-          is_active: true,
-          is_temporary: false
-        });
+      if (e2) {
+        errors.push(`${it.drug_name} (آیتم رسید): ${e2.message}`);
+        continue;
       }
 
-      // تخصیص FIFO به سفارشات
+      // ═══════ ۲.۲. آپدیت یا درج در drugs_drugbatch ═══════
+      try {
+        const { data: existing, error: eFind } = await sb.from('drugs_drugbatch')
+          .select('id, quantity')
+          .eq('drug_id', it.drug_id)
+          .eq('batch_number', batchForDb)
+          .maybeSingle();
+
+        if (eFind) {
+          errors.push(`${it.drug_name} (جستجوی بچ): ${eFind.message}`);
+          continue;
+        }
+
+        if (existing) {
+          // ⭐ آپدیت بچ موجود
+          const newQty = (existing.quantity || 0) + it.qty;
+          const { error: eUpd, data: updData } = await sb.from('drugs_drugbatch')
+            .update({
+              quantity: newQty,
+              expiry_date: it.expiry
+            })
+            .eq('id', existing.id)
+            .select();
+
+          if (eUpd) {
+            errors.push(`${it.drug_name} (آپدیت بچ): ${eUpd.message}`);
+            continue;
+          }
+          if (!updData || !updData.length) {
+            errors.push(`${it.drug_name} (آپدیت بچ): دسترسی ندارید یا سطر پیدا نشد`);
+            continue;
+          }
+          successes.push(`${it.drug_name}: بچ ${batchForDb} از ${existing.quantity} → ${newQty}`);
+        } else {
+          // ⭐ درج بچ جدید
+          const { error: eIns, data: insData } = await sb.from('drugs_drugbatch')
+            .insert({
+              drug_id: it.drug_id,
+              batch_number: batchForDb,
+              expiry_date: it.expiry,
+              quantity: it.qty,
+              supplier_id: state.supplierId,
+              purchase_price: 0,
+              is_active: true,
+              is_temporary: false
+            })
+            .select();
+
+          if (eIns) {
+            errors.push(`${it.drug_name} (درج بچ): ${eIns.message}`);
+            continue;
+          }
+          if (!insData || !insData.length) {
+            errors.push(`${it.drug_name} (درج بچ): دسترسی ندارید`);
+            continue;
+          }
+          successes.push(`${it.drug_name}: بچ جدید ${batchForDb} با ${it.qty} عدد`);
+        }
+      } catch (e) {
+        errors.push(`${it.drug_name} (خطای شبکه بچ): ${e.message}`);
+        continue;
+      }
+
+      // ═══════ ۲.۳. تخصیص FIFO ═══════
       try {
         const { error: e3 } = await sb.rpc('allocate_to_requests', {
           p_drug_id: it.drug_id,
@@ -374,10 +418,18 @@ async function finalize() {
       }
     }
 
+    // ═══════ ۳. گزارش نهایی ═══════
+    console.log('✅ موفق:', successes);
+    console.log('❌ خطاها:', errors);
+
     if (errors.length) {
-      alert('⚠ خطاها:\n' + errors.join('\n'));
+      alert(
+        '⚠ برخی قلم‌ها ذخیره نشدند:\n\n' +
+        '❌ خطاها:\n' + errors.join('\n\n') +
+        (successes.length ? '\n\n✅ موفق:\n' + successes.join('\n') : '')
+      );
     } else {
-      toast('✅ رسید ' + code, 'success');
+      toast('✅ رسید ' + code + ' با ' + faNum(successes.length) + ' قلم ثبت شد', 'success');
     }
 
     localStorage.removeItem(AUTOSAVE_KEY);
