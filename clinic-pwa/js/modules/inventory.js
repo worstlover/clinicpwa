@@ -229,6 +229,16 @@ async function handleBarcode(raw) {
 }
 
 async function addDrug(drug, barcode = '', parsed = {}) {
+  // ⭐ ذخیره بارکد در دیتابیس (رفع مشکل ۱)
+  if (barcode) {
+    try {
+      await sb.from('drugs_drugbarcode').upsert({
+        drug_id: drug.id,
+        gtin: barcode
+      }, { onConflict: 'gtin' });
+    } catch (e) { /* احتمالاً قبلاً ثبت شده */ }
+  }
+
   const res = await askQty({
     title: 'شمارش دارو',
     drugName: drug.name + (drug.form ? ` (${drug.form})` : ''),
@@ -289,30 +299,38 @@ async function finish() {
 
   $('invContent').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
-  const countedMap = {};
-  state.items.forEach(it => {
-    countedMap[it.drug_id] = (countedMap[it.drug_id] || 0) + it.counted_quantity;
-  });
-
-  const ids = Object.keys(countedMap).map(Number);
-  const { data: stocks } = await sb.from('v_drug_stock').select('*').in('drug_id', ids);
-  const stockMap = Object.fromEntries((stocks || []).map(s => [s.drug_id, s]));
-
+  // ⭐ مقایسه در سطح بچ، نه در سطح دارو (رفع مشکل ۲)
   const discrepancies = [];
-  Object.entries(countedMap).forEach(([drugId, counted]) => {
-    const sys = stockMap[drugId]?.total_quantity || 0;
-    if (counted !== sys) {
+
+  for (const item of state.items) {
+    // موجودی سیستم برای این بچ خاص
+    let sysQty = 0;
+    if (item.batch_number) {
+      const { data: batch } = await sb.from('drugs_drugbatch')
+        .select('quantity')
+        .eq('drug_id', item.drug_id)
+        .eq('batch_number', item.batch_number)
+        .maybeSingle();
+      sysQty = batch?.quantity || 0;
+    }
+
+    if (item.counted_quantity !== sysQty) {
       discrepancies.push({
         session_id: state.session.id,
-        drug_id: +drugId,
-        drug_name: stockMap[drugId]?.drug_name || `#${drugId}`,
-        system_quantity: sys, counted_quantity: counted, status: 'pending'
+        drug_id: item.drug_id,
+        drug_name: item.drug_name,
+        batch_number: item.batch_number,
+        expiry_date: item.expiry_date,
+        system_quantity: sysQty,
+        counted_quantity: item.counted_quantity,
+        status: 'pending'
       });
     }
-  });
+  }
 
   if (discrepancies.length) {
     await sb.from('inv_discrepancies').delete().eq('session_id', state.session.id);
+    // جدول اختلافات باید ستون batch_number و expiry_date داشته باشد
     await sb.from('inv_discrepancies').insert(discrepancies);
   }
 
@@ -351,7 +369,10 @@ function renderReport(discrepancies) {
           <div class="d-flex justify-content-between align-items-center">
             <div class="flex-grow-1">
               <div class="name">${escapeHtml(d.drug_name)}</div>
-              <div class="meta">سیستم: <strong>${faNum(d.system_quantity)}</strong> | شمارش: <strong>${faNum(d.counted_quantity)}</strong></div>
+              <div class="meta">
+                ${d.batch_number ? `بچ: <code dir="ltr">${escapeHtml(d.batch_number)}</code><br>` : ''}
+                سیستم: <strong>${faNum(d.system_quantity)}</strong> | شمارش: <strong>${faNum(d.counted_quantity)}</strong>
+              </div>
             </div>
             <span class="badge-soft ${isExtra ? 'warning' : 'danger'}">${isExtra ? 'مازاد' : 'کسری'} ${faNum(Math.abs(diff))}</span>
           </div>
@@ -364,8 +385,13 @@ function renderReport(discrepancies) {
 
   $('btnRecount').onclick = async () => {
     const ids = discrepancies.map(d => d.drug_id);
-    state.items = state.items.filter(it => !ids.includes(it.drug_id));
-    await sb.from('inv_count_items').delete().eq('session_id', state.session.id).in('drug_id', ids);
+    const batches = discrepancies.map(d => d.batch_number);
+    state.items = state.items.filter(it =>
+      !(ids.includes(it.drug_id) && batches.includes(it.batch_number))
+    );
+    await sb.from('inv_count_items').delete()
+      .eq('session_id', state.session.id)
+      .in('drug_id', ids);
     await sb.from('inv_discrepancies').delete().eq('session_id', state.session.id);
     renderScan();
   };
@@ -409,7 +435,7 @@ function renderApplyScreen(discrepancies) {
           <div class="d-flex justify-content-between">
             <div>
               <div class="name">${escapeHtml(d.drug_name)}</div>
-              <div class="meta">${faNum(d.system_quantity)} ← ${faNum(d.counted_quantity)}</div>
+              <div class="meta">${d.batch_number ? `بچ: ${escapeHtml(d.batch_number)}` : ''} ${faNum(d.system_quantity)} ← ${faNum(d.counted_quantity)}</div>
             </div>
             <span class="badge-soft ${diff > 0 ? 'warning' : 'danger'}">${diff > 0 ? '+' : ''}${faNum(diff)}</span>
           </div>
