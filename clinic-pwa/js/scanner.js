@@ -1,4 +1,4 @@
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/+esm';
+import { Html5Qrcode } from 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/+esm';
 import { $, beep } from './utils.js';
 
 let html5 = null;
@@ -12,7 +12,8 @@ let lastScanTime = 0;
 let cameras = [];
 let isClosing = false;
 let currentCameraId = localStorage.getItem('scanner_camera_id') || null;
-let consecutiveFailures = 0;
+let nativeFails = 0;
+let nativeStartTime = 0;
 
 function supportsNative() {
   return 'BarcodeDetector' in window;
@@ -26,22 +27,19 @@ export async function openScanner(cb) {
   isClosing = false;
   lastScan = '';
   lastScanTime = 0;
-  consecutiveFailures = 0;
+  nativeFails = 0;
   $('scannerWrap').classList.add('active');
   $('scannerStatus').textContent = 'در حال راه‌اندازی...';
 
-  // گرفتن لیست دوربین‌ها
   if (cameras.length === 0) {
     try {
       const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
       tmp.getTracks().forEach(t => t.stop());
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 200));
       const devs = await Html5Qrcode.getCameras();
       cameras = devs || [];
       buildCameraMenu();
-    } catch (e) {
-      cameras = [];
-    }
+    } catch (e) { cameras = []; }
   } else {
     buildCameraMenu();
   }
@@ -56,47 +54,26 @@ export async function openScanner(cb) {
 }
 
 // ═══════════════════════════════════════════════════════
-// اسکنر نیتیو (سریع‌ترین حالت)
+// اسکنر نیتیو (سریع‌ترین)
 // ═══════════════════════════════════════════════════════
 async function startNative() {
   try {
-    // فورمت‌های اصلی - ترتیب: سریع‌ترین اول
-    const formats = ['qr_code', 'ean_13', 'code_128', 'code_39', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'data_matrix', 'pdf417'];
+    // ⭐ فقط فرمت‌های مهم (سرعت بالا)
+    const formats = ['qr_code', 'ean_13', 'code_128', 'code_39', 'ean_8'];
     nativeDetector = new BarcodeDetector({ formats });
 
-    // ⭐ رزولوشن پایین‌تر = تشخیص سریع‌تر
     const constraints = currentCameraId
-      ? {
-          video: {
-            deviceId: { exact: currentCameraId },
-            width: { ideal: 1280 },  // ⭐ 1280 کافیه برای اکثر بارکدها
-            height: { ideal: 720 },
-            frameRate: { ideal: 30, min: 15 },
-            focusMode: 'continuous'
-          }
-        }
-      : {
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            frameRate: { ideal: 30, min: 15 },
-            focusMode: 'continuous'
-          }
-        };
+      ? { video: { deviceId: { exact: currentCameraId }, width: { ideal: 1280 }, height: { ideal: 720 } } }
+      : { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } };
 
     nativeStream = await navigator.mediaDevices.getUserMedia(constraints);
 
-    // تلاش برای فعال کردن autofocus و torch settings
+    // تلاش برای autofocus
     try {
       const track = nativeStream.getVideoTracks()[0];
       const caps = track.getCapabilities ? track.getCapabilities() : {};
-      const constraints2 = {};
       if (caps.focusMode && caps.focusMode.includes('continuous')) {
-        constraints2.focusMode = 'continuous';
-      }
-      if (Object.keys(constraints2).length) {
-        await track.applyConstraints({ advanced: [constraints2] });
+        await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
       }
     } catch (e) {}
 
@@ -105,7 +82,6 @@ async function startNative() {
     nativeVideo.playsInline = true;
     nativeVideo.muted = true;
     nativeVideo.setAttribute('playsinline', '');
-    nativeVideo.setAttribute('webkit-playsinline', '');
     nativeVideo.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;';
     nativeVideo.srcObject = nativeStream;
 
@@ -114,34 +90,36 @@ async function startNative() {
     reader.appendChild(nativeVideo);
 
     $('scannerStatus').textContent = '⚡ اسکنر سریع - بارکد را مقابل دوربین بگیرید';
-
     await nativeVideo.play().catch(() => {});
-    setTimeout(nativeLoop, 200);
+
+    nativeStartTime = Date.now();
+    setTimeout(nativeLoop, 250);
   } catch (e) {
-    console.warn('Native failed:', e);
+    console.warn('Native failed, switching to html5:', e);
     await cleanupNative();
     await startHtml5();
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// حلقه تشخیص سریع
-// ═══════════════════════════════════════════════════════
 async function nativeLoop() {
   if (isClosing || !nativeStream || !nativeVideo || !nativeDetector) return;
 
+  // ⭐ اگر ۸ ثانیه گذشت و هیچی پیدا نشد، برو سراغ html5
+  if (Date.now() - nativeStartTime > 8000 && nativeFails > 100) {
+    console.warn('Native too slow, switching to html5');
+    await cleanupNative();
+    await startHtml5();
+    return;
+  }
+
   try {
     if (nativeVideo.readyState >= 2 && nativeVideo.videoWidth > 0) {
-      // ⭐ چند بار تلاش برای تشخیص سریع
       const barcodes = await nativeDetector.detect(nativeVideo);
-
       if (barcodes.length > 0) {
         const val = barcodes[0].rawValue;
         const now = Date.now();
         if (!(val === lastScan && now - lastScanTime < 2000)) {
-          lastScan = val;
-          lastScanTime = now;
-          consecutiveFailures = 0;
+          lastScan = val; lastScanTime = now;
           beep();
           $('scannerStatus').textContent = '✓ شناسایی شد';
           const savedCb = callback;
@@ -149,62 +127,40 @@ async function nativeLoop() {
           setTimeout(() => savedCb && savedCb(val), 250);
           return;
         }
-      } else {
-        consecutiveFailures++;
       }
+      nativeFails++;
     }
   } catch (e) {
-    consecutiveFailures++;
-    // اگر چند بار پشت‌سرهم خطا داد، به html5 سوییچ کن
-    if (consecutiveFailures > 30) {
-      console.warn('Too many native failures, switching to html5');
-      await cleanupNative();
-      await startHtml5();
-      return;
-    }
+    nativeFails++;
   }
 
-  // ⭐ استفاده از requestAnimationFrame برای سرعت بیشتر
   if (!isClosing && nativeStream) {
     nativeLoopId = requestAnimationFrame(nativeLoop);
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// اسکنر html5-qrcode (fallback)
+// اسکنر html5-qrcode (بدون محدودیت فرمت)
 // ═══════════════════════════════════════════════════════
 async function startHtml5() {
   const reader = $('reader');
   reader.innerHTML = '<div id="html5-reader" style="width:100%;height:100%;"></div>';
 
-  html5 = new Html5Qrcode('html5-reader');
+  html5 = new Html5Qrcode('html5-reader', { verbose: false });
 
-  // ⭐ کانفیگ سریع - فقط QR و بارکدهای رایج
+  // ⭐ کانفیگ ساده و سریع - بدون formatsToSupport
   const config = {
-    fps: 20,                       // ⭐ فریم بالاتر برای تشخیص سریع‌تر
-    qrbox: function(viewfinderWidth, viewfinderHeight) {
-      // باکس داینامیک
-      const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-      const size = Math.floor(minEdge * 0.7);
+    fps: 20,
+    qrbox: function(vw, vh) {
+      const min = Math.min(vw, vh);
+      const size = Math.floor(min * 0.75);
       return { width: size, height: size };
     },
     aspectRatio: 1.0,
-    disableFlip: false,
+    disableFlip: true,
     experimentalFeatures: {
-      useBarCodeDetectorIfSupported: true   // ⭐ استفاده از Native API
-    },
-    formatsToSupport: [
-      Html5QrcodeSupportedFormats.QR_CODE,
-      Html5QrcodeSupportedFormats.EAN_13,
-      Html5QrcodeSupportedFormats.EAN_8,
-      Html5QrcodeSupportedFormats.CODE_128,
-      Html5QrcodeSupportedFormats.CODE_39,
-      Html5QrcodeSupportedFormats.UPC_A,
-      Html5QrcodeSupportedFormats.UPC_E,
-      Html5QrcodeSupportedFormats.ITF,
-      Html5QrcodeSupportedFormats.CODABAR,
-      Html5QrcodeSupportedFormats.DATA_MATRIX
-    ]
+      useBarCodeDetectorIfSupported: true
+    }
   };
 
   const target = currentCameraId
@@ -218,14 +174,13 @@ async function startHtml5() {
       (text) => {
         const now = Date.now();
         if (text === lastScan && now - lastScanTime < 2000) return;
-        lastScan = text;
-        lastScanTime = now;
+        lastScan = text; lastScanTime = now;
         beep();
         $('scannerStatus').textContent = '✓ شناسایی شد';
         const savedCb = callback;
         closeScanner().then(() => setTimeout(() => savedCb && savedCb(text), 250));
       },
-      () => {}  // خطاهای معمول رو نادیده بگیر
+      () => {}
     );
     $('scannerStatus').textContent = 'بارکد را مقابل دوربین بگیرید';
   } catch (e) {
@@ -235,39 +190,28 @@ async function startHtml5() {
 }
 
 // ═══════════════════════════════════════════════════════
-// بستن و پاکسازی کامل
+// بستن و پاکسازی
 // ═══════════════════════════════════════════════════════
 export async function closeScanner() {
   if (isClosing) return;
   isClosing = true;
 
-  // توقف loop
-  if (nativeLoopId) {
-    cancelAnimationFrame(nativeLoopId);
-    nativeLoopId = null;
-  }
-
-  // پاکسازی native
+  if (nativeLoopId) { cancelAnimationFrame(nativeLoopId); nativeLoopId = null; }
   await cleanupNative();
 
-  // پاکسازی html5
   if (html5) {
     try {
       const st = html5.getState ? html5.getState() : null;
-      if (st === 2 || st === 3) {
-        await html5.stop();
-      }
+      if (st === 2 || st === 3) await html5.stop();
       await html5.clear();
     } catch (e) {}
     html5 = null;
   }
 
-  // پاک کردن DOM
   const reader = $('reader');
   if (reader) reader.innerHTML = '';
-
   $('scannerWrap').classList.remove('active');
-  await new Promise(r => setTimeout(r, 350));
+  await new Promise(r => setTimeout(r, 400));
   isClosing = false;
 }
 
@@ -282,26 +226,22 @@ async function cleanupNative() {
     nativeVideo = null;
   }
   if (nativeStream) {
-    try {
-      nativeStream.getTracks().forEach(t => { t.enabled = false; t.stop(); });
-    } catch (e) {}
+    try { nativeStream.getTracks().forEach(t => { t.enabled = false; t.stop(); }); } catch (e) {}
     nativeStream = null;
   }
   nativeDetector = null;
 }
 
 // ═══════════════════════════════════════════════════════
-// منوی انتخاب دوربین
+// انتخاب دوربین
 // ═══════════════════════════════════════════════════════
 function buildCameraMenu() {
   const popup = document.getElementById('cameraPopup');
   if (!popup) return;
-
   if (cameras.length === 0) {
     popup.innerHTML = '<div style="color:#fff;font-size:12px;text-align:center;">دوربینی یافت نشد</div>';
     return;
   }
-
   popup.innerHTML = `
     <div style="color:#fff;font-size:12px;text-align:center;margin-bottom:8px;">انتخاب دوربین</div>
     ${cameras.map((c, i) => {
@@ -316,10 +256,7 @@ function buildCameraMenu() {
     }).join('')}
   `;
   popup.querySelectorAll('[data-cam-id]').forEach(b => {
-    b.onclick = (e) => {
-      e.stopPropagation();
-      selectCamera(b.dataset.camId);
-    };
+    b.onclick = (e) => { e.stopPropagation(); selectCamera(b.dataset.camId); };
   });
 }
 
@@ -329,7 +266,6 @@ async function selectCamera(id) {
   localStorage.setItem('scanner_camera_id', id);
   closeCameraPopup();
   $('scannerStatus').textContent = 'در حال تغییر دوربین...';
-
   const savedCb = callback;
   await closeScanner();
   await new Promise(r => setTimeout(r, 500));
@@ -342,11 +278,7 @@ function closeCameraPopup() {
 }
 
 export function initScannerButtons() {
-  $('btnScanClose').onclick = async () => {
-    callback = null;
-    await closeScanner();
-  };
-
+  $('btnScanClose').onclick = async () => { callback = null; await closeScanner(); };
   $('btnScanManual').onclick = async () => {
     const v = prompt('بارکد را وارد کنید:');
     if (v?.trim()) {
@@ -355,7 +287,6 @@ export function initScannerButtons() {
       setTimeout(() => cb && cb(v.trim()), 200);
     }
   };
-
   const camBtn = $('btnCameraSelect');
   if (camBtn) {
     camBtn.onclick = (e) => {
@@ -365,7 +296,6 @@ export function initScannerButtons() {
       popup.style.display = popup.style.display === 'block' ? 'none' : 'block';
     };
   }
-
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#btnCameraSelect')) closeCameraPopup();
   });
