@@ -1,0 +1,64 @@
+name: Daily Supabase Backup
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # هر روز ۶:۳۰ صبح تهران
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget ca-certificates
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /etc/apt/trusted.gpg.d/postgresql.asc
+          echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+
+      - name: Create backup
+        env:
+          PGHOST: ${{ secrets.SUPABASE_DB_HOST }}
+          PGUSER: ${{ secrets.SUPABASE_DB_USER }}
+          PGDATABASE: ${{ secrets.SUPABASE_DB_NAME }}
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          TIMESTAMP=$(date +"%Y-%m-%d_%H-%M")
+          mkdir -p backups
+          pg_dump \
+            -h "$PGHOST" -p 5432 -U "$PGUSER" -d "$PGDATABASE" \
+            --no-owner --no-privileges --format=plain \
+            -f "backups/clinic-backup-${TIMESTAMP}.sql"
+          gzip "backups/clinic-backup-${TIMESTAMP}.sql"
+          ls -lh backups/
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+
+      - name: Send to Telegram
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          FILE=$(ls backups/*.sql.gz)
+          SIZE=$(du -h "$FILE" | cut -f1)
+          CAPTION="📦 بکاپ روزانه داروخانه
+          📅 تاریخ: $(date +'%Y-%m-%d %H:%M')
+          💾 حجم: $SIZE
+          📄 فایل: $(basename $FILE)"
+          
+          curl -s -X POST \
+            "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+            -F "chat_id=${CHAT_ID}" \
+            -F "document=@${FILE}" \
+            -F "caption=${CAPTION}"
+
+      - name: Save last 30 backups as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-${{ env.TIMESTAMP }}
+          path: backups/*.sql.gz
+          retention-days: 30
