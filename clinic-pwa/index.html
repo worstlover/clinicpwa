@@ -9,8 +9,8 @@
 <meta name="apple-mobile-web-app-title" content="داروخانه">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.json">
-<link rel="icon" type="image/png" href="icons/icon-192.png.png">
-<link rel="apple-touch-icon" href="icons/icon-192.png.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>داروخانه کلینیک</title>
 <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
@@ -62,6 +62,13 @@
       <div class="col-6"><button class="menu-card" data-nav="disposal"><div class="icon-bg" style="background:#fee2e2;color:#dc3545;"><i class="bi bi-trash3"></i></div><div class="label">خروج منقضی</div><div class="sub">دور ریختن دارو</div></button></div>
       <div class="col-12"><button class="menu-card" data-nav="report"><div class="icon-bg info" style="margin:0 auto 12px;"><i class="bi bi-graph-up"></i></div><div class="label">گزارش‌ها</div><div class="sub">موجودی و هشدارها</div></button></div>
     </div>
+    <button id="btnInstallPWA" style="display:none;width:100%;margin-top:16px;
+      background:linear-gradient(135deg,#0d6efd,#6610f2);color:#fff;border:none;border-radius:14px;
+      padding:14px;font-weight:700;font-size:0.95rem;box-shadow:0 8px 20px rgba(13,110,253,.4);
+      align-items:center;justify-content:center;gap:8px;cursor:pointer;font-family:inherit;"
+      onclick="window._triggerInstall()">
+      <i class="bi bi-download"></i> نصب اپ روی صفحه اصلی
+    </button>
   </div>
 </div>
 
@@ -128,6 +135,7 @@
           </div>
           <div><label class="form-label">شماره بچ:</label><input type="text" class="form-control" id="qmBatch" placeholder="اختیاری" dir="ltr"></div>
         </div>
+        <div id="qmBatchInfo" class="mt-2"></div>
         <div id="qmWarnings" class="mt-2"></div>
       </div>
       <div class="modal-footer">
