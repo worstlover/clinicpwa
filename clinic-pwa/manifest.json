@@ -1,7 +1,7 @@
 {
   "id": "./index.html",
-  "name": "داروخانه کلینیک",
-  "short_name": "داروخانه",
+  "name": "داروخانه گندله سازی بهاباد",
+  "short_name": "داروخانه گندله سازی بهاباد",
   "description": "سیستم انبارگردانی و تحویل دارو",
   "start_url": "./index.html",
   "scope": "./",
@@ -12,7 +12,17 @@
   "lang": "fa",
   "dir": "rtl",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
   ]
 }
