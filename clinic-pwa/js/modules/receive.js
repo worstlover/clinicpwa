@@ -167,8 +167,8 @@ function renderList() {
           <div class="flex-grow-1">
             <div class="name">${escapeHtml(it.drug_name)}</div>
             <div class="meta">
-              ${it.batch ? `بچ: ${escapeHtml(it.batch)} | ` : ''}
-              انقضا: ${escapeHtml(it.expiry)} <span class="muted">(${gregorianToJalali(it.expiry)})</span>
+              ${it.batch ? `بچ: <code dir="ltr">${escapeHtml(it.batch)}</code> | ` : ''}
+              انقضا: ${escapeHtml(it.expiry || '—')} <span class="muted">(${gregorianToJalali(it.expiry)})</span>
             </div>
             ${it.warnings?.length ? `<div class="meta" style="color:#dc3545;">${it.warnings.map(w => `• ${escapeHtml(w.text)}`).join('<br>')}</div>` : ''}
           </div>
@@ -208,7 +208,7 @@ async function handleBarcode(raw) {
 }
 
 async function addDrug(drug, barcode = '', parsed = {}) {
-  // ⭐ ذخیره بارکد در دیتابیس (رفع مشکل ۱)
+  // ⭐ ذخیره بارکد در دیتابیس
   if (barcode) {
     try {
       await sb.from('drugs_drugbarcode').upsert({
@@ -260,15 +260,30 @@ async function addDrug(drug, barcode = '', parsed = {}) {
   if (chk && (chk.level === 'danger' || chk.level === 'expired')) warnings.push({ level: 'danger', text: chk.msg });
   else if (chk && chk.level === 'warning') warnings.push({ level: 'warning', text: chk.msg });
 
-  const batchKey = res.batch || '';
-  const ex = state.items.find(it => it.drug_id === drug.id && (it.batch || '') === batchKey);
+  // ⭐⭐⭐ اگر بچ خالی بود، خودکار از فرمول بساز ⭐⭐⭐
+  let finalBatch = res.batch || '';
+  if (!finalBatch && res.expiry_gregorian) {
+    finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian) || '';
+  }
+  if (!finalBatch) {
+    finalBatch = `AUTO-${Date.now()}`;
+  }
+
+  const ex = state.items.find(it => it.drug_id === drug.id && (it.batch || '') === finalBatch);
   if (ex && ex.expiry === res.expiry_gregorian) ex.qty += res.qty;
   else state.items.push({
-    drug_id: drug.id, drug_name: drug.name,
-    qty: res.qty, batch: res.batch || '',
-    expiry: res.expiry_gregorian || '', expiry_jalali: res.expiry_jalali || '',
-    barcode, ordered_qty: ordered, invoice_qty: invoiceQty, warnings
+    drug_id: drug.id,
+    drug_name: drug.name,
+    qty: res.qty,
+    batch: finalBatch,
+    expiry: res.expiry_gregorian || '',
+    expiry_jalali: res.expiry_jalali || '',
+    barcode,
+    ordered_qty: ordered,
+    invoice_qty: invoiceQty,
+    warnings
   });
+
   renderList();
   beep();
 }
@@ -301,38 +316,69 @@ async function finalize() {
 
     const errors = [];
     for (const it of state.items) {
+      // ⭐ ساخت بچ اگر خالی بود
+      let batchForDb = it.batch || '';
+      if (!batchForDb && it.expiry) {
+        batchForDb = makeBatchNumber(it.drug_name, '', it.expiry) || '';
+      }
+      if (!batchForDb) {
+        batchForDb = `AUTO-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      }
+
+      // درج آیتم رسید
       const { error: e2 } = await sb.from('drugs_receiptitem').insert({
-        receipt_id: receipt.id, drug_id: it.drug_id,
-        received_quantity: it.qty, batch_number: it.batch || null,
-        expiry_date: it.expiry, force_close_shortage: false
+        receipt_id: receipt.id,
+        drug_id: it.drug_id,
+        received_quantity: it.qty,
+        batch_number: batchForDb,     // ⭐ هرگز null نمی‌شود
+        expiry_date: it.expiry,
+        force_close_shortage: false
       });
       if (e2) { errors.push(`${it.drug_name}: ${e2.message}`); continue; }
 
-      if (it.batch) {
-        const { data: existing } = await sb.from('drugs_drugbatch')
-          .select('id, quantity').eq('drug_id', it.drug_id).eq('batch_number', it.batch).maybeSingle();
-        if (existing) {
-          await sb.from('drugs_drugbatch').update({
-            quantity: existing.quantity + it.qty,
-            expiry_date: it.expiry
-          }).eq('id', existing.id);
-        } else {
-          await sb.from('drugs_drugbatch').insert({
-            drug_id: it.drug_id, batch_number: it.batch,
-            expiry_date: it.expiry, quantity: it.qty,
-            supplier_id: state.supplierId, purchase_price: 0, is_active: true
-          });
-        }
+      // آپدیت یا درج DrugBatch
+      const { data: existing } = await sb.from('drugs_drugbatch')
+        .select('id, quantity')
+        .eq('drug_id', it.drug_id)
+        .eq('batch_number', batchForDb)
+        .maybeSingle();
+
+      if (existing) {
+        await sb.from('drugs_drugbatch').update({
+          quantity: existing.quantity + it.qty,
+          expiry_date: it.expiry
+        }).eq('id', existing.id);
+      } else {
+        await sb.from('drugs_drugbatch').insert({
+          drug_id: it.drug_id,
+          batch_number: batchForDb,
+          expiry_date: it.expiry,
+          quantity: it.qty,
+          supplier_id: state.supplierId,
+          purchase_price: 0,
+          is_active: true,
+          is_temporary: false
+        });
       }
 
-      const { error: e3 } = await sb.rpc('allocate_to_requests', {
-        p_drug_id: it.drug_id, p_quantity: it.qty, p_force_close: false
-      });
-      if (e3) errors.push(`FIFO ${it.drug_name}: ${e3.message}`);
+      // تخصیص FIFO به سفارشات
+      try {
+        const { error: e3 } = await sb.rpc('allocate_to_requests', {
+          p_drug_id: it.drug_id,
+          p_quantity: it.qty,
+          p_force_close: false
+        });
+        if (e3) errors.push(`FIFO ${it.drug_name}: ${e3.message}`);
+      } catch (errRpc) {
+        errors.push(`FIFO ${it.drug_name}: ${errRpc.message || 'خطای شبکه'}`);
+      }
     }
 
-    if (errors.length) alert('⚠ خطاها:\n' + errors.join('\n'));
-    else toast('✅ رسید ' + code, 'success');
+    if (errors.length) {
+      alert('⚠ خطاها:\n' + errors.join('\n'));
+    } else {
+      toast('✅ رسید ' + code, 'success');
+    }
 
     localStorage.removeItem(AUTOSAVE_KEY);
 
@@ -342,7 +388,7 @@ async function finalize() {
     state.linkedInvoice = null;
     openReceive();
   } catch (e) {
-    alert('❌ ' + e.message);
+    alert('❌ ' + (e.message || e));
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> ذخیره نهایی';
   }
