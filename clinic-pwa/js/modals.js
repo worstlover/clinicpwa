@@ -4,6 +4,7 @@ import { $, escapeHtml, gregorianToJalali, jalaliToGregorian, checkExpiry, toast
 let qtyModal = null;
 let qtyResolve = null;
 let qtyShowExtras = true;
+let qtyBatchCheckFn = null;
 
 function ensureQtyModal() {
   if (!qtyModal) qtyModal = new bootstrap.Modal($('qtyModal'));
@@ -14,6 +15,7 @@ export function askQty(opts) {
   return new Promise((resolve) => {
     qtyResolve = resolve;
     qtyShowExtras = opts.showExtras !== false;
+    qtyBatchCheckFn = opts.batchCheckFn || null;
     $('qmTitle').textContent = opts.title || 'ثبت تعداد';
     $('qmHeader').className = 'modal-header ' + (opts.headerClass || 'bg-primary text-white');
     $('qmDrugName').textContent = opts.drugName || '';
@@ -23,6 +25,8 @@ export function askQty(opts) {
     $('qmBatch').value = opts.defaultBatch || '';
     $('qmExtraFields').style.display = qtyShowExtras ? '' : 'none';
     $('qmWarnings').innerHTML = opts.warnings || '';
+    const batchInfoEl = $('qmBatchInfo');
+    if (batchInfoEl) batchInfoEl.innerHTML = '';
     updateQmExpiryHint();
     qtyModal.show();
     setTimeout(() => { $('qmQty').focus(); $('qmQty').select(); }, 300);
@@ -38,18 +42,26 @@ function updateQmExpiryHint() {
   badge.innerHTML = '';
   $('qmExpiry').classList.remove('expiry-warn', 'expiry-caution');
 
+  const batchInfoEl = $('qmBatchInfo');
+
   if (!v) {
     hint.textContent = 'قالب: سال-ماه-روز | مثال: 2027-03-15';
+    if (batchInfoEl) batchInfoEl.innerHTML = '';
     return;
   }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
     const j = gregorianToJalali(v);
-    if (j) {
-      hint.textContent = `شمسی معادل: ${j}`;
-      hint.style.color = '#0d6efd';
-    }
+    if (j) { hint.textContent = `شمسی معادل: ${j}`; hint.style.color = '#0d6efd'; }
     applyExpiryWarning(v);
+    if (qtyBatchCheckFn && batchInfoEl) {
+      batchInfoEl.innerHTML = '<div class="text-center py-2"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+      qtyBatchCheckFn(v).then(html => {
+        batchInfoEl.innerHTML = html || '';
+      }).catch(() => {
+        batchInfoEl.innerHTML = '';
+      });
+    }
     return;
   }
 
@@ -59,6 +71,14 @@ function updateQmExpiryHint() {
       hint.textContent = `میلادی معادل: ${g} (Enter برای ثبت)`;
       hint.style.color = '#d97706';
       applyExpiryWarning(g);
+      if (qtyBatchCheckFn && batchInfoEl) {
+        batchInfoEl.innerHTML = '<div class="text-center py-2"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+        qtyBatchCheckFn(g).then(html => {
+          batchInfoEl.innerHTML = html || '';
+        }).catch(() => {
+          batchInfoEl.innerHTML = '';
+        });
+      }
     } else {
       hint.textContent = 'تاریخ شمسی نامعتبر';
       hint.style.color = '#dc3545';
@@ -68,6 +88,7 @@ function updateQmExpiryHint() {
 
   hint.textContent = 'قالب صحیح: YYYY-MM-DD | مثال: 2027-03-15';
   hint.style.color = '#dc3545';
+  if (batchInfoEl) batchInfoEl.innerHTML = '';
 }
 
 function applyExpiryWarning(greg) {
@@ -116,11 +137,15 @@ export function initQtyModal() {
     }
     const cb = qtyResolve;
     qtyResolve = null;
+    qtyBatchCheckFn = null;
     qtyModal.hide();
     cb(res);
   };
 }
 
+// ═══════════════════════════════════════════════════════
+// جستجوی دارو
+// ═══════════════════════════════════════════════════════
 let searchModal = null;
 let searchCallback = null;
 let searchTimer = null;
