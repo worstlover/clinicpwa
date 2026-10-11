@@ -5,12 +5,55 @@ import { openScanner } from '../scanner.js';
 import { askQty, openDrugSearch } from '../modals.js';
 
 const state = {
-  supplierId: null, supplierName: '',
+  supplierId: null,
+  supplierName: '',
   linkedInvoice: null,
   items: []
 };
 
+const AUTOSAVE_KEY = 'recv_autosave';
+
+// ───── ذخیره خودکار هر ۱۰ ثانیه ─────
+setInterval(() => {
+  if (state.items.length > 0) {
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
+      items: state.items,
+      supplierId: state.supplierId,
+      supplierName: state.supplierName,
+      linkedInvoice: state.linkedInvoice,
+      savedAt: Date.now()
+    }));
+  }
+}, 10000);
+
+// ───── بازیابی ذخیره موقت ─────
+async function restoreReceiveState() {
+  const saved = localStorage.getItem(AUTOSAVE_KEY);
+  if (!saved) return false;
+  try {
+    const data = JSON.parse(saved);
+    if (!data.items?.length) return false;
+    // فقط اگر کمتر از ۲۴ ساعت گذشته باشد
+    if (Date.now() - data.savedAt > 24 * 3600 * 1000) {
+      localStorage.removeItem(AUTOSAVE_KEY);
+      return false;
+    }
+    const dt = new Date(data.savedAt).toLocaleString('fa-IR');
+    if (confirm(`یک ذخیره موقت از ${dt} پیدا شد (${data.items.length} قلم). بازیابی شود؟`)) {
+      state.items = data.items;
+      state.supplierId = data.supplierId;
+      state.supplierName = data.supplierName;
+      state.linkedInvoice = data.linkedInvoice;
+      return true;
+    }
+    localStorage.removeItem(AUTOSAVE_KEY);
+  } catch (e) {}
+  return false;
+}
+
+// ───── ورود به ماژول ─────
 export async function openReceive() {
+  await restoreReceiveState();
   showScreen('Receive');
   const c = $('recvContent');
   const { data: suppliers } = await sb.from('drugs_supplier').select('id, name').order('name');
@@ -51,7 +94,7 @@ export async function openReceive() {
   };
   if (state.supplierId) {
     $('recvSupplier').value = state.supplierId;
-    state.supplierName = $('recvSupplier').options[$('recvSupplier').selectedIndex].text;
+    state.supplierName = $('recvSupplier').options[$('recvSupplier').selectedIndex]?.text || '';
   }
   $('recvScan').onclick = () => openScanner(handleBarcode);
   $('recvSearch').onclick = () => openDrugSearch('دارو را جستجو کنید', d => addDrug(d));
@@ -75,16 +118,16 @@ function showInvoiceInfo() {
 }
 
 async function linkInvoice() {
-  const q = prompt('شماره فاکتور:');
+  const q = prompt('شماره فاکتور را وارد کنید:');
   if (!q?.trim()) return;
   const { data } = await sb.from('drugs_purchaseinvoice')
     .select('id, invoice_number, supplier_id, supplier:drugs_supplier(name)')
     .ilike('invoice_number', `%${q.trim()}%`).limit(5);
-  if (!data?.length) { toast('یافت نشد', 'warning'); return; }
+  if (!data?.length) { toast('فاکتوری یافت نشد', 'warning'); return; }
 
   let chosen = data[0];
   if (data.length > 1) {
-    const list = data.map((d, i) => `${i+1}) ${d.invoice_number} - ${d.supplier?.name || ''}`).join('\n');
+    const list = data.map((d, i) => `${i + 1}) ${d.invoice_number} - ${d.supplier?.name || ''}`).join('\n');
     const idx = parseInt(prompt('کدام؟\n' + list)) - 1;
     if (isNaN(idx) || !data[idx]) return;
     chosen = data[idx];
@@ -94,12 +137,14 @@ async function linkInvoice() {
     .select('drug_id, quantity, unit_price').eq('invoice_id', chosen.id);
 
   state.linkedInvoice = {
-    id: chosen.id, invoice_number: chosen.invoice_number, items: items || []
+    id: chosen.id,
+    invoice_number: chosen.invoice_number,
+    items: items || []
   };
   if (chosen.supplier_id) {
     state.supplierId = chosen.supplier_id;
     $('recvSupplier').value = chosen.supplier_id;
-    state.supplierName = $('recvSupplier').options[$('recvSupplier').selectedIndex].text;
+    state.supplierName = $('recvSupplier').options[$('recvSupplier').selectedIndex]?.text || '';
   }
   showInvoiceInfo();
   renderList();
@@ -224,7 +269,9 @@ async function addDrug(drug, barcode = '', parsed = {}) {
 async function finalize() {
   if (!state.supplierId) { toast('تامین‌کننده را انتخاب کنید', 'warning'); return; }
   if (!state.items.length) { toast('حداقل یک قلم', 'warning'); return; }
-  for (const it of state.items) if (!it.expiry) { toast(`تاریخ انقضای «${it.drug_name}» الزامی است`, 'warning'); return; }
+  for (const it of state.items) {
+    if (!it.expiry) { toast(`تاریخ انقضای «${it.drug_name}» الزامی است`, 'warning'); return; }
+  }
   if (!confirm(`ذخیره ${faNum(state.items.length)} قلم؟`)) return;
 
   const btn = $('recvFinalize');
@@ -233,7 +280,7 @@ async function finalize() {
 
   try {
     const today = new Date();
-    const code = `RCV-${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}-${Date.now().toString().slice(-4)}`;
+    const code = `RCV-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}-${Date.now().toString().slice(-4)}`;
 
     const { data: receipt, error: e1 } = await sb.from('drugs_receipt').insert({
       receipt_number: code,
@@ -241,7 +288,7 @@ async function finalize() {
       status: 'final',
       receipt_type: state.linkedInvoice ? 'with_invoice' : 'without_invoice',
       invoice_id: state.linkedInvoice?.id || null,
-      date_received: today.toISOString().slice(0,10)
+      date_received: today.toISOString().slice(0, 10)
     }).select().single();
     if (e1) throw e1;
 
@@ -258,7 +305,10 @@ async function finalize() {
         const { data: existing } = await sb.from('drugs_drugbatch')
           .select('id, quantity').eq('drug_id', it.drug_id).eq('batch_number', it.batch).maybeSingle();
         if (existing) {
-          await sb.from('drugs_drugbatch').update({ quantity: existing.quantity + it.qty, expiry_date: it.expiry }).eq('id', existing.id);
+          await sb.from('drugs_drugbatch').update({
+            quantity: existing.quantity + it.qty,
+            expiry_date: it.expiry
+          }).eq('id', existing.id);
         } else {
           await sb.from('drugs_drugbatch').insert({
             drug_id: it.drug_id, batch_number: it.batch,
@@ -277,7 +327,13 @@ async function finalize() {
     if (errors.length) alert('⚠ خطاها:\n' + errors.join('\n'));
     else toast('✅ رسید ' + code, 'success');
 
-    state.items = []; state.supplierId = null; state.supplierName = ''; state.linkedInvoice = null;
+    // پاک کردن ذخیره موقت
+    localStorage.removeItem(AUTOSAVE_KEY);
+
+    state.items = [];
+    state.supplierId = null;
+    state.supplierName = '';
+    state.linkedInvoice = null;
     openReceive();
   } catch (e) {
     alert('❌ ' + e.message);
