@@ -64,10 +64,10 @@ function renderList() {
           <div class="meta">موجودی: ${faNum(it.available)}</div>
         </div>
         <div class="d-flex align-items-center gap-2">
-          <button class="num-btn" style="width:38px;height:38px;font-size:1.2rem;" data-act="dec" data-i="${i}">−</button>
+          <button class="num-btn" style="width:38px;height:38px;" data-act="dec" data-i="${i}">−</button>
           <div class="qty-display">${faNum(it.requested_quantity)}</div>
-          <button class="num-btn" style="width:38px;height:38px;font-size:1.2rem;" data-act="inc" data-i="${i}">+</button>
-          <button class="num-btn" style="width:38px;height:38px;font-size:1rem;" data-act="del" data-i="${i}"><i class="bi bi-trash text-danger"></i></button>
+          <button class="num-btn" style="width:38px;height:38px;" data-act="inc" data-i="${i}">+</button>
+          <button class="num-btn" style="width:38px;height:38px;" data-act="del" data-i="${i}"><i class="bi bi-trash text-danger"></i></button>
         </div>
       </div>
     </div>`).join('');
@@ -89,11 +89,25 @@ async function handleBarcode(raw) {
   const { data: bc } = await sb.from('drugs_drugbarcode')
     .select('drug:drugs_drug(id, name, form)')
     .or(`gtin.eq.${gtin},gtin.eq.${padded}`).maybeSingle();
-  if (!bc?.drug) { toast('بارکد ناشناس', 'warning'); openDrugSearch('جستجو کنید', d => addDrug(d)); return; }
+  if (!bc?.drug) {
+    toast('بارکد ناشناس', 'warning');
+    openDrugSearch('جستجو کنید', d => addDrug(d, gtin));
+    return;
+  }
   await addDrug(bc.drug, gtin);
 }
 
 async function addDrug(drug, barcode = '') {
+  // ⭐ ذخیره بارکد در دیتابیس (رفع مشکل ۱)
+  if (barcode) {
+    try {
+      await sb.from('drugs_drugbarcode').upsert({
+        drug_id: drug.id,
+        gtin: barcode
+      }, { onConflict: 'gtin' });
+    } catch (e) { /* احتمالاً قبلاً ثبت شده */ }
+  }
+
   const { data: stock } = await sb.from('v_drug_stock').select('total_quantity').eq('drug_id', drug.id).maybeSingle();
   const available = stock?.total_quantity || 0;
   if (available <= 0) { toast(`موجودی «${drug.name}» صفر است!`, 'danger'); beep(300); return; }
@@ -102,7 +116,7 @@ async function addDrug(drug, barcode = '') {
     title: 'تحویل دارو',
     headerClass: 'bg-success text-white',
     drugName: drug.name + (drug.form ? ` (${drug.form})` : ''),
-    extraInfo: `موجودی قابل تحویل: <strong>${faNum(available)}</strong>`,
+    extraInfo: `موجودی قابل تحویل: <strong>${faNum(available)}</strong> عدد`,
     showExtras: false,
     defaultQty: 1
   });
@@ -118,8 +132,8 @@ async function addDrug(drug, barcode = '') {
 
 async function finalize() {
   const name = state.patient.name.trim();
-  if (!name) { toast('نام بیمار الزامی است', 'warning'); return; }
-  if (!state.items.length) { toast('حداقل یک دارو', 'warning'); return; }
+  if (!name) { toast('نام بیمار را وارد کنید', 'warning'); return; }
+  if (!state.items.length) { toast('حداقل یک دارو اضافه کنید', 'warning'); return; }
   if (!confirm(`تحویل ${faNum(state.items.length)} قلم به «${name}»؟`)) return;
 
   const btn = $('dispFinalize');
