@@ -1,9 +1,9 @@
 import { $ } from './utils.js';
 
-const SCREENS = ['screenLogin', 'screenHome', 'screenInventory', 'screenDispense', 'screenReceive', 'screenReport'];
+const SCREENS = ['screenLogin', 'screenHome', 'screenInventory', 'screenDispense', 'screenReceive', 'screenDisposal', 'screenReport'];
 const TITLES = {
-  Home: 'داروخانه', Inventory: 'انبارگردانی',
-  Dispense: 'تحویل دارو', Receive: 'دریافت دارو', Report: 'گزارش‌ها'
+  Home: 'داروخانه', Inventory: 'انبارگردانی', Dispense: 'تحویل دارو',
+  Receive: 'دریافت دارو', Disposal: 'خروج منقضی', Report: 'گزارش‌ها'
 };
 
 export function showScreen(name) {
