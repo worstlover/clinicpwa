@@ -2,8 +2,8 @@ name: Daily Supabase Backup
 
 on:
   schedule:
-    - cron: '0 3 * * *'   # هر روز ساعت ۳ صبح UTC (۶:۳۰ صبح تهران)
-  workflow_dispatch:        # اجازه اجرای دستی از تب Actions
+    - cron: '0 3 * * *'   # هر روز ۶:۳۰ صبح تهران
+  workflow_dispatch:
 
 jobs:
   backup:
@@ -31,33 +31,34 @@ jobs:
           TIMESTAMP=$(date +"%Y-%m-%d_%H-%M")
           mkdir -p backups
           pg_dump \
-            -h "$PGHOST" \
-            -p 5432 \
-            -U "$PGUSER" \
-            -d "$PGDATABASE" \
-            --no-owner \
-            --no-privileges \
-            --format=plain \
+            -h "$PGHOST" -p 5432 -U "$PGUSER" -d "$PGDATABASE" \
+            --no-owner --no-privileges --format=plain \
             -f "backups/clinic-backup-${TIMESTAMP}.sql"
           gzip "backups/clinic-backup-${TIMESTAMP}.sql"
           ls -lh backups/
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
 
-      - name: Send email with backup
-        uses: dawidd6/action-send-mail@v3
+      - name: Send to Telegram
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          FILE=$(ls backups/*.sql.gz)
+          SIZE=$(du -h "$FILE" | cut -f1)
+          CAPTION="📦 بکاپ روزانه داروخانه
+          📅 تاریخ: $(date +'%Y-%m-%d %H:%M')
+          💾 حجم: $SIZE
+          📄 فایل: $(basename $FILE)"
+          
+          curl -s -X POST \
+            "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+            -F "chat_id=${CHAT_ID}" \
+            -F "document=@${FILE}" \
+            -F "caption=${CAPTION}"
+
+      - name: Save last 30 backups as artifact
+        uses: actions/upload-artifact@v4
         with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "بکاپ روزانه داروخانه - ${{ github.run_number }}"
-          to: ${{ secrets.MAIL_TO }}
-          from: Clinic Backup
-          body: |
-            بکاپ روزانه دیتابیس داروخانه با موفقیت گرفته شد.
-            
-            تاریخ: $(date +"%Y-%m-%d %H:%M")
-            فایل ضمیمه: clinic-backup-*.sql.gz
-            
-            این ایمیل به صورت خودکار ارسال شده است.
-          attachments: backups/*.sql.gz
+          name: backup-${{ env.TIMESTAMP }}
+          path: backups/*.sql.gz
+          retention-days: 30
