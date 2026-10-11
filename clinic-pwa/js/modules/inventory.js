@@ -102,25 +102,27 @@ function renderList() {
     return `
       <div class="item-card">
         <div class="d-flex justify-content-between align-items-center">
-          <div class="flex-grow-1">
-            <div class="name">${escapeHtml(it.drug_name)}</div>
+          <div class="flex-grow-1" data-edit="${realIdx}" style="cursor:pointer;">
+            <div class="name">${escapeHtml(it.drug_name)} <i class="bi bi-pencil-square text-primary" style="font-size:0.85rem;"></i></div>
             <div class="meta">
               ${it.batch_number ? `بچ: <code dir="ltr">${escapeHtml(it.batch_number)}</code><br>` : ''}
               ${it.expiry_date ? `انقضا: ${escapeHtml(it.expiry_date)} (${gregorianToJalali(it.expiry_date)})` : ''}
             </div>
           </div>
           <div class="d-flex align-items-center gap-2">
-            <div class="qty-display">${faNum(it.counted_quantity)}</div>
+            <div class="qty-display" data-edit="${realIdx}" style="cursor:pointer;">${faNum(it.counted_quantity)}</div>
             <button class="num-btn" style="width:38px;height:38px;" data-remove="${realIdx}"><i class="bi bi-trash text-danger"></i></button>
           </div>
         </div>
       </div>`;
   }).join('');
   list.querySelectorAll('[data-remove]').forEach(b => {
-    b.onclick = () => removeItem(+b.dataset.remove);
+    b.onclick = (e) => { e.stopPropagation(); removeItem(+b.dataset.remove); };
+  });
+  list.querySelectorAll('[data-edit]').forEach(b => {
+    b.onclick = () => editItem(+b.dataset.edit);
   });
 }
-
 async function removeItem(idx) {
   if (!confirm('حذف شود؟')) return;
   const it = state.items[idx];
