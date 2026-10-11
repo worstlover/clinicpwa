@@ -1,7 +1,6 @@
 import { sb } from './sb.js';
-import { $, escapeHtml, todayJalali, jalaliToGregorian, gregorianToJalali, checkExpiry, toast } from './utils.js';
+import { $, escapeHtml, gregorianToJalali, jalaliToGregorian, checkExpiry, toast } from './utils.js';
 
-// ═══ مودال تعداد ═══
 let qtyModal = null;
 let qtyResolve = null;
 let qtyShowExtras = true;
@@ -20,7 +19,7 @@ export function askQty(opts) {
     $('qmDrugName').textContent = opts.drugName || '';
     $('qmExtraInfo').innerHTML = opts.extraInfo || '';
     $('qmQty').value = opts.defaultQty ?? 1;
-    $('qmExpiry').value = opts.defaultExpiry || todayJalali();
+    $('qmExpiry').value = opts.defaultExpiry || '';
     $('qmBatch').value = opts.defaultBatch || '';
     $('qmExtraFields').style.display = qtyShowExtras ? '' : 'none';
     $('qmWarnings').innerHTML = opts.warnings || '';
@@ -35,21 +34,40 @@ function updateQmExpiryHint() {
   const hint = $('qmShamsi');
   const badge = $('qmExpiryBadge');
   hint.textContent = '';
+  hint.style.color = '#64748b';
   badge.innerHTML = '';
   $('qmExpiry').classList.remove('expiry-warn', 'expiry-caution');
-  if (!v) return;
+
+  if (!v) {
+    hint.textContent = 'قالب: سال-ماه-روز | مثال: 2027-03-15';
+    return;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    const j = gregorianToJalali(v);
+    if (j) {
+      hint.textContent = `شمسی معادل: ${j}`;
+      hint.style.color = '#0d6efd';
+    }
+    applyExpiryWarning(v);
+    return;
+  }
 
   if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(v)) {
     const g = jalaliToGregorian(v);
-    if (g) { hint.textContent = 'میلادی: ' + g; applyExpiryWarning(g); }
-    else hint.textContent = '⚠️ تاریخ نامعتبر';
-  } else if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
-    const j = gregorianToJalali(v);
-    if (j) hint.textContent = 'شمسی: ' + j;
-    applyExpiryWarning(v);
-  } else {
-    hint.textContent = 'فرمت: YYYY-MM-DD';
+    if (g) {
+      hint.textContent = `میلادی معادل: ${g} (Enter برای ثبت)`;
+      hint.style.color = '#d97706';
+      applyExpiryWarning(g);
+    } else {
+      hint.textContent = 'تاریخ شمسی نامعتبر';
+      hint.style.color = '#dc3545';
+    }
+    return;
   }
+
+  hint.textContent = 'قالب صحیح: YYYY-MM-DD | مثال: 2027-03-15';
+  hint.style.color = '#dc3545';
 }
 
 function applyExpiryWarning(greg) {
@@ -83,11 +101,12 @@ export function initQtyModal() {
     if (isNaN(qty) || qty < 0) { toast('تعداد نامعتبر', 'warning'); return; }
     const res = { qty };
     if (qtyShowExtras) {
-      let expG = $('qmExpiry').value.trim();
-      if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(expG)) {
-        expG = jalaliToGregorian(expG);
-        if (!expG) { toast('تاریخ نامعتبر', 'warning'); return; }
-      } else if (expG && !/^\d{4}-\d{2}-\d{2}$/.test(expG)) {
+      let raw = $('qmExpiry').value.trim();
+      let expG = raw;
+      if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(raw)) {
+        expG = jalaliToGregorian(raw);
+        if (!expG) { toast('تاریخ شمسی نامعتبر', 'warning'); return; }
+      } else if (raw && !/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
         toast('تاریخ نامعتبر. مثال: 2027-03-15', 'warning');
         return;
       }
@@ -102,7 +121,6 @@ export function initQtyModal() {
   };
 }
 
-// ═══ مودال جستجوی دارو ═══
 let searchModal = null;
 let searchCallback = null;
 let searchTimer = null;
