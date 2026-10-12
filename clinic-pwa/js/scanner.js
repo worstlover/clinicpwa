@@ -1,4 +1,4 @@
-import { Html5Qrcode } from 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/+esm';
+import { Html5Qrcode } from '../lib/html5-qrcode.js';
 import { $, beep, toast } from './utils.js';
 
 let html5 = null;
