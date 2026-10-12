@@ -1,12 +1,11 @@
 // js/modules/visit/create.js
 import { sb } from '../../sb.js';
 import { $, faNum, escapeHtml, jalaliToGregorian, todayJalali, toast, beep } from '../../utils.js';
-import { state, saveFormState, resetFormData, loadRefs, calcGCS, calcBMI } from './state.js';
+import { state, saveFormState, resetFormData, loadRefs, calcGCS, calcBMI, INJURY_MAP } from './state.js';
 import { getMyDjangoId, getIncLabel } from './helpers.js';
 import { renderBodyMap } from './bodymap.js';
 import { logChange } from './changelog.js';
 import { renderList } from './list.js';
-
 export async function openCreate() {
   state.view = 'create';
   state.step = 1; state.maxStep = 1;
@@ -376,32 +375,41 @@ function bindWizard() {
     };
   });
 
-  // Body Map
-  document.querySelectorAll('.body-part').forEach(p => {
-    p.onclick = () => {
-      const key = p.dataset.part;
-      const { INJURY_MAP } = window.__visitState || {};
-      const map = INJURY_MAP || {};
-      const loc = map[key];
-      if (!loc) { toast('این ناحیه تعریف نشده', 'warning'); return; }
-      saveFormState();
-      const idx = state.selectedInjuries.findIndex(x => x.id === loc.id);
-      if (idx >= 0) state.selectedInjuries.splice(idx, 1);
-      else state.selectedInjuries.push(loc);
-      renderWizard();
-    };
-  });
+  // Body Map - انتخاب و حذف
+document.querySelectorAll('.body-part').forEach(p => {
+  p.onclick = () => {
+    const key = p.dataset.part;
+    if (!key) return;
+    const loc = INJURY_MAP[key];
+    if (!loc) {
+      console.warn('ناحیه تعریف نشده:', key);
+      toast(`ناحیه "${key}" در دیتابیس تعریف نشده`, 'warning');
+      return;
+    }
+    saveFormState();
+    const idx = state.selectedInjuries.findIndex(x => x.id === loc.id);
+    if (idx >= 0) {
+      state.selectedInjuries.splice(idx, 1);
+    } else {
+      state.selectedInjuries.push(loc);
+    }
+    beep();
+    renderWizard();
+  };
+});
 
-  document.querySelectorAll('.remove-part').forEach(b => {
-    b.onclick = e => {
-      e.stopPropagation();
-      const id = parseInt(b.dataset.id);
-      state.selectedInjuries = state.selectedInjuries.filter(x => x.id !== id);
-      saveFormState();
-      renderWizard();
-    };
-  });
+// حذف از chips
+document.querySelectorAll('.remove-part').forEach(b => {
+  b.onclick = e => {
+    e.stopPropagation();
+    const id = parseInt(b.dataset.id);
+    state.selectedInjuries = state.selectedInjuries.filter(x => x.id !== id);
+    saveFormState();
+    renderWizard();
+  };
+});
 
+  
   // GCS
   const consCheck = $('consciousCheck');
   if (consCheck) {
