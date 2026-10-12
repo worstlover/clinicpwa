@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   داروخانه کلینیک - استایل اصلی PWA
+   کلینیک گندله سازی بهاباد - استایل اصلی PWA
    ═══════════════════════════════════════════════════════ */
 
 :root {
@@ -40,20 +40,24 @@ body {
   line-height: 1.6;
 }
 
-/* ══════ اسکرین‌ها ══════ */
+/* ══════ اسکرین‌ها - مهم برای جلوگیری از نمایش همزمان ══════ */
 .screen {
-  display: none;
+  display: none !important;
   min-height: 100vh;
 }
 
 .screen.active {
-  display: block;
+  display: block !important;
 }
 
 /* ══════ لاگین ══════ */
 #screenLogin {
   background: linear-gradient(135deg, #0d6efd 0%, #6610f2 100%);
   min-height: 100vh;
+}
+
+#screenLogin.active {
+  display: block !important;
 }
 
 .login-wrapper {
@@ -478,6 +482,7 @@ body {
   justify-content: center;
   cursor: pointer;
   transition: background 0.12s;
+  position: relative;
 }
 
 .scan-btn:active {
@@ -612,8 +617,6 @@ body {
     border: 1px solid #ccc;
   }
 }
-/* دکمه انتخاب دوربین: منو نسبت به خود دکمه جای‌گذاری شود */
-.scan-btn { position: relative; }
 
 /* ═══════════════════════════════════════════════════════
    ویزیت - Wizard، Body Map، Quick Drugs
