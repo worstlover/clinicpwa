@@ -6,9 +6,18 @@ export let currentUser = null;
 export let isAdmin = false;
 
 export async function doLogin() {
-  const email = $('loginEmail').value.trim();
+  let email = $('loginEmail').value.trim();
   const pass = $('loginPass').value;
-  if (!email || !pass) { toast('ایمیل و رمز را وارد کنید', 'warning'); return; }
+
+  if (!email || !pass) {
+    toast('نام کاربری و رمز را وارد کنید', 'warning');
+    return;
+  }
+
+  // ⭐ اگر @ نداشت، پسوند @clinic.local اضافه کن
+  if (!email.includes('@')) {
+    email = email + '@clinic.local';
+  }
 
   $('loginMsg').innerHTML = '<div class="alert alert-info py-2 small">در حال ورود...</div>';
   const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
@@ -45,4 +54,9 @@ export async function doLogout() {
   if (!confirm('از حساب خارج می‌شوید؟')) return;
   await sb.auth.signOut();
   location.reload();
+}
+
+// ⭐ در دسترس قرار دادن در window برای استفاده در ماژول‌های دیگر
+export function updateCurrentUser(user) {
+  currentUser = user;
 }
