@@ -10,36 +10,41 @@ import { openDisposal } from './modules/disposal.js';
 import { openReport } from './modules/report.js';
 import { openProfile } from './modules/profile.js';
 import { openOccupational } from './modules/occupational.js';
+import { openVisits } from './modules/visit.js';
 
 initQtyModal();
 initSearchModal();
 initScannerButtons();
 
+// ═══ لاگین ═══
 $('btnLogin').onclick = doLogin;
-$('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+$('loginPass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    doLogin();
+  }
+});
 
+// ═══ هدر ═══
 $('btnBack').onclick = () => showScreen('Home');
 $('btnLogout').onclick = doLogout;
 
-// دکمه پروفایل در هدر
 const btnProfile = $('btnProfile');
-if (btnProfile) {
-  btnProfile.onclick = () => openProfile();
-}
+if (btnProfile) btnProfile.onclick = () => openProfile();
 
-// کلیک روی ایمیل کاربر
 const userEmailEl = $('userEmail');
 if (userEmailEl) {
   userEmailEl.style.cursor = 'pointer';
   userEmailEl.onclick = () => openProfile();
 }
 
-// ناوبری
+// ═══ ناوبری کارت‌ها و نوار پایین ═══
 document.querySelectorAll('[data-nav]').forEach(el => {
   el.addEventListener('click', e => {
     e.preventDefault();
     const n = el.dataset.nav;
     if (n === 'home') showScreen('Home');
+    else if (n === 'visits') openVisits();
     else if (n === 'inventory') openInventory();
     else if (n === 'dispense') openDispense();
     else if (n === 'receive') openReceive();
@@ -50,28 +55,21 @@ document.querySelectorAll('[data-nav]').forEach(el => {
   });
 });
 
+// ═══ ESC بستن اسکنر ═══
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && $('scannerWrap').classList.contains('active')) closeScanner();
+  if (e.key === 'Escape' && $('scannerWrap')?.classList.contains('active')) {
+    closeScanner();
+  }
 });
 
-// نصب PWA
+// ═══ نصب PWA ═══
 let deferredInstallPrompt = null;
-
-// اگر برنامه قبلاً نصب شده (حالت standalone یا TWA)، دکمه نصب مخفی بماند
-const isInstalledApp =
-  window.matchMedia('(display-mode: standalone)').matches ||
-  window.navigator.standalone === true ||
-  document.referrer.startsWith('android-app://');
-if (isInstalledApp) {
-  const b = document.getElementById('btnInstallPWA');
-  if (b) b.style.display = 'none';
-}
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
   const btn = document.getElementById('btnInstallPWA');
-  if (btn && !isInstalledApp) btn.style.display = 'flex';
+  if (btn) btn.style.display = 'flex';
 });
 
 window.addEventListener('appinstalled', () => {
@@ -87,15 +85,16 @@ window._triggerInstall = async () => {
     return;
   }
   deferredInstallPrompt.prompt();
-  const { outcome } = await deferredInstallPrompt.userChoice;
-  if (outcome === 'accepted') {
-    console.log('User accepted PWA install');
-  }
+  await deferredInstallPrompt.userChoice;
   deferredInstallPrompt = null;
 };
 
-(async () => { await checkAuth(); })();
+// ═══ راه‌اندازی ═══
+(async () => {
+  await checkAuth();
+})();
 
+// ═══ Service Worker ═══
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./service-worker.js', { scope: './' }).catch(console.error);
 }
