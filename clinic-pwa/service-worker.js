@@ -17,7 +17,8 @@ const ASSETS = [
   './lib/vazirmatn.css',
   './lib/webfonts/Vazirmatn-Regular.woff2', './lib/webfonts/Vazirmatn-Medium.woff2',
   './lib/webfonts/Vazirmatn-SemiBold.woff2', './lib/webfonts/Vazirmatn-Bold.woff2',
-  './lib/supabase.js', './lib/html5-qrcode.js', './lib/jalaali.js'
+  './lib/supabase.js', './lib/html5-qrcode.js', './lib/jalaali.js',
+  './js/modules/occupational.js'
 ];
 
 self.addEventListener('install', e => {
