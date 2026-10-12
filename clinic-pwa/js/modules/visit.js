@@ -25,7 +25,20 @@ const state = {
   injuryLocations: [],
   quickDrugs: [],
   drugPrefs: { order: [], hidden: [] },
-  editDrugMode: false
+  editDrugMode: false,
+  // ⭐ نگه‌داری همه مقادیر فرم (برای جلوگیری از پاک شدن)
+  formData: {
+    reasonId: null,
+    reasonText: '',
+    incidentLocation: '',
+    incidentDesc: '',
+    date: '',
+    gcsE: '', gcsV: '', gcsM: '',
+    hr: '', spo2: '', bp: '', temp: '', height: '', weight: '', sugar: '',
+    treatmentId: '',
+    ecg: '', notes: '',
+    dispatchTime: '', dispatchDest: ''
+  }
 };
 
 const INJURY_MAP = {};
@@ -187,6 +200,54 @@ function getIcon(form) {
 }
 
 // ═══════════════════════════════════════════════════════
+// ⭐ ذخیره و بازیابی مقادیر فرم
+// ═══════════════════════════════════════════════════════
+function saveFormState() {
+  const fd = state.formData;
+
+  const reasonSearch = $('vReasonSearch');
+  if (reasonSearch) fd.reasonText = reasonSearch.value;
+
+  const incLoc = $('vIncidentLocation');
+  if (incLoc) fd.incidentLocation = incLoc.value;
+
+  const incDesc = $('vIncidentDesc');
+  if (incDesc) fd.incidentDesc = incDesc.value;
+
+  const dateEl = $('vDate');
+  if (dateEl) fd.date = dateEl.value;
+
+  const gcsE = $('vGcsE'); if (gcsE) fd.gcsE = gcsE.value;
+  const gcsV = $('vGcsV'); if (gcsV) fd.gcsV = gcsV.value;
+  const gcsM = $('vGcsM'); if (gcsM) fd.gcsM = gcsM.value;
+
+  const hr = $('vHR'); if (hr) fd.hr = hr.value;
+  const spo2 = $('vSpo2'); if (spo2) fd.spo2 = spo2.value;
+  const bp = $('vBP'); if (bp) fd.bp = bp.value;
+  const temp = $('vTemp'); if (temp) fd.temp = temp.value;
+  const h = $('vHeight'); if (h) fd.height = h.value;
+  const w = $('vWeight'); if (w) fd.weight = w.value;
+  const sg = $('vSugar'); if (sg) fd.sugar = sg.value;
+
+  const tr = $('vTreatment'); if (tr) fd.treatmentId = tr.value;
+  const ecg = $('vECG'); if (ecg) fd.ecg = ecg.value;
+  const nt = $('vNotes'); if (nt) fd.notes = nt.value;
+  const dt = $('vDispatchTime'); if (dt) fd.dispatchTime = dt.value;
+  const dd = $('vDispatchDest'); if (dd) fd.dispatchDest = dd.value;
+}
+
+function resetFormData() {
+  state.formData = {
+    reasonId: null, reasonText: '',
+    incidentLocation: '', incidentDesc: '',
+    date: '', gcsE: '', gcsV: '', gcsM: '',
+    hr: '', spo2: '', bp: '', temp: '', height: '', weight: '', sugar: '',
+    treatmentId: '', ecg: '', notes: '',
+    dispatchTime: '', dispatchDest: ''
+  };
+}
+
+// ═══════════════════════════════════════════════════════
 // Wizard - شروع
 // ═══════════════════════════════════════════════════════
 async function openCreate() {
@@ -195,6 +256,8 @@ async function openCreate() {
   state.patientId = null; state.patientName = '';
   state.isIncident = false; state.incidentType = 'none';
   state.selectedInjuries = []; state.items = [];
+  resetFormData();
+  state.formData.date = `${todayJalali()} 12:00`;
 
   const c = $('visitContent');
   c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
@@ -203,7 +266,11 @@ async function openCreate() {
 }
 
 function renderWizard() {
+  // ⭐ مهم: قبل از رندر، مقادیر فعلی را ذخیره کن
+  saveFormState();
+
   const c = $('visitContent');
+  const fd = state.formData;
   const steps = [
     { n: 1, label: 'بیمار' },
     { n: 2, label: 'علت و حادثه' },
@@ -227,21 +294,21 @@ function renderWizard() {
       </div>
     </div>
 
+    <!-- ═══ مرحله ۱ ═══ -->
     <div class="wizard-panel ${state.step === 1 ? 'active' : ''}" data-panel="1">
       <div class="card">
         <div class="card-head"><i class="bi bi-person-badge"></i> مرحله ۱: انتخاب بیمار</div>
         <div class="card-body">
-          <div id="vPatientBox">
+          <div id="vPatientBox" class="${state.patientId ? 'hidden' : ''}">
             <input type="text" class="form-control mb-2" id="vPatientSearch"
               placeholder="نام، کد ملی، پرسنلی..." autocomplete="off">
             <div id="vPatientResults" style="max-height:400px;overflow-y:auto;"></div>
           </div>
-          <div id="vPatientSelected" class="hidden">
+          <div id="vPatientSelected" class="${state.patientId ? '' : 'hidden'}">
             <div class="badge-soft success" style="display:flex;align-items:center;gap:10px;padding:12px;">
               <i class="bi bi-person-check-fill" style="font-size:1.3rem;"></i>
               <div style="flex:1;">
-                <div style="font-weight:700;" id="vPatientName">—</div>
-                <small class="muted" id="vPatientMeta"></small>
+                <div style="font-weight:700;">${escapeHtml(state.patientName || '—')}</div>
               </div>
               <button style="background:none;border:none;color:#dc3545;font-size:1.2rem;font-weight:700;" id="vPatientClear">✕</button>
             </div>
@@ -250,16 +317,26 @@ function renderWizard() {
       </div>
     </div>
 
+    <!-- ═══ مرحله ۲ ═══ -->
     <div class="wizard-panel ${state.step === 2 ? 'active' : ''}" data-panel="2">
       <div class="card">
         <div class="card-head"><i class="bi bi-clipboard-pulse"></i> مرحله ۲: علت و حادثه</div>
         <div class="card-body">
+          <!-- ⭐ علت مراجعه با جستجو -->
           <div class="mb-3">
             <label class="form-label">علت مراجعه *</label>
-            <select class="form-select" id="vReason">
-              <option value="">انتخاب کنید...</option>
-              ${state.reasons.map(r => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')}
-            </select>
+            <div id="vReasonBox" class="${fd.reasonId ? 'hidden' : ''}">
+              <input type="text" class="form-control" id="vReasonSearch"
+                placeholder="نام علت را تایپ کنید..." autocomplete="off" value="${escapeHtml(fd.reasonText || '')}">
+              <div id="vReasonResults" style="max-height:280px;overflow-y:auto;margin-top:8px;"></div>
+            </div>
+            <div id="vReasonSelected" class="${fd.reasonId ? '' : 'hidden'}">
+              <div class="badge-soft success" style="display:flex;align-items:center;gap:10px;padding:12px;">
+                <i class="bi bi-check-circle-fill" style="font-size:1.2rem;"></i>
+                <div style="flex:1;font-weight:700;">${escapeHtml(fd.reasonText || '—')}</div>
+                <button style="background:none;border:none;color:#dc3545;font-size:1.2rem;font-weight:700;" id="vReasonClear">✕</button>
+              </div>
+            </div>
           </div>
 
           <h6 class="mb-3" style="font-weight:700;">آیا مورد حادثه است؟</h6>
@@ -299,20 +376,22 @@ function renderWizard() {
       </div>
     </div>
 
+    <!-- ═══ مرحله ۳ ═══ -->
     <div class="wizard-panel ${state.step === 3 ? 'active' : ''}" data-panel="3">
       <div class="card">
         <div class="card-head danger"><i class="bi bi-body-text"></i> مرحله ۳: محل حادثه و مصدومیت</div>
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label">محل حادثه *</label>
-            <input type="text" class="form-control" id="vIncidentLocation" list="vIncidentList" placeholder="تایپ یا انتخاب کن...">
+            <input type="text" class="form-control" id="vIncidentLocation" list="vIncidentList"
+              value="${escapeHtml(fd.incidentLocation || '')}" placeholder="تایپ یا انتخاب کن...">
             <datalist id="vIncidentList">
               ${state.incidentLocations.map(l => `<option value="${escapeHtml(l.name)}">`).join('')}
             </datalist>
           </div>
           <div class="mb-3">
             <label class="form-label">شرح حادثه</label>
-            <textarea class="form-control" id="vIncidentDesc" rows="2"></textarea>
+            <textarea class="form-control" id="vIncidentDesc" rows="2">${escapeHtml(fd.incidentDesc || '')}</textarea>
           </div>
 
           <label class="form-label d-block mb-2">محل‌های مصدومیت (روی ادمک بزن):</label>
@@ -326,21 +405,14 @@ function renderWizard() {
       </div>
     </div>
 
+    <!-- ═══ مرحله ۴ ═══ -->
     <div class="wizard-panel ${state.step === 4 ? 'active' : ''}" data-panel="4">
       <div class="card">
         <div class="card-head warning"><i class="bi bi-heart-pulse"></i> مرحله ۴: تاریخ، GCS و علائم حیاتی</div>
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label">تاریخ ویزیت (شمسی) *</label>
-            <input type="text" class="form-control" id="vDate" value="${todayJalali()} 12:00" placeholder="1403/01/01 12:00" dir="ltr">
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">نتیجه درمان *</label>
-            <select class="form-select" id="vTreatment">
-              <option value="">انتخاب کنید...</option>
-              ${state.treatments.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}
-            </select>
+            <input type="text" class="form-control" id="vDate" value="${escapeHtml(fd.date || '')}" placeholder="1403/01/01 12:00" dir="ltr">
           </div>
 
           <h6 style="font-weight:700;margin:20px 0 10px;">🧠 GCS</h6>
@@ -352,15 +424,24 @@ function renderWizard() {
           <div class="row g-2 mb-4">
             <div class="col-6 col-md-3">
               <label class="form-label small">چشم (E)</label>
-              <select class="form-select" id="vGcsE"><option value="">-</option>${[1,2,3,4].map(n=>`<option value="${n}">${n}</option>`).join('')}</select>
+              <select class="form-select" id="vGcsE">
+                <option value="">-</option>
+                ${[1,2,3,4].map(n=>`<option value="${n}" ${fd.gcsE == n ? 'selected' : ''}>${n}</option>`).join('')}
+              </select>
             </div>
             <div class="col-6 col-md-3">
               <label class="form-label small">کلامی (V)</label>
-              <select class="form-select" id="vGcsV"><option value="">-</option>${[1,2,3,4,5].map(n=>`<option value="${n}">${n}</option>`).join('')}</select>
+              <select class="form-select" id="vGcsV">
+                <option value="">-</option>
+                ${[1,2,3,4,5].map(n=>`<option value="${n}" ${fd.gcsV == n ? 'selected' : ''}>${n}</option>`).join('')}
+              </select>
             </div>
             <div class="col-6 col-md-3">
               <label class="form-label small">حرکتی (M)</label>
-              <select class="form-select" id="vGcsM"><option value="">-</option>${[1,2,3,4,5,6].map(n=>`<option value="${n}">${n}</option>`).join('')}</select>
+              <select class="form-select" id="vGcsM">
+                <option value="">-</option>
+                ${[1,2,3,4,5,6].map(n=>`<option value="${n}" ${fd.gcsM == n ? 'selected' : ''}>${n}</option>`).join('')}
+              </select>
             </div>
             <div class="col-6 col-md-3">
               <label class="form-label small">مجموع</label>
@@ -376,35 +457,35 @@ function renderWizard() {
           <div class="row g-2">
             <div class="col-6 col-md-3">
               <label class="form-label small">ضربان قلب</label>
-              <input type="number" class="form-control text-center" id="vHR" inputmode="numeric">
+              <input type="number" class="form-control text-center" id="vHR" value="${escapeHtml(fd.hr)}" inputmode="numeric">
               <small class="muted" style="font-size:0.65rem;">۶۰-۱۰۰</small>
             </div>
             <div class="col-6 col-md-3">
               <label class="form-label small">SpO2 %</label>
-              <input type="number" class="form-control text-center" id="vSpo2" inputmode="numeric">
+              <input type="number" class="form-control text-center" id="vSpo2" value="${escapeHtml(fd.spo2)}" inputmode="numeric">
               <small class="muted" style="font-size:0.65rem;">۹۵-۱۰۰</small>
             </div>
             <div class="col-6 col-md-3">
               <label class="form-label small">فشار خون</label>
-              <input type="text" class="form-control text-center" id="vBP" placeholder="120/80" dir="ltr">
+              <input type="text" class="form-control text-center" id="vBP" value="${escapeHtml(fd.bp)}" placeholder="120/80" dir="ltr">
               <small class="muted" style="font-size:0.65rem;">۱۲۰/۸۰</small>
             </div>
             <div class="col-6 col-md-3">
               <label class="form-label small">دما °C</label>
-              <input type="number" step="0.1" class="form-control text-center" id="vTemp" inputmode="decimal">
+              <input type="number" step="0.1" class="form-control text-center" id="vTemp" value="${escapeHtml(fd.temp)}" inputmode="decimal">
               <small class="muted" style="font-size:0.65rem;">۳۶.۵-۳۷.۲</small>
             </div>
             <div class="col-6 col-md-3">
               <label class="form-label small">قد (cm)</label>
-              <input type="number" step="0.1" class="form-control text-center" id="vHeight" inputmode="decimal">
+              <input type="number" step="0.1" class="form-control text-center" id="vHeight" value="${escapeHtml(fd.height)}" inputmode="decimal">
             </div>
             <div class="col-6 col-md-3">
               <label class="form-label small">وزن (kg)</label>
-              <input type="number" step="0.1" class="form-control text-center" id="vWeight" inputmode="decimal">
+              <input type="number" step="0.1" class="form-control text-center" id="vWeight" value="${escapeHtml(fd.weight)}" inputmode="decimal">
             </div>
             <div class="col-6 col-md-3">
               <label class="form-label small">قند خون</label>
-              <input type="number" step="0.1" class="form-control text-center" id="vSugar" inputmode="decimal">
+              <input type="number" step="0.1" class="form-control text-center" id="vSugar" value="${escapeHtml(fd.sugar)}" inputmode="decimal">
             </div>
             <div class="col-6 col-md-3">
               <label class="form-label small">BMI</label>
@@ -415,6 +496,7 @@ function renderWizard() {
       </div>
     </div>
 
+    <!-- ═══ مرحله ۵ ═══ -->
     <div class="wizard-panel ${state.step === 5 ? 'active' : ''}" data-panel="5">
       <div class="card">
         <div class="card-head success"><i class="bi bi-capsule"></i> مرحله ۵: داروهای تجویزی</div>
@@ -438,34 +520,54 @@ function renderWizard() {
       </div>
     </div>
 
+    <!-- ═══ مرحله ۶ ═══ -->
     <div class="wizard-panel ${state.step === 6 ? 'active' : ''}" data-panel="6">
       <div class="card">
         <div class="card-head"><i class="bi bi-journal-medical"></i> مرحله ۶: تشخیص و نتیجه</div>
         <div class="card-body">
+          <!-- ⭐ نتیجه درمان (انتقال از مرحله ۴) -->
           <div class="mb-3">
+            <label class="form-label">نتیجه درمان *</label>
+            <select class="form-select" id="vTreatment">
+              <option value="">انتخاب کنید...</option>
+              ${state.treatments.map(t => `<option value="${t.id}" ${fd.treatmentId == t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- ⭐ بخش اعزام (فقط اگر نتیجه درمان «اعزام» باشد) -->
+          <div id="vDispatchSection" class="${fd.treatmentId && isDispatch(fd.treatmentId) ? '' : 'hidden'}">
+            <div class="card" style="background:#fff7ed;border:2px solid #fed7aa;">
+              <div class="card-body">
+                <h6 style="color:#92400e;font-weight:700;margin-bottom:12px;">
+                  <i class="bi bi-truck"></i> اطلاعات اعزام
+                </h6>
+                <div class="row g-2">
+                  <div class="col-6">
+                    <label class="form-label small">ساعت اعزام</label>
+                    <input type="time" class="form-control" id="vDispatchTime" value="${escapeHtml(fd.dispatchTime || '')}">
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label small">مقصد اعزام</label>
+                    <input type="text" class="form-control" id="vDispatchDest" value="${escapeHtml(fd.dispatchDest || '')}" placeholder="نام بیمارستان / مرکز">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3 mt-3">
             <label class="form-label">📈 تفسیر ECG</label>
-            <textarea class="form-control" id="vECG" rows="2"></textarea>
+            <textarea class="form-control" id="vECG" rows="2">${escapeHtml(fd.ecg || '')}</textarea>
           </div>
           <div class="mb-3">
             <label class="form-label">📝 شرح حال و ملاحظات</label>
-            <textarea class="form-control" id="vNotes" rows="3"></textarea>
-          </div>
-          <div id="vDispatchSection" class="hidden">
-            <div class="row g-2">
-              <div class="col-6">
-                <label class="form-label">🚑 ساعت اعزام</label>
-                <input type="time" class="form-control" id="vDispatchTime">
-              </div>
-              <div class="col-6">
-                <label class="form-label">مقصد اعزام</label>
-                <input type="text" class="form-control" id="vDispatchDest">
-              </div>
-            </div>
+            <textarea class="form-control" id="vNotes" rows="3">${escapeHtml(fd.notes || '')}</textarea>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- ناوبری -->
     <div class="card">
       <div class="card-body">
         <div class="wizard-nav">
@@ -500,8 +602,15 @@ function renderWizard() {
   bindWizard();
 }
 
+function isDispatch(treatmentId) {
+  if (!treatmentId) return false;
+  const t = state.treatments.find(x => String(x.id) === String(treatmentId));
+  if (!t) return false;
+  return t.name.includes('اعزام');
+}
+
 // ═══════════════════════════════════════════════════════
-// Body Map
+// Body Map (با چشم، بینی، لب)
 // ═══════════════════════════════════════════════════════
 function renderBodyMap() {
   const sel = new Set(state.selectedInjuries.map(i => i.id));
@@ -517,12 +626,25 @@ function renderBodyMap() {
         <div class="body-map">
           <svg viewBox="0 0 240 560" xmlns="http://www.w3.org/2000/svg">
             <ellipse class="body-part ${cls('head')}" data-part="head" cx="120" cy="45" rx="30" ry="35"/>
+            <!-- ⭐ چشم چپ (سمت راست تصویر) -->
+            <circle class="body-part ${cls('eye_left')}" data-part="eye_left" cx="130" cy="42" r="4"/>
+            <!-- ⭐ چشم راست (سمت چپ تصویر) -->
+            <circle class="body-part ${cls('eye_right')}" data-part="eye_right" cx="110" cy="42" r="4"/>
+            <!-- ⭐ بینی -->
+            <path class="body-part ${cls('nose')}" data-part="nose" d="M 120,45 L 116,55 L 124,55 Z"/>
+            <!-- ⭐ لب / دهان -->
+            <ellipse class="body-part ${cls('lips')}" data-part="lips" cx="120" cy="63" rx="8" ry="4"/>
+            <!-- گوش‌ها -->
             <ellipse class="body-part ${cls('ear_left')}" data-part="ear_left" cx="152" cy="50" rx="5" ry="9"/>
             <ellipse class="body-part ${cls('ear_right')}" data-part="ear_right" cx="88" cy="50" rx="5" ry="9"/>
+            <!-- گردن -->
             <rect class="body-part ${cls('neck')}" data-part="neck" x="108" y="78" width="24" height="18" rx="4"/>
+            <!-- سرشانه -->
             <rect class="body-part ${cls('shoulder_left')}" data-part="shoulder_left" x="136" y="100" width="44" height="25" rx="10"/>
             <rect class="body-part ${cls('shoulder_right')}" data-part="shoulder_right" x="60" y="100" width="44" height="25" rx="10"/>
+            <!-- سینه -->
             <rect class="body-part ${cls('chest')}" data-part="chest" x="98" y="100" width="44" height="65" rx="8"/>
+            <!-- بازوها -->
             <rect class="body-part ${cls('upper_arm_left')}" data-part="upper_arm_left" x="155" y="125" width="30" height="80" rx="12"/>
             <rect class="body-part ${cls('upper_arm_right')}" data-part="upper_arm_right" x="55" y="125" width="30" height="80" rx="12"/>
             <rect class="body-part ${cls('elbow_left')}" data-part="elbow_left" x="157" y="205" width="26" height="22" rx="8"/>
@@ -531,13 +653,16 @@ function renderBodyMap() {
             <rect class="body-part ${cls('forearm_right')}" data-part="forearm_right" x="58" y="227" width="24" height="55" rx="8"/>
             <rect class="body-part ${cls('palm_left')}" data-part="palm_left" x="158" y="282" width="24" height="45" rx="6"/>
             <rect class="body-part ${cls('palm_right')}" data-part="palm_right" x="58" y="282" width="24" height="45" rx="6"/>
+            <!-- شکم -->
             <rect class="body-part ${cls('epigastrium')}" data-part="epigastrium" x="98" y="165" width="44" height="35" rx="6"/>
             <rect class="body-part ${cls('hypogastrium')}" data-part="hypogastrium" x="98" y="200" width="44" height="35" rx="6"/>
             <rect class="body-part ${cls('flank_left')}" data-part="flank_left" x="142" y="165" width="13" height="70" rx="5"/>
             <rect class="body-part ${cls('flank_right')}" data-part="flank_right" x="85" y="165" width="13" height="70" rx="5"/>
             <rect class="body-part ${cls('groin')}" data-part="groin" x="105" y="235" width="30" height="15" rx="5"/>
+            <!-- لگن -->
             <rect class="body-part ${cls('hip_left')}" data-part="hip_left" x="122" y="250" width="28" height="25" rx="8"/>
             <rect class="body-part ${cls('hip_right')}" data-part="hip_right" x="90" y="250" width="28" height="25" rx="8"/>
+            <!-- پاها -->
             <rect class="body-part ${cls('thigh_left')}" data-part="thigh_left" x="128" y="275" width="32" height="90" rx="12"/>
             <rect class="body-part ${cls('thigh_right')}" data-part="thigh_right" x="80" y="275" width="32" height="90" rx="12"/>
             <rect class="body-part ${cls('knee_left')}" data-part="knee_left" x="130" y="365" width="28" height="25" rx="8"/>
@@ -589,16 +714,19 @@ function renderBodyMap() {
 // رویدادهای Wizard
 // ═══════════════════════════════════════════════════════
 function bindWizard() {
+  // ⭐ ناوبری مراحل
   document.querySelectorAll('.wizard-step').forEach(el => {
     el.onclick = () => {
       const n = parseInt(el.dataset.step);
       if (n > state.maxStep) return;
       if (n === 3 && !state.isIncident) return;
+      saveFormState();
       state.step = n;
       renderWizard();
     };
   });
 
+  // ⭐ جستجوی بیمار
   const pSearch = $('vPatientSearch');
   if (pSearch) {
     let t;
@@ -616,10 +744,11 @@ function bindWizard() {
       if (!btn) return;
       e.preventDefault();
       e.stopPropagation();
-      const id = parseInt(btn.dataset.pickPatient);
-      const name = btn.dataset.patientName || '';
-      const meta = btn.dataset.patientMeta || '';
-      pickPatient(id, name, meta);
+      pickPatient(
+        parseInt(btn.dataset.pickPatient),
+        btn.dataset.patientName || '',
+        btn.dataset.patientMeta || ''
+      );
     });
   }
 
@@ -628,29 +757,60 @@ function bindWizard() {
     pClear.onclick = () => {
       state.patientId = null;
       state.patientName = '';
-      const box = $('vPatientBox');
-      const sel = $('vPatientSelected');
-      if (box) box.classList.remove('hidden');
-      if (sel) sel.classList.add('hidden');
+      renderWizard();
     };
   }
 
+  // ⭐ جستجوی علت مراجعه
+  const reasonSearch = $('vReasonSearch');
+  if (reasonSearch) {
+    // اگر قبلاً چیزی تایپ کرده، بلافاصله نتایج را نشان بده
+    if (reasonSearch.value.trim().length >= 2 && !state.formData.reasonId) {
+      filterReasons(reasonSearch.value.trim());
+    }
+
+    let rt;
+    reasonSearch.addEventListener('input', e => {
+      clearTimeout(rt);
+      rt = setTimeout(() => filterReasons(e.target.value.trim()), 200);
+    });
+    reasonSearch.addEventListener('focus', () => {
+      if (reasonSearch.value.trim().length < 2) {
+        // نمایش همه
+        filterReasons('');
+      }
+    });
+  }
+
+  const reasonResults = $('vReasonResults');
+  if (reasonResults && !reasonResults.dataset.bound) {
+    reasonResults.dataset.bound = '1';
+    reasonResults.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-pick-reason]');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      pickReason(parseInt(btn.dataset.pickReason), btn.dataset.reasonName);
+    });
+  }
+
+  const reasonClear = $('vReasonClear');
+  if (reasonClear) {
+    reasonClear.onclick = () => {
+      state.formData.reasonId = null;
+      state.formData.reasonText = '';
+      renderWizard();
+    };
+  }
+
+  // ⭐ کارت حادثه
   document.querySelectorAll('.incident-card').forEach(card => {
     card.onclick = () => {
+      saveFormState();
       const yes = card.dataset.incident === 'yes';
       state.isIncident = yes;
       if (!yes) state.incidentType = 'none';
-      const reasonVal = $('vReason')?.value;
-      const incLocVal = $('vIncidentLocation')?.value;
-      const incDescVal = $('vIncidentDesc')?.value;
-      const dateVal = $('vDate')?.value;
-      const treatVal = $('vTreatment')?.value;
       renderWizard();
-      if (reasonVal && $('vReason')) $('vReason').value = reasonVal;
-      if (incLocVal && $('vIncidentLocation')) $('vIncidentLocation').value = incLocVal;
-      if (incDescVal && $('vIncidentDesc')) $('vIncidentDesc').value = incDescVal;
-      if (dateVal && $('vDate')) $('vDate').value = dateVal;
-      if (treatVal && $('vTreatment')) $('vTreatment').value = treatVal;
     };
   });
 
@@ -662,11 +822,16 @@ function bindWizard() {
     };
   });
 
+  // ⭐ Body Map
   document.querySelectorAll('.body-part').forEach(p => {
     p.onclick = () => {
       const key = p.dataset.part;
       const loc = INJURY_MAP[key];
-      if (!loc) return;
+      if (!loc) {
+        toast('این ناحیه در دیتابیس تعریف نشده', 'warning');
+        return;
+      }
+      saveFormState();
       const idx = state.selectedInjuries.findIndex(x => x.id === loc.id);
       if (idx >= 0) state.selectedInjuries.splice(idx, 1);
       else state.selectedInjuries.push(loc);
@@ -679,12 +844,20 @@ function bindWizard() {
       e.stopPropagation();
       const id = parseInt(b.dataset.id);
       state.selectedInjuries = state.selectedInjuries.filter(x => x.id !== id);
+      saveFormState();
       renderWizard();
     };
   });
 
+  // ⭐ GCS
   const consCheck = $('consciousCheck');
   if (consCheck) {
+    // اگر همه پر بودند
+    const fd = state.formData;
+    if (fd.gcsE == 4 && fd.gcsV == 5 && fd.gcsM == 6) {
+      consCheck.checked = true;
+      $('consciousToggle')?.classList.add('active');
+    }
     consCheck.onchange = () => {
       $('consciousToggle')?.classList.toggle('active', consCheck.checked);
       if (consCheck.checked) {
@@ -693,14 +866,18 @@ function bindWizard() {
         $('vGcsE').value = ''; $('vGcsV').value = ''; $('vGcsM').value = '';
       }
       calcGCS();
+      saveFormState();
     };
   }
 
   ['vGcsE', 'vGcsV', 'vGcsM'].forEach(id => {
     const el = $(id);
-    if (el) el.onchange = calcGCS;
+    if (el) {
+      el.onchange = () => { calcGCS(); saveFormState(); };
+    }
   });
 
+  // ⭐ Vitals
   const vitCheck = $('vitalsCheck');
   if (vitCheck) {
     vitCheck.onchange = () => {
@@ -714,14 +891,31 @@ function bindWizard() {
       } else {
         ['vHR','vSpo2','vBP','vTemp'].forEach(id => { const el = $(id); if (el) el.value = ''; });
       }
+      saveFormState();
     };
   }
 
   ['vHeight','vWeight'].forEach(id => {
     const el = $(id);
-    if (el) el.oninput = calcBMI;
+    if (el) el.oninput = () => { calcBMI(); saveFormState(); };
   });
 
+  // ⭐ ذخیره مقادیر در state با هر تغییر
+  ['vHR','vSpo2','vBP','vTemp','vSugar'].forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener('input', saveFormState);
+  });
+
+  const dateEl = $('vDate');
+  if (dateEl) dateEl.addEventListener('input', saveFormState);
+
+  const incLocEl = $('vIncidentLocation');
+  if (incLocEl) incLocEl.addEventListener('input', saveFormState);
+
+  const incDescEl = $('vIncidentDesc');
+  if (incDescEl) incDescEl.addEventListener('input', saveFormState);
+
+  // ⭐ مرحله ۵ داروها
   renderQuickDrugs();
   renderItems();
 
@@ -817,16 +1011,20 @@ function bindWizard() {
     });
   }
 
+  // ⭐ مرحله ۶ - نتیجه درمان + اعزام
   const treatmentSel = $('vTreatment');
   if (treatmentSel) {
     treatmentSel.onchange = (e) => {
-      const text = e.target.options[e.target.selectedIndex].text;
+      state.formData.treatmentId = e.target.value;
       const dispatch = $('vDispatchSection');
-      if (text.includes('اعزام')) {
+      if (isDispatch(e.target.value)) {
         dispatch?.classList.remove('hidden');
-        if ($('vDispatchTime') && !$('vDispatchTime').value) {
+        // ⭐ اگر ساعت خالی بود، الان را بگذار
+        const dt = $('vDispatchTime');
+        if (dt && !dt.value) {
           const now = new Date();
-          $('vDispatchTime').value = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+          dt.value = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+          state.formData.dispatchTime = dt.value;
         }
       } else {
         dispatch?.classList.add('hidden');
@@ -834,9 +1032,24 @@ function bindWizard() {
     };
   }
 
+  const dtEl = $('vDispatchTime');
+  if (dtEl) dtEl.addEventListener('input', saveFormState);
+  const ddEl = $('vDispatchDest');
+  if (ddEl) ddEl.addEventListener('input', saveFormState);
+  const ecgEl = $('vECG');
+  if (ecgEl) ecgEl.addEventListener('input', saveFormState);
+  const notesEl = $('vNotes');
+  if (notesEl) notesEl.addEventListener('input', saveFormState);
+
+  // ⭐ محاسبه اولیه GCS و BMI
+  calcGCS();
+  calcBMI();
+
+  // ⭐ ناوبری
   const btnPrev = $('btnPrev');
   if (btnPrev) btnPrev.onclick = () => {
     if (state.step > 1) {
+      saveFormState();
       state.step--;
       if (state.step === 3 && !state.isIncident) state.step--;
       renderWizard();
@@ -845,6 +1058,7 @@ function bindWizard() {
 
   const btnNext = $('btnNext');
   if (btnNext) btnNext.onclick = () => {
+    saveFormState();
     if (!validateStep(state.step)) return;
     if (state.step < 6) {
       state.step++;
@@ -861,9 +1075,44 @@ function bindWizard() {
   if (btnCancel) btnCancel.onclick = () => {
     if (confirm('فرم لغو شود؟')) {
       state.view = 'list';
+      resetFormData();
       renderList();
     }
   };
+}
+
+// ═══════════════════════════════════════════════════════
+// جستجوی علت مراجعه
+// ═══════════════════════════════════════════════════════
+function filterReasons(q) {
+  const box = $('vReasonResults');
+  if (!box) return;
+
+  let filtered = state.reasons;
+  if (q && q.length >= 2) {
+    const ql = q.toLowerCase();
+    filtered = state.reasons.filter(r => (r.name || '').toLowerCase().includes(ql));
+  }
+
+  if (!filtered.length) {
+    box.innerHTML = '<div class="text-center muted small py-2">یافت نشد</div>';
+    return;
+  }
+
+  box.innerHTML = filtered.slice(0, 20).map(r => `
+    <button type="button" class="btn btn-light w-100 text-end mb-1 py-2"
+      data-pick-reason="${r.id}" data-reason-name="${escapeHtml(r.name)}"
+      style="border:1px solid #e2e8f0;border-radius:10px;">
+      <strong>${escapeHtml(r.name)}</strong>
+    </button>
+  `).join('');
+}
+
+function pickReason(id, name) {
+  state.formData.reasonId = id;
+  state.formData.reasonText = name;
+  renderWizard();
+  beep();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -903,22 +1152,13 @@ async function searchPatients(q) {
 }
 
 function pickPatient(id, name, meta) {
-  if (!id) {
-    toast('شناسه بیمار معتبر نیست', 'warning');
-    return;
-  }
-
+  if (!id) { toast('شناسه بیمار معتبر نیست', 'warning'); return; }
   state.patientId = id;
   state.patientName = name;
-
   state.step = 2;
   if (state.step > state.maxStep) state.maxStep = state.step;
   renderWizard();
-
-  setTimeout(() => {
-    toast(`بیمار "${name}" انتخاب شد`, 'success');
-  }, 100);
-
+  setTimeout(() => toast(`بیمار "${name}" انتخاب شد`, 'success'), 100);
   beep();
 }
 
@@ -1007,7 +1247,7 @@ function addQuickDrug(id, name) {
 }
 
 // ═══════════════════════════════════════════════════════
-// مدیریت داروهای تجویزی
+// داروها
 // ═══════════════════════════════════════════════════════
 async function openDrugSearchModal() {
   const { openDrugSearch } = await import('../modals.js');
@@ -1047,7 +1287,7 @@ function renderItems() {
 }
 
 // ═══════════════════════════════════════════════════════
-// اعتبارسنجی هر مرحله
+// اعتبارسنجی
 // ═══════════════════════════════════════════════════════
 function validateStep(step) {
   if (step === 1) {
@@ -1055,17 +1295,16 @@ function validateStep(step) {
     return true;
   }
   if (step === 2) {
-    if (!$('vReason')?.value) { toast('علت مراجعه را انتخاب کنید', 'warning'); return false; }
+    if (!state.formData.reasonId) { toast('علت مراجعه را انتخاب کنید', 'warning'); return false; }
     if (state.isIncident && state.incidentType === 'none') { toast('نوع حادثه را انتخاب کنید', 'warning'); return false; }
     return true;
   }
   if (step === 3) {
-    if (!$('vIncidentLocation')?.value.trim()) { toast('محل حادثه را وارد کنید', 'warning'); return false; }
+    if (!state.formData.incidentLocation?.trim()) { toast('محل حادثه را وارد کنید', 'warning'); return false; }
     return true;
   }
   if (step === 4) {
-    if (!$('vDate')?.value.trim()) { toast('تاریخ ویزیت را وارد کنید', 'warning'); return false; }
-    if (!$('vTreatment')?.value) { toast('نتیجه درمان را انتخاب کنید', 'warning'); return false; }
+    if (!state.formData.date?.trim()) { toast('تاریخ ویزیت را وارد کنید', 'warning'); return false; }
     return true;
   }
   return true;
@@ -1075,25 +1314,30 @@ function validateStep(step) {
 // ذخیره ویزیت
 // ═══════════════════════════════════════════════════════
 async function saveVisit() {
+  saveFormState();
   if (!validateStep(4)) { state.step = 4; renderWizard(); return; }
+  if (!state.formData.treatmentId) {
+    toast('نتیجه درمان را انتخاب کنید', 'warning');
+    state.step = 6; renderWizard();
+    return;
+  }
 
   const btn = $('vSave');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ذخیره...'; }
 
   try {
-    const dateStr = $('vDate').value.trim();
-    const parts = dateStr.split(' ');
-    const dateOnly = parts[0];
-    const timeOnly = parts[1] || '12:00';
-    const greg = jalaliToGregorian(dateOnly);
+    const fd = state.formData;
+    const parts = fd.date.trim().split(' ');
+    const greg = jalaliToGregorian(parts[0]);
     if (!greg) throw new Error('تاریخ نامعتبر');
 
+    const timeOnly = parts[1] || '12:00';
     const [hh, mm] = timeOnly.split(':').map(Number);
     const visitDate = new Date(`${greg}T${String(hh||12).padStart(2,'0')}:${String(mm||0).padStart(2,'0')}:00`);
 
     let incidentLocId = null;
     if (state.isIncident) {
-      const name = $('vIncidentLocation').value.trim();
+      const name = fd.incidentLocation.trim();
       const found = state.incidentLocations.find(l => l.name === name);
       if (found) incidentLocId = found.id;
       else {
@@ -1104,8 +1348,8 @@ async function saveVisit() {
     }
 
     let dispatchTime = null;
-    if ($('vDispatchTime')?.value) {
-      const [dh, dm] = $('vDispatchTime').value.split(':').map(Number);
+    if (fd.dispatchTime) {
+      const [dh, dm] = fd.dispatchTime.split(':').map(Number);
       const d = new Date();
       d.setHours(dh, dm, 0, 0);
       dispatchTime = d.toISOString();
@@ -1114,26 +1358,26 @@ async function saveVisit() {
     const payload = {
       patient_id: state.patientId,
       visit_date: visitDate.toISOString(),
-      reason_for_visit_id: parseInt($('vReason').value),
-      treatment_result_id: parseInt($('vTreatment').value),
+      reason_for_visit_id: state.formData.reasonId,
+      treatment_result_id: parseInt(fd.treatmentId),
       is_incident: state.isIncident,
       incident_type: state.isIncident ? state.incidentType : 'none',
       incident_location_id: incidentLocId,
-      incident_description: $('vIncidentDesc')?.value.trim() || null,
-      height_cm: parseFloat($('vHeight')?.value) || null,
-      weight_kg: parseFloat($('vWeight')?.value) || null,
-      blood_pressure: $('vBP')?.value.trim() || null,
-      heart_rate: parseInt($('vHR')?.value) || null,
-      temperature: parseFloat($('vTemp')?.value) || null,
-      blood_sugar: parseFloat($('vSugar')?.value) || null,
-      spo2: parseInt($('vSpo2')?.value) || null,
-      gcs_eye: parseInt($('vGcsE')?.value) || null,
-      gcs_verbal: parseInt($('vGcsV')?.value) || null,
-      gcs_motor: parseInt($('vGcsM')?.value) || null,
-      ecg_interpretation: $('vECG')?.value.trim() || null,
+      incident_description: fd.incidentDesc?.trim() || null,
+      height_cm: parseFloat(fd.height) || null,
+      weight_kg: parseFloat(fd.weight) || null,
+      blood_pressure: fd.bp?.trim() || null,
+      heart_rate: parseInt(fd.hr) || null,
+      temperature: parseFloat(fd.temp) || null,
+      blood_sugar: parseFloat(fd.sugar) || null,
+      spo2: parseInt(fd.spo2) || null,
+      gcs_eye: parseInt(fd.gcsE) || null,
+      gcs_verbal: parseInt(fd.gcsV) || null,
+      gcs_motor: parseInt(fd.gcsM) || null,
+      ecg_interpretation: fd.ecg?.trim() || null,
       dispatch_time: dispatchTime,
-      dispatch_destination: $('vDispatchDest')?.value.trim() || null,
-      notes: $('vNotes')?.value.trim() || null,
+      dispatch_destination: fd.dispatchDest?.trim() || null,
+      notes: fd.notes?.trim() || null,
       status: 'pending'
     };
 
@@ -1157,6 +1401,7 @@ async function saveVisit() {
 
     toast('✅ ویزیت ثبت شد', 'success');
     beep();
+    resetFormData();
     state.view = 'list';
     renderList();
 
@@ -1191,7 +1436,6 @@ async function openDetail(visitId) {
       sb.from('visits_visit_injury_locations').select('loc:visits_injurylocation(name)').eq('visit_id', visitId)
     ]);
 
-    // ⭐ برای هر دارو، موجودی فعلی را بگیر
     let itemsWithStock = items.data || [];
     if (itemsWithStock.length) {
       const drugIds = itemsWithStock.map(i => i.drug_id);
@@ -1229,7 +1473,6 @@ function renderDetail() {
       ? '<span class="badge-soft warning"><i class="bi bi-arrow-left-right"></i> ارجاع شده</span>'
       : '<span class="badge-soft primary"><i class="bi bi-hourglass"></i> در انتظار</span>';
 
-  // بررسی کمبود دارو
   let hasShortage = false;
   (v.items || []).forEach(it => {
     if ((it.available ?? 0) < it.quantity) hasShortage = true;
@@ -1373,7 +1616,6 @@ function renderDetail() {
     `;
   }
 
-  // داروها با نمایش موجودی
   if (v.items.length) {
     html += `
       <div class="card">
@@ -1412,7 +1654,6 @@ function renderDetail() {
     `;
   }
 
-  // ⭐ نمایش هشدار کلی
   if (hasShortage && v.status !== 'completed') {
     html += `
       <div class="alert alert-danger">
@@ -1455,7 +1696,7 @@ function cellBadge(label, value, color) {
 }
 
 // ═══════════════════════════════════════════════════════
-// تکمیل ویزیت + کسر موجودی (با چک قبلی)
+// تکمیل ویزیت
 // ═══════════════════════════════════════════════════════
 async function completeVisit(visitId) {
   if (!confirm('ویزیت تکمیل شود؟ موجودی انبار کسر می‌شود.')) return;
@@ -1467,13 +1708,11 @@ async function completeVisit(visitId) {
   }
 
   try {
-    // ═══ ۱. دریافت داروهای ویزیت ═══
     const { data: items, error: e0 } = await sb.from('visits_visititem')
       .select('drug_id, quantity, drug:drugs_drug(name)')
       .eq('visit_id', visitId);
     if (e0) throw e0;
 
-    // اگر دارویی نیست → بدون سوال تکمیل کن
     if (!items?.length) {
       const { error: e2 } = await sb.from('visits_visit').update({
         status: 'completed',
@@ -1486,25 +1725,22 @@ async function completeVisit(visitId) {
       return;
     }
 
-    // ═══ ۲. چک موجودی هر دارو (بدون تغییر) ═══
+    // چک موجودی
     const shortages = [];
     for (const it of items) {
       const { data: stock } = await sb.from('v_drug_stock')
-        .select('total_quantity')
-        .eq('drug_id', it.drug_id)
-        .maybeSingle();
+        .select('total_quantity').eq('drug_id', it.drug_id).maybeSingle();
       const available = stock?.total_quantity || 0;
       if (available < it.quantity) {
         shortages.push({
           name: it.drug?.name || `#${it.drug_id}`,
           required: it.quantity,
-          available: available,
+          available,
           missing: it.quantity - available
         });
       }
     }
 
-    // ═══ ۳. اگر کمبود وجود دارد → متوقف شو ═══
     if (shortages.length) {
       const lines = shortages.map(s =>
         `• ${s.name}\n  نیاز: ${faNum(s.required)} | موجودی: ${faNum(s.available)} | کمبود: ${faNum(s.missing)}`
@@ -1519,17 +1755,10 @@ async function completeVisit(visitId) {
 
       toast('⚠️ موجودی کافی نیست - ویزیت در انتظار ماند', 'warning');
       beep(300);
-
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> تلاش برای تکمیل (نیاز به تأمین موجودی)';
-      }
-      // دوباره رندر کن تا اطلاعات به‌روز شود
       openDetail(visitId);
       return;
     }
 
-    // ═══ ۴. همه موجودی کافیست → کسر با FIFO ═══
     if (btn) btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال کسر موجودی...';
 
     const errors = [];
@@ -1539,19 +1768,12 @@ async function completeVisit(visitId) {
         p_drug_id: it.drug_id,
         p_quantity: it.quantity
       });
-      if (e) {
-        errors.push(`${it.drug?.name || '#' + it.drug_id}: ${e.message}`);
-      } else {
-        succeeded.push(it.drug?.name || '#' + it.drug_id);
-      }
+      if (e) errors.push(`${it.drug?.name || '#' + it.drug_id}: ${e.message}`);
+      else succeeded.push(it.drug?.name || '#' + it.drug_id);
     }
 
-    // اگر خطایی در کسر افتاد → ویزیت تکمیل نشود
     if (errors.length) {
-      alert(
-        `❌ خطا در کسر موجودی:\n\n${errors.join('\n')}\n\n` +
-        `ویزیت تکمیل نشد. لطفاً با پشتیبانی تماس بگیرید.`
-      );
+      alert(`❌ خطا در کسر موجودی:\n\n${errors.join('\n')}\n\nویزیت تکمیل نشد.`);
       if (btn) {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> تلاش برای تکمیل';
@@ -1559,7 +1781,6 @@ async function completeVisit(visitId) {
       return;
     }
 
-    // ═══ ۵. تغییر وضعیت به completed ═══
     const { error: e2 } = await sb.from('visits_visit').update({
       status: 'completed',
       completed_at: new Date().toISOString()
