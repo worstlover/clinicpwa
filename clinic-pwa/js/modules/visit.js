@@ -41,7 +41,7 @@ const state = {
 const INJURY_MAP = {};
 
 // ═══════════════════════════════════════════════════════
-// ⭐ گرفتن ID جنگو کاربر فعلی
+// دسترسی‌ها
 // ═══════════════════════════════════════════════════════
 function getMyDjangoId() {
   return currentUser?.user_metadata?.django_user_id || null;
@@ -52,12 +52,21 @@ function isSuperuser() {
     || currentUser?.user_metadata?.is_superuser === 'true';
 }
 
-function isSafetyOrSupervisor() {
-  const groups = currentUser?.user_metadata?.groups || [];
-  if (Array.isArray(groups)) {
-    return groups.some(g => ['safety', 'Supervisor', 'ایمنی', 'سوپروایزر'].includes(g));
-  }
-  return false;
+// ⭐ ویرایش فقط برای مسئول فعلی (اگر تکمیل نشده باشد)
+function canEditVisit(v) {
+  if (!v) return false;
+  if (isSuperuser()) return v.status !== 'completed';
+  if (v.status === 'completed') return false;
+  return v.assigned_to_id === getMyDjangoId();
+}
+
+// ⭐ مشاهده: تکمیل‌شده برای همه، در حال بررسی فقط برای خودم
+function canViewVisit(v) {
+  if (!v) return false;
+  if (v.status === 'completed') return true;
+  if (isSuperuser()) return true;
+  const myId = getMyDjangoId();
+  return v.doctor_id === myId || v.assigned_to_id === myId;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -108,28 +117,28 @@ async function renderList() {
 
     let q = sb.from('visits_visit').select(`
       id, visit_date, status, is_incident, incident_type,
-      blood_pressure, heart_rate,
-      doctor_id, assigned_to_id,
+      blood_pressure, heart_rate, doctor_id, assigned_to_id,
       patient:core_patient(id, first_name, last_name, national_code, personnel_number),
       reason:visits_reasonforvisit(name),
       result:visits_treatmentresult(name)
-    `).order('visit_date', { ascending: false }).limit(150);
+    `).order('visit_date', { ascending: false }).limit(200);
 
-    // ⭐ فیلتر: فقط ویزیت‌های من (ایجاد کننده یا مسئول فعلی)
-    // سوپریوزر همه را می‌بیند
-    if (!superuser && myId) {
-      q = q.or(`doctor_id.eq.${myId},assigned_to_id.eq.${myId}`);
+    if (state.filter === 'completed') {
+      // ⭐ تکمیل‌شده: همه می‌بینند
+      q = q.eq('status', 'completed');
+    } else if (state.filter === 'referred') {
+      q = q.eq('status', 'referred');
+      if (!superuser && myId) q = q.or(`doctor_id.eq.${myId},assigned_to_id.eq.${myId}`);
+    } else {
+      // pending: فقط خودم
+      q = q.in('status', ['pending', 'referred']);
+      if (!superuser && myId) q = q.or(`doctor_id.eq.${myId},assigned_to_id.eq.${myId}`);
     }
-
-    if (state.filter === 'completed') q = q.eq('status', 'completed');
-    else if (state.filter === 'referred') q = q.eq('status', 'referred');
-    else q = q.in('status', ['pending', 'referred']);
 
     const { data, error } = await q;
     if (error) throw error;
     state.visits = data || [];
 
-    // ⭐ لود کردن نام کاربران (doctor + assigned_to)
     await loadUserMap();
 
     const list = $('visitList');
@@ -137,8 +146,7 @@ async function renderList() {
       list.innerHTML = `
         <div class="card text-center py-5 muted">
           <i class="bi bi-inbox" style="font-size:2.5rem;opacity:0.5;"></i>
-          <div class="mt-2">ویزیتی برای شما یافت نشد</div>
-          <small style="opacity:0.7;">فقط ویزیت‌های ایجاد شده توسط شما یا ارجاع شده به شما نمایش داده می‌شوند</small>
+          <div class="mt-2">ویزیتی یافت نشد</div>
         </div>`;
       return;
     }
@@ -211,19 +219,14 @@ async function loadUserMap() {
     if (v.assigned_to_id) ids.add(v.assigned_to_id);
   });
   if (!ids.size) { state.userMap = {}; return; }
-
   try {
     const { data } = await sb.from('auth_user')
-      .select('id, first_name, last_name, username')
-      .in('id', Array.from(ids));
+      .select('id, first_name, last_name, username').in('id', Array.from(ids));
     state.userMap = {};
     (data || []).forEach(u => {
       state.userMap[u.id] = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username;
     });
-  } catch (e) {
-    console.warn('خطا در لود کاربران:', e);
-    state.userMap = {};
-  }
+  } catch (e) { state.userMap = {}; }
 }
 
 function getUserName(id) {
@@ -244,17 +247,14 @@ async function loadRefs() {
     sb.from('visits_treatmentresult').select('id, name').eq('is_active', true).order('name'),
     sb.from('visits_incidentlocation').select('id, name').eq('is_active', true).order('name').limit(200),
     sb.from('visits_injurylocation').select('id, name, svg_key, view_type').eq('is_active', true),
-    sb.from('visits_visititem')
-      .select('drug_id, drug:drugs_drug(id, name, form)')
+    sb.from('visits_visititem').select('drug_id, drug:drugs_drug(id, name, form)')
       .order('id', { ascending: false }).limit(500)
   ]);
-
   state.reasons = r.data || [];
   state.treatments = t.data || [];
   state.incidentLocations = il.data || [];
   state.injuryLocations = inj.data || [];
   state.drugPrefs = { order: [], hidden: [] };
-
   const counts = {};
   (qd.data || []).forEach(item => {
     const d = item.drug;
@@ -263,7 +263,6 @@ async function loadRefs() {
     counts[d.id].count++;
   });
   state.quickDrugs = Object.values(counts).sort((a, b) => b.count - a.count).slice(0, 15);
-
   Object.keys(INJURY_MAP).forEach(k => delete INJURY_MAP[k]);
   state.injuryLocations.forEach(loc => {
     if (loc.svg_key) INJURY_MAP[loc.svg_key] = { id: loc.id, name: loc.name };
@@ -282,15 +281,13 @@ function getIcon(form) {
 }
 
 // ═══════════════════════════════════════════════════════
-// ذخیره و بازیابی مقادیر فرم
+// ذخیره/بازیابی فرم
 // ═══════════════════════════════════════════════════════
 function saveFormState() {
   const fd = state.formData;
   const map = {
-    'vReasonSearch': 'reasonText',
-    'vIncidentLocation': 'incidentLocation',
-    'vIncidentDesc': 'incidentDesc',
-    'vDate': 'date',
+    'vReasonSearch': 'reasonText', 'vIncidentLocation': 'incidentLocation',
+    'vIncidentDesc': 'incidentDesc', 'vDate': 'date',
     'vGcsE': 'gcsE', 'vGcsV': 'gcsV', 'vGcsM': 'gcsM',
     'vHR': 'hr', 'vSpo2': 'spo2', 'vBP': 'bp',
     'vTemp': 'temp', 'vHeight': 'height', 'vWeight': 'weight', 'vSugar': 'sugar',
@@ -298,19 +295,16 @@ function saveFormState() {
     'vDispatchTime': 'dispatchTime', 'vDispatchDest': 'dispatchDest'
   };
   Object.entries(map).forEach(([id, key]) => {
-    const el = $(id);
-    if (el) fd[key] = el.value;
+    const el = $(id); if (el) fd[key] = el.value;
   });
 }
 
 function resetFormData() {
   state.formData = {
-    reasonId: null, reasonText: '',
-    incidentLocation: '', incidentDesc: '',
-    date: '', gcsE: '', gcsV: '', gcsM: '',
-    hr: '', spo2: '', bp: '', temp: '', height: '', weight: '', sugar: '',
-    treatmentId: '', ecg: '', notes: '',
-    dispatchTime: '', dispatchDest: ''
+    reasonId: null, reasonText: '', incidentLocation: '', incidentDesc: '',
+    date: '', gcsE: '', gcsV: '', gcsM: '', hr: '', spo2: '', bp: '',
+    temp: '', height: '', weight: '', sugar: '', treatmentId: '',
+    ecg: '', notes: '', dispatchTime: '', dispatchDest: ''
   };
 }
 
@@ -325,7 +319,6 @@ async function openCreate() {
   state.selectedInjuries = []; state.items = [];
   resetFormData();
   state.formData.date = `${todayJalali()} 12:00`;
-
   const c = $('visitContent');
   c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
   await loadRefs();
@@ -443,7 +436,7 @@ function renderWizard() {
             <label class="form-label">شرح حادثه</label>
             <textarea class="form-control" id="vIncidentDesc" rows="2">${escapeHtml(fd.incidentDesc || '')}</textarea>
           </div>
-          <label class="form-label d-block mb-2">محل‌های مصدومیت (روی ادمک بزن):</label>
+          <label class="form-label d-block mb-2">محل‌های مصدومیت:</label>
           ${renderBodyMap()}
           <div class="selected-parts-list" id="vInjuryList">
             ${state.selectedInjuries.length ? state.selectedInjuries.map(i => `
@@ -460,15 +453,13 @@ function renderWizard() {
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label">تاریخ ویزیت (شمسی) *</label>
-            <input type="text" class="form-control" id="vDate" value="${escapeHtml(fd.date || '')}" placeholder="1403/01/01 12:00" dir="ltr">
+            <input type="text" class="form-control" id="vDate" value="${escapeHtml(fd.date || '')}" dir="ltr">
           </div>
-
           <h6 style="font-weight:700;margin:20px 0 10px;">🧠 GCS</h6>
           <div class="toggle-box" id="consciousToggle">
             <input type="checkbox" class="big-checkbox" id="consciousCheck">
             <label for="consciousCheck">بیمار هوشیار است (GCS = 15)</label>
           </div>
-
           <div class="row g-2 mb-4">
             <div class="col-6 col-md-3"><label class="form-label small">چشم (E)</label>
               <select class="form-select" id="vGcsE"><option value="">-</option>
@@ -483,21 +474,17 @@ function renderWizard() {
                 ${[1,2,3,4,5,6].map(n=>`<option value="${n}" ${fd.gcsM == n ? 'selected' : ''}>${n}</option>`).join('')}
               </select></div>
             <div class="col-6 col-md-3"><label class="form-label small">مجموع</label>
-              <div class="form-control text-center fw-bold" id="vGcsTotal" style="background:#f0f8ff;color:var(--primary);font-size:1.1rem;">---</div></div>
+              <div class="form-control text-center fw-bold" id="vGcsTotal" style="background:#f0f8ff;color:var(--primary);">---</div></div>
           </div>
-
           <div class="toggle-box" id="vitalsToggle">
             <input type="checkbox" class="big-checkbox" id="vitalsCheck">
             <label for="vitalsCheck">همه علائم حیاتی نرمال است</label>
           </div>
-
           <div class="row g-2">
             <div class="col-6 col-md-3"><label class="form-label small">ضربان قلب</label>
-              <input type="number" class="form-control text-center" id="vHR" value="${escapeHtml(fd.hr)}" inputmode="numeric">
-              <small class="muted" style="font-size:0.65rem;">۶۰-۱۰۰</small></div>
+              <input type="number" class="form-control text-center" id="vHR" value="${escapeHtml(fd.hr)}" inputmode="numeric"></div>
             <div class="col-6 col-md-3"><label class="form-label small">SpO2 %</label>
-              <input type="number" class="form-control text-center" id="vSpo2" value="${escapeHtml(fd.spo2)}" inputmode="numeric">
-              <small class="muted" style="font-size:0.65rem;">۹۵-۱۰۰</small></div>
+              <input type="number" class="form-control text-center" id="vSpo2" value="${escapeHtml(fd.spo2)}" inputmode="numeric"></div>
             <div class="col-6 col-md-3"><label class="form-label small">فشار خون</label>
               <input type="text" class="form-control text-center" id="vBP" value="${escapeHtml(fd.bp)}" placeholder="120/80" dir="ltr"></div>
             <div class="col-6 col-md-3"><label class="form-label small">دما °C</label>
@@ -530,8 +517,7 @@ function renderWizard() {
             <div class="d-flex flex-wrap" id="quickDrugsList"></div>
           </div>
           <button class="btn btn-outline-success w-100 mb-3" id="vAddDrug">
-            <i class="bi bi-plus-circle"></i> افزودن دارو
-          </button>
+            <i class="bi bi-plus-circle"></i> افزودن دارو</button>
           <div id="vItemsList"></div>
         </div>
       </div>
@@ -548,7 +534,6 @@ function renderWizard() {
               ${state.treatments.map(t => `<option value="${t.id}" ${fd.treatmentId == t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
             </select>
           </div>
-
           <div id="vDispatchSection" class="${fd.treatmentId && isDispatch(fd.treatmentId) ? '' : 'hidden'}">
             <div class="card" style="background:#fff7ed;border:2px solid #fed7aa;">
               <div class="card-body">
@@ -564,7 +549,6 @@ function renderWizard() {
               </div>
             </div>
           </div>
-
           <div class="mb-3 mt-3"><label class="form-label">📈 تفسیر ECG</label>
             <textarea class="form-control" id="vECG" rows="2">${escapeHtml(fd.ecg || '')}</textarea></div>
           <div class="mb-3"><label class="form-label">📝 شرح حال و ملاحظات</label>
@@ -617,7 +601,6 @@ function renderBodyMap() {
     const loc = INJURY_MAP[key];
     return loc && sel.has(loc.id) ? 'selected' : '';
   };
-
   return `
     <div class="body-map-container">
       <div class="body-map-wrap">
@@ -637,29 +620,16 @@ function renderBodyMap() {
             <rect class="body-part ${cls('chest')}" data-part="chest" x="98" y="100" width="44" height="65" rx="8"/>
             <rect class="body-part ${cls('upper_arm_left')}" data-part="upper_arm_left" x="155" y="125" width="30" height="80" rx="12"/>
             <rect class="body-part ${cls('upper_arm_right')}" data-part="upper_arm_right" x="55" y="125" width="30" height="80" rx="12"/>
-            <rect class="body-part ${cls('elbow_left')}" data-part="elbow_left" x="157" y="205" width="26" height="22" rx="8"/>
-            <rect class="body-part ${cls('elbow_right')}" data-part="elbow_right" x="57" y="205" width="26" height="22" rx="8"/>
             <rect class="body-part ${cls('forearm_left')}" data-part="forearm_left" x="158" y="227" width="24" height="55" rx="8"/>
             <rect class="body-part ${cls('forearm_right')}" data-part="forearm_right" x="58" y="227" width="24" height="55" rx="8"/>
-            <rect class="body-part ${cls('palm_left')}" data-part="palm_left" x="158" y="282" width="24" height="45" rx="6"/>
-            <rect class="body-part ${cls('palm_right')}" data-part="palm_right" x="58" y="282" width="24" height="45" rx="6"/>
             <rect class="body-part ${cls('epigastrium')}" data-part="epigastrium" x="98" y="165" width="44" height="35" rx="6"/>
             <rect class="body-part ${cls('hypogastrium')}" data-part="hypogastrium" x="98" y="200" width="44" height="35" rx="6"/>
-            <rect class="body-part ${cls('flank_left')}" data-part="flank_left" x="142" y="165" width="13" height="70" rx="5"/>
-            <rect class="body-part ${cls('flank_right')}" data-part="flank_right" x="85" y="165" width="13" height="70" rx="5"/>
-            <rect class="body-part ${cls('groin')}" data-part="groin" x="105" y="235" width="30" height="15" rx="5"/>
-            <rect class="body-part ${cls('hip_left')}" data-part="hip_left" x="122" y="250" width="28" height="25" rx="8"/>
-            <rect class="body-part ${cls('hip_right')}" data-part="hip_right" x="90" y="250" width="28" height="25" rx="8"/>
             <rect class="body-part ${cls('thigh_left')}" data-part="thigh_left" x="128" y="275" width="32" height="90" rx="12"/>
             <rect class="body-part ${cls('thigh_right')}" data-part="thigh_right" x="80" y="275" width="32" height="90" rx="12"/>
             <rect class="body-part ${cls('knee_left')}" data-part="knee_left" x="130" y="365" width="28" height="25" rx="8"/>
             <rect class="body-part ${cls('knee_right')}" data-part="knee_right" x="82" y="365" width="28" height="25" rx="8"/>
             <rect class="body-part ${cls('shin_left')}" data-part="shin_left" x="131" y="390" width="26" height="80" rx="8"/>
             <rect class="body-part ${cls('shin_right')}" data-part="shin_right" x="83" y="390" width="26" height="80" rx="8"/>
-            <rect class="body-part ${cls('ankle_left')}" data-part="ankle_left" x="133" y="470" width="22" height="15" rx="5"/>
-            <rect class="body-part ${cls('ankle_right')}" data-part="ankle_right" x="85" y="470" width="22" height="15" rx="5"/>
-            <rect class="body-part ${cls('sole_left')}" data-part="sole_left" x="126" y="485" width="36" height="25" rx="6"/>
-            <rect class="body-part ${cls('sole_right')}" data-part="sole_right" x="78" y="485" width="36" height="25" rx="6"/>
           </svg>
         </div>
       </div>
@@ -668,28 +638,16 @@ function renderBodyMap() {
         <div class="body-map">
           <svg viewBox="0 0 240 560" xmlns="http://www.w3.org/2000/svg">
             <ellipse class="body-part ${cls('occiput')}" data-part="occiput" cx="120" cy="45" rx="30" ry="35"/>
-            <ellipse class="body-part ${cls('ear_left')}" data-part="ear_left" cx="88" cy="50" rx="5" ry="9"/>
-            <ellipse class="body-part ${cls('ear_right')}" data-part="ear_right" cx="152" cy="50" rx="5" ry="9"/>
             <rect class="body-part ${cls('neck_back')}" data-part="neck_back" x="108" y="78" width="24" height="18" rx="4"/>
-            <rect class="body-part ${cls('shoulder_left_back')}" data-part="shoulder_left_back" x="60" y="100" width="44" height="25" rx="10"/>
-            <rect class="body-part ${cls('shoulder_right_back')}" data-part="shoulder_right_back" x="136" y="100" width="44" height="25" rx="10"/>
             <rect class="body-part ${cls('upper_back')}" data-part="upper_back" x="98" y="100" width="44" height="45" rx="8"/>
             <rect class="body-part ${cls('mid_back')}" data-part="mid_back" x="98" y="145" width="44" height="45" rx="6"/>
             <rect class="body-part ${cls('lower_back')}" data-part="lower_back" x="98" y="190" width="44" height="35" rx="6"/>
-            <rect class="body-part ${cls('upper_arm_left_back')}" data-part="upper_arm_left_back" x="55" y="125" width="30" height="80" rx="12"/>
-            <rect class="body-part ${cls('upper_arm_right_back')}" data-part="upper_arm_right_back" x="155" y="125" width="30" height="80" rx="12"/>
-            <rect class="body-part ${cls('forearm_left_back')}" data-part="forearm_left_back" x="58" y="227" width="24" height="55" rx="8"/>
-            <rect class="body-part ${cls('forearm_right_back')}" data-part="forearm_right_back" x="158" y="227" width="24" height="55" rx="8"/>
             <rect class="body-part ${cls('glute_left')}" data-part="glute_left" x="90" y="255" width="28" height="35" rx="10"/>
             <rect class="body-part ${cls('glute_right')}" data-part="glute_right" x="122" y="255" width="28" height="35" rx="10"/>
             <rect class="body-part ${cls('thigh_left_back')}" data-part="thigh_left_back" x="80" y="290" width="32" height="75" rx="12"/>
             <rect class="body-part ${cls('thigh_right_back')}" data-part="thigh_right_back" x="128" y="290" width="32" height="75" rx="12"/>
-            <rect class="body-part ${cls('knee_left_back')}" data-part="knee_left_back" x="82" y="365" width="28" height="25" rx="8"/>
-            <rect class="body-part ${cls('knee_right_back')}" data-part="knee_right_back" x="130" y="365" width="28" height="25" rx="8"/>
             <rect class="body-part ${cls('calf_left')}" data-part="calf_left" x="83" y="390" width="26" height="75" rx="8"/>
             <rect class="body-part ${cls('calf_right')}" data-part="calf_right" x="131" y="390" width="26" height="75" rx="8"/>
-            <rect class="body-part ${cls('heel_left')}" data-part="heel_left" x="78" y="480" width="36" height="30" rx="6"/>
-            <rect class="body-part ${cls('heel_right')}" data-part="heel_right" x="126" y="480" width="36" height="30" rx="6"/>
           </svg>
         </div>
       </div>
@@ -698,7 +656,7 @@ function renderBodyMap() {
 }
 
 // ═══════════════════════════════════════════════════════
-// رویدادهای Wizard
+// bindWizard
 // ═══════════════════════════════════════════════════════
 function bindWizard() {
   document.querySelectorAll('.wizard-step').forEach(el => {
@@ -735,7 +693,6 @@ function bindWizard() {
   const pClear = $('vPatientClear');
   if (pClear) pClear.onclick = () => { state.patientId = null; state.patientName = ''; renderWizard(); };
 
-  // علت مراجعه
   const reasonSearch = $('vReasonSearch');
   if (reasonSearch) {
     if (reasonSearch.value.trim().length >= 2 && !state.formData.reasonId) filterReasons(reasonSearch.value.trim());
@@ -762,8 +719,7 @@ function bindWizard() {
 
   const reasonClear = $('vReasonClear');
   if (reasonClear) reasonClear.onclick = () => {
-    state.formData.reasonId = null;
-    state.formData.reasonText = '';
+    state.formData.reasonId = null; state.formData.reasonText = '';
     renderWizard();
   };
 
@@ -824,8 +780,7 @@ function bindWizard() {
   }
 
   ['vGcsE', 'vGcsV', 'vGcsM'].forEach(id => {
-    const el = $(id);
-    if (el) el.onchange = () => { calcGCS(); saveFormState(); };
+    const el = $(id); if (el) el.onchange = () => { calcGCS(); saveFormState(); };
   });
 
   const vitCheck = $('vitalsCheck');
@@ -843,8 +798,7 @@ function bindWizard() {
   };
 
   ['vHeight','vWeight'].forEach(id => {
-    const el = $(id);
-    if (el) el.oninput = () => { calcBMI(); saveFormState(); };
+    const el = $(id); if (el) el.oninput = () => { calcBMI(); saveFormState(); };
   });
 
   ['vHR','vSpo2','vBP','vTemp','vSugar'].forEach(id => {
@@ -980,7 +934,7 @@ function bindWizard() {
 }
 
 // ═══════════════════════════════════════════════════════
-// جستجوی علت / بیمار
+// جستجوها
 // ═══════════════════════════════════════════════════════
 function filterReasons(q) {
   const box = $('vReasonResults');
@@ -1041,7 +995,7 @@ function pickPatient(id, name, meta) {
 }
 
 // ═══════════════════════════════════════════════════════
-// GCS و BMI
+// GCS / BMI
 // ═══════════════════════════════════════════════════════
 function calcGCS() {
   const e = parseInt($('vGcsE')?.value) || 0;
@@ -1058,13 +1012,12 @@ function calcBMI() {
   if (b) b.textContent = (h > 0 && w > 0) ? faNum((w / (h * h)).toFixed(1)) : '---';
 }
 
-// ⭐ تعیین وضعیت GCS (اصلاح شد: 15 = هوشیار کامل)
 function getGCSStatus(total) {
   if (!total || total < 3) return null;
-  if (total === 15) return { level: 'alert', label: 'هوشیار کامل', color: 'success', icon: '🟢' };
-  if (total >= 13) return { level: 'mild', label: 'خفیف', color: 'success', icon: '🟡' };
-  if (total >= 9) return { level: 'moderate', label: 'متوسط', color: 'warning', icon: '🟠' };
-  return { level: 'severe', label: 'شدید', color: 'danger', icon: '🔴' };
+  if (total === 15) return { label: 'هوشیار کامل', color: 'success', icon: '🟢' };
+  if (total >= 13) return { label: 'خفیف', color: 'success', icon: '🟡' };
+  if (total >= 9) return { label: 'متوسط', color: 'warning', icon: '🟠' };
+  return { label: 'شدید', color: 'danger', icon: '🔴' };
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1081,9 +1034,7 @@ function renderQuickDrugs() {
   }
   box.innerHTML = sorted.map(d => {
     const hidden = (state.drugPrefs.hidden || []).includes(d.id);
-    const cls = state.editDrugMode
-      ? `edit-mode ${hidden ? 'hidden-drug' : ''}`
-      : (hidden ? 'hidden' : '');
+    const cls = state.editDrugMode ? `edit-mode ${hidden ? 'hidden-drug' : ''}` : (hidden ? 'hidden' : '');
     if (state.editDrugMode) {
       return `<div class="quick-drug-btn ${cls}">
         <span style="margin-left:5px;">${d.icon}</span>${escapeHtml(d.name)}
@@ -1250,6 +1201,9 @@ async function saveVisit() {
       );
     }
 
+    // ⭐ لاگ ایجاد
+    await logChange(visit.id, 'create', [], 'ایجاد ویزیت');
+
     toast('✅ ویزیت ثبت شد', 'success');
     beep();
     resetFormData();
@@ -1264,7 +1218,42 @@ async function saveVisit() {
 }
 
 // ═══════════════════════════════════════════════════════
-// ⭐ صفحه جزئیات + دکمه ارجاع
+// ⭐ لاگ تغییرات
+// ═══════════════════════════════════════════════════════
+async function logChange(visitId, action, fieldChanges, notes) {
+  try {
+    const myId = getMyDjangoId();
+    const userName = currentUser?.user_metadata?.full_name
+      || currentUser?.user_metadata?.django_username
+      || currentUser?.email || 'نامشخص';
+
+    await sb.from('visits_visitchangelog').insert({
+      visit_id: visitId,
+      user_id: myId,
+      user_name: userName,
+      action,
+      field_changes: fieldChanges || [],
+      created_at: new Date().toISOString()
+    });
+  } catch (e) {
+    console.warn('خطا در لاگ:', e);
+  }
+}
+
+async function loadChangeLog(visitId) {
+  try {
+    const { data } = await sb.from('visits_visitchangelog')
+      .select('*').eq('visit_id', visitId)
+      .order('created_at', { ascending: false });
+    return data || [];
+  } catch (e) {
+    console.warn(e);
+    return [];
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// ⭐ صفحه جزئیات
 // ═══════════════════════════════════════════════════════
 async function openDetail(visitId) {
   state.view = 'detail';
@@ -1282,28 +1271,24 @@ async function openDetail(visitId) {
 
     if (!v) throw new Error('یافت نشد');
 
-    // ⭐ چک دسترسی
-    const myId = getMyDjangoId();
-    const isOwner = v.doctor_id === myId || v.assigned_to_id === myId;
-    const superuser = isSuperuser();
-
-    if (!isOwner && !superuser) {
+    if (!canViewVisit(v)) {
       c.innerHTML = `
         <div class="alert alert-danger text-center">
           <i class="bi bi-shield-x" style="font-size:2rem;"></i>
           <h5 class="mt-2">دسترسی ندارید</h5>
           <p>این ویزیت توسط شما ایجاد نشده و به شما ارجاع داده نشده است.</p>
-          <button class="btn btn-outline-secondary mt-2" onclick="window.__backToList && window.__backToList()">
+          <button class="btn btn-outline-secondary mt-2" id="vBackDenied">
             بازگشت به لیست
           </button>
         </div>`;
-      window.__backToList = () => { state.view = 'list'; renderList(); };
+      $('vBackDenied').onclick = () => { state.view = 'list'; renderList(); };
       return;
     }
 
-    const [items, injuries] = await Promise.all([
+    const [items, injuries, log] = await Promise.all([
       sb.from('visits_visititem').select('drug_id, quantity, notes, drug:drugs_drug(name)').eq('visit_id', visitId),
-      sb.from('visits_visit_injury_locations').select('loc:visits_injurylocation(name)').eq('visit_id', visitId)
+      sb.from('visits_visit_injury_locations').select('loc:visits_injurylocation(name)').eq('visit_id', visitId),
+      loadChangeLog(visitId)
     ]);
 
     let itemsWithStock = items.data || [];
@@ -1315,7 +1300,6 @@ async function openDetail(visitId) {
       itemsWithStock = itemsWithStock.map(it => ({ ...it, available: stockMap[it.drug_id] || 0 }));
     }
 
-    // ⭐ لود اطلاعات کاربران
     const userIds = new Set([v.doctor_id, v.assigned_to_id].filter(Boolean));
     if (userIds.size) {
       const { data: users } = await sb.from('auth_user')
@@ -1329,7 +1313,8 @@ async function openDetail(visitId) {
     state.visit = {
       ...v,
       items: itemsWithStock,
-      injuries: (injuries.data || []).map(x => x.loc?.name).filter(Boolean)
+      injuries: (injuries.data || []).map(x => x.loc?.name).filter(Boolean),
+      changeLog: log
     };
     renderDetail();
   } catch (e) {
@@ -1346,12 +1331,12 @@ function renderDetail() {
   const timeStr = getTimeStr(v.visit_date);
   const isInc = v.is_incident && v.incident_type !== 'none';
 
-  const myId = getMyDjangoId();
-  const isAssignee = v.assigned_to_id === myId;
-  const isDoctor = v.doctor_id === myId;
+  const isAssignee = v.assigned_to_id === getMyDjangoId();
+  const isDoctor = v.doctor_id === getMyDjangoId();
   const superuser = isSuperuser();
-  const canRefer = (isAssignee || isDoctor || superuser) && v.status !== 'completed';
-  const canComplete = canRefer;
+  const canRefer = (isAssignee || superuser) && v.status !== 'completed';
+  const canComplete = (isAssignee || superuser) && v.status !== 'completed';
+  const canEdit = canEditVisit(v);
 
   const statusBadge = v.status === 'completed'
     ? '<span class="badge-soft success"><i class="bi bi-check-circle"></i> تکمیل شده</span>'
@@ -1513,7 +1498,7 @@ function renderDetail() {
   if (v.items.length) {
     html += `<div class="card">
       <div class="card-head ${hasShortage ? 'danger' : 'success'}">
-        <i class="bi bi-capsule"></i> داروهای تجویزی ${hasShortage ? '⚠️ (کمبود موجودی)' : ''}
+        <i class="bi bi-capsule"></i> داروهای تجویزی ${hasShortage ? '⚠️ (کمبود)' : ''}
       </div>
       <div class="card-body">
         ${v.items.map(it => {
@@ -1542,6 +1527,46 @@ function renderDetail() {
     </div>`;
   }
 
+  // ⭐ نمایش لاگ تغییرات
+  if (v.changeLog && v.changeLog.length) {
+    html += `<div class="card">
+      <div class="card-head" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);">
+        <i class="bi bi-clock-history"></i> تاریخچه تغییرات
+      </div>
+      <div class="card-body">`;
+
+    v.changeLog.forEach(log => {
+      const dt = new Date(log.created_at);
+      const jdt = gregorianToJalali(log.created_at);
+      const timeStr2 = String(dt.getHours()).padStart(2, '0') + ':' + String(dt.getMinutes()).padStart(2, '0');
+      const actionLabel = { create: 'ایجاد', edit: 'ویرایش', refer: 'ارجاع', complete: 'تکمیل' }[log.action] || log.action;
+      const actionColor = { create: 'primary', edit: 'warning', refer: 'info', complete: 'success' }[log.action] || 'gray';
+
+      html += `
+        <div class="row-item" style="border-right:3px solid var(--${actionColor === 'gray' ? 'muted' : actionColor});padding-right:10px;">
+          <div class="d-flex justify-content-between">
+            <strong><i class="bi bi-person"></i> ${escapeHtml(log.user_name || 'نامشخص')}</strong>
+            <span class="badge-soft ${actionColor}" style="font-size:0.65rem;">${actionLabel}</span>
+          </div>
+          <div class="small muted">${jdt} - ${timeStr2}</div>`;
+
+      if (log.field_changes && log.field_changes.length) {
+        log.field_changes.forEach(fc => {
+          html += `<div class="small mt-1" style="font-size:0.75rem;">
+            <span class="muted">${escapeHtml(fc.label || fc.field)}:</span>
+            <span style="color:#dc3545;">${escapeHtml(String(fc.old ?? '—'))}</span>
+            <i class="bi bi-arrow-left" style="margin:0 4px;"></i>
+            <span style="color:#198754;">${escapeHtml(String(fc.new ?? '—'))}</span>
+          </div>`;
+        });
+      }
+
+      html += `</div>`;
+    });
+
+    html += `</div></div>`;
+  }
+
   if (hasShortage && v.status !== 'completed') {
     html += `<div class="alert alert-danger">
       <i class="bi bi-exclamation-triangle"></i>
@@ -1554,19 +1579,27 @@ function renderDetail() {
   html += `<div class="d-grid gap-2 mb-5">`;
 
   if (v.status !== 'completed') {
-    // دکمه ارجاع
+    if (canEdit) {
+      html += `<button class="btn btn-warning btn-lg py-3" id="vEditBtn">
+        <i class="bi bi-pencil-square"></i> ویرایش ویزیت
+      </button>`;
+    }
     if (canRefer) {
       html += `<button class="btn btn-info text-white btn-lg py-3" id="vReferBtn">
         <i class="bi bi-share-fill"></i> ارجاع به کاربر دیگر
       </button>`;
     }
-
-    // دکمه تکمیل
     if (canComplete) {
       html += `<button class="btn ${hasShortage ? 'btn-warning' : 'btn-success'} btn-lg py-3" id="vCompleteBtn">
         <i class="bi bi-check-circle-fill"></i>
-        ${hasShortage ? 'تلاش برای تکمیل (نیاز به تأمین موجودی)' : 'تکمیل ویزیت (کسر موجودی)'}
+        ${hasShortage ? 'تلاش برای تکمیل (نیاز به تأمین موجودی)' : 'تکمیل ویزیت'}
       </button>`;
+    }
+    if (!canEdit && isDoctor && !isAssignee) {
+      html += `<div class="alert alert-info small mb-0">
+        <i class="bi bi-info-circle"></i>
+        این ویزیت به <strong>${escapeHtml(assigneeName)}</strong> ارجاع داده شده است. شما دیگر نمی‌توانید آن را ویرایش کنید.
+      </div>`;
     }
   } else {
     html += `<div class="alert alert-success text-center">
@@ -1580,14 +1613,10 @@ function renderDetail() {
 
   c.innerHTML = html;
 
-  const referBtn = $('vReferBtn');
-  if (referBtn) referBtn.onclick = () => openReferralModal(v);
-
-  const completeBtn = $('vCompleteBtn');
-  if (completeBtn) completeBtn.onclick = () => completeVisit(v.id);
-
-  const backBtn = $('vBackBtn');
-  if (backBtn) backBtn.onclick = () => { state.view = 'list'; renderList(); };
+  const editBtn = $('vEditBtn'); if (editBtn) editBtn.onclick = () => openEditModal(v);
+  const referBtn = $('vReferBtn'); if (referBtn) referBtn.onclick = () => openReferralModal(v);
+  const completeBtn = $('vCompleteBtn'); if (completeBtn) completeBtn.onclick = () => completeVisit(v.id);
+  const backBtn = $('vBackBtn'); if (backBtn) backBtn.onclick = () => { state.view = 'list'; renderList(); };
 }
 
 function cellBadge(label, value, color) {
@@ -1595,28 +1624,278 @@ function cellBadge(label, value, color) {
 }
 
 // ═══════════════════════════════════════════════════════
-// ⭐ مودال ارجاع
+// ⭐ مودال ویرایش
+// ═══════════════════════════════════════════════════════
+async function openEditModal(visit) {
+  const existing = document.getElementById('visitEditModal');
+  if (existing) existing.remove();
+
+  // لود علت‌ها و نتیجه‌ها
+  await loadRefs();
+
+  const modalHtml = `
+    <div class="modal fade" id="visitEditModal" tabindex="-1" data-bs-backdrop="static">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+        <div class="modal-content">
+          <div class="modal-header bg-warning text-dark">
+            <h5 class="modal-title"><i class="bi bi-pencil-square"></i> ویرایش ویزیت</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label small">علت مراجعه</label>
+              <select class="form-select" id="editReason">
+                ${state.reasons.map(r => `<option value="${r.id}" ${visit.reason_for_visit_id == r.id ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')}
+              </select>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label small">نتیجه درمان</label>
+              <select class="form-select" id="editTreatment">
+                <option value="">انتخاب کنید...</option>
+                ${state.treatments.map(t => `<option value="${t.id}" ${visit.treatment_result_id == t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
+              </select>
+            </div>
+
+            <hr><h6 class="mb-2">علائم حیاتی</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-6 col-md-4"><label class="form-label small">فشار خون</label>
+                <input type="text" class="form-control" id="editBP" value="${escapeHtml(visit.blood_pressure || '')}" dir="ltr"></div>
+              <div class="col-6 col-md-4"><label class="form-label small">ضربان قلب</label>
+                <input type="number" class="form-control" id="editHR" value="${visit.heart_rate || ''}"></div>
+              <div class="col-6 col-md-4"><label class="form-label small">SpO2</label>
+                <input type="number" class="form-control" id="editSpo2" value="${visit.spo2 || ''}"></div>
+              <div class="col-6 col-md-4"><label class="form-label small">دما</label>
+                <input type="number" step="0.1" class="form-control" id="editTemp" value="${visit.temperature || ''}"></div>
+              <div class="col-6 col-md-4"><label class="form-label small">قند</label>
+                <input type="number" step="0.1" class="form-control" id="editSugar" value="${visit.blood_sugar || ''}"></div>
+              <div class="col-6 col-md-4"><label class="form-label small">قد</label>
+                <input type="number" step="0.1" class="form-control" id="editHeight" value="${visit.height_cm || ''}"></div>
+              <div class="col-6 col-md-4"><label class="form-label small">وزن</label>
+                <input type="number" step="0.1" class="form-control" id="editWeight" value="${visit.weight_kg || ''}"></div>
+            </div>
+
+            <hr><h6 class="mb-2">GCS</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-4"><label class="form-label small">E</label>
+                <select class="form-select" id="editGcsE"><option value="">-</option>
+                  ${[1,2,3,4].map(n=>`<option value="${n}" ${visit.gcs_eye == n ? 'selected' : ''}>${n}</option>`).join('')}
+                </select></div>
+              <div class="col-4"><label class="form-label small">V</label>
+                <select class="form-select" id="editGcsV"><option value="">-</option>
+                  ${[1,2,3,4,5].map(n=>`<option value="${n}" ${visit.gcs_verbal == n ? 'selected' : ''}>${n}</option>`).join('')}
+                </select></div>
+              <div class="col-4"><label class="form-label small">M</label>
+                <select class="form-select" id="editGcsM"><option value="">-</option>
+                  ${[1,2,3,4,5,6].map(n=>`<option value="${n}" ${visit.gcs_motor == n ? 'selected' : ''}>${n}</option>`).join('')}
+                </select></div>
+            </div>
+
+            <div class="mb-3"><label class="form-label small">تفسیر ECG</label>
+              <textarea class="form-control" id="editECG" rows="2">${escapeHtml(visit.ecg_interpretation || '')}</textarea></div>
+
+            <div class="mb-3"><label class="form-label small">ملاحظات</label>
+              <textarea class="form-control" id="editNotes" rows="3">${escapeHtml(visit.notes || '')}</textarea></div>
+
+            ${visit.is_incident ? `
+              <hr><h6 class="mb-2">اطلاعات حادثه</h6>
+              <div class="mb-2"><label class="form-label small">شرح حادثه</label>
+                <textarea class="form-control" id="editIncDesc" rows="2">${escapeHtml(visit.incident_description || '')}</textarea></div>
+            ` : ''}
+
+            <div id="editDispatchSection" class="${visit.result?.name?.includes('اعزام') ? '' : 'hidden'}">
+              <hr><h6 class="mb-2">اطلاعات اعزام</h6>
+              <div class="row g-2">
+                <div class="col-6"><label class="form-label small">ساعت اعزام</label>
+                  <input type="time" class="form-control" id="editDispatchTime" value="${visit.dispatch_time ? new Date(visit.dispatch_time).toTimeString().slice(0,5) : ''}"></div>
+                <div class="col-6"><label class="form-label small">مقصد</label>
+                  <input type="text" class="form-control" id="editDispatchDest" value="${escapeHtml(visit.dispatch_destination || '')}"></div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+            <button class="btn btn-warning" id="editSaveBtn">
+              <i class="bi bi-check-circle"></i> ذخیره تغییرات
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+  const modal = new bootstrap.Modal(document.getElementById('visitEditModal'));
+  modal.show();
+
+  // تغییر نتیجه درمان → نمایش/مخفی کردن بخش اعزام
+  const editTreatmentEl = document.getElementById('editTreatment');
+  editTreatmentEl.addEventListener('change', e => {
+    const selectedText = e.target.options[e.target.selectedIndex].text;
+    const section = document.getElementById('editDispatchSection');
+    if (selectedText.includes('اعزام')) section.classList.remove('hidden');
+    else section.classList.add('hidden');
+  });
+
+  document.getElementById('editSaveBtn').onclick = async () => {
+    await saveEdit(visit, modal);
+  };
+
+  document.getElementById('visitEditModal').addEventListener('hidden.bs.modal', () => {
+    document.getElementById('visitEditModal')?.remove();
+  });
+}
+
+// ⭐ ذخیره ویرایش + لاگ
+async function saveEdit(visit, modal) {
+  const getVal = id => document.getElementById(id)?.value?.trim() || null;
+  const getNum = id => {
+    const v = document.getElementById(id)?.value?.trim();
+    return v ? parseFloat(v) : null;
+  };
+  const getInt = id => {
+    const v = document.getElementById(id)?.value?.trim();
+    return v ? parseInt(v) : null;
+  };
+
+  // ⭐ ساخت payload جدید
+  const newData = {
+    reason_for_visit_id: getInt('editReason'),
+    treatment_result_id: getInt('editTreatment'),
+    blood_pressure: getVal('editBP'),
+    heart_rate: getInt('editHR'),
+    spo2: getInt('editSpo2'),
+    temperature: getNum('editTemp'),
+    blood_sugar: getNum('editSugar'),
+    height_cm: getNum('editHeight'),
+    weight_kg: getNum('editWeight'),
+    gcs_eye: getInt('editGcsE'),
+    gcs_verbal: getInt('editGcsV'),
+    gcs_motor: getInt('editGcsM'),
+    ecg_interpretation: getVal('editECG'),
+    notes: getVal('editNotes')
+  };
+
+  if (visit.is_incident) {
+    newData.incident_description = getVal('editIncDesc');
+  }
+
+  // اعزام
+  const dispatchSection = document.getElementById('editDispatchSection');
+  if (dispatchSection && !dispatchSection.classList.contains('hidden')) {
+    const dtStr = getVal('editDispatchTime');
+    if (dtStr) {
+      const [dh, dm] = dtStr.split(':').map(Number);
+      const d = new Date(visit.dispatch_time || Date.now());
+      d.setHours(dh, dm, 0, 0);
+      newData.dispatch_time = d.toISOString();
+    } else {
+      newData.dispatch_time = null;
+    }
+    newData.dispatch_destination = getVal('editDispatchDest');
+  } else {
+    newData.dispatch_time = null;
+    newData.dispatch_destination = null;
+  }
+
+  // ⭐ تعیین تغییرات
+  const labelMap = {
+    reason_for_visit_id: 'علت مراجعه',
+    treatment_result_id: 'نتیجه درمان',
+    blood_pressure: 'فشار خون',
+    heart_rate: 'ضربان قلب',
+    spo2: 'SpO2',
+    temperature: 'دما',
+    blood_sugar: 'قند خون',
+    height_cm: 'قد',
+    weight_kg: 'وزن',
+    gcs_eye: 'GCS-E', gcs_verbal: 'GCS-V', gcs_motor: 'GCS-M',
+    ecg_interpretation: 'تفسیر ECG',
+    notes: 'ملاحظات',
+    incident_description: 'شرح حادثه',
+    dispatch_time: 'ساعت اعزام',
+    dispatch_destination: 'مقصد اعزام'
+  };
+
+  const changes = [];
+
+  // مقایسه علت مراجعه
+  if (newData.reason_for_visit_id != visit.reason_for_visit_id) {
+    const oldName = visit.reason?.name || '—';
+    const newName = state.reasons.find(r => r.id === newData.reason_for_visit_id)?.name || '—';
+    changes.push({ field: 'reason_for_visit_id', label: 'علت مراجعه', old: oldName, new: newName });
+  }
+
+  // نتیجه درمان
+  if (newData.treatment_result_id != visit.treatment_result_id) {
+    const oldName = visit.result?.name || '—';
+    const newName = state.treatments.find(t => t.id === newData.treatment_result_id)?.name || '—';
+    changes.push({ field: 'treatment_result_id', label: 'نتیجه درمان', old: oldName, new: newName });
+  }
+
+  // بقیه فیلدها
+  ['blood_pressure', 'heart_rate', 'spo2', 'temperature', 'blood_sugar',
+   'height_cm', 'weight_kg', 'gcs_eye', 'gcs_verbal', 'gcs_motor',
+   'ecg_interpretation', 'notes', 'incident_description',
+   'dispatch_time', 'dispatch_destination'].forEach(field => {
+    const oldVal = visit[field];
+    const newVal = newData[field];
+    const oldStr = oldVal == null ? '—' : (field === 'dispatch_time' && oldVal ? new Date(oldVal).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : String(oldVal));
+    const newStr = newVal == null ? '—' : (field === 'dispatch_time' && newVal ? new Date(newVal).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : String(newVal));
+    if (oldStr !== newStr) {
+      changes.push({ field, label: labelMap[field] || field, old: oldStr, new: newStr });
+    }
+  });
+
+  if (!changes.length) {
+    toast('هیچ تغییری اعمال نشده', 'info');
+    modal.hide();
+    return;
+  }
+
+  if (!confirm(`${changes.length} فیلد تغییر کرده است. ذخیره شود؟`)) return;
+
+  const btn = document.getElementById('editSaveBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ذخیره...';
+
+  try {
+    const { error } = await sb.from('visits_visit').update(newData).eq('id', visit.id);
+    if (error) throw error;
+
+    // ⭐ لاگ تغییرات
+    await logChange(visit.id, 'edit', changes, 'ویرایش ویزیت');
+
+    toast('✅ تغییرات ذخیره شد', 'success');
+    beep();
+    modal.hide();
+    setTimeout(() => {
+      document.getElementById('visitEditModal')?.remove();
+      openDetail(visit.id);
+    }, 300);
+  } catch (e) {
+    console.error(e);
+    alert('❌ خطا: ' + e.message);
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check-circle"></i> ذخیره تغییرات';
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// مودال ارجاع
 // ═══════════════════════════════════════════════════════
 async function openReferralModal(visit) {
-  // ساخت مودال داینامیک
   const existing = document.getElementById('referralModal');
   if (existing) existing.remove();
 
   const myId = getMyDjangoId();
-
-  // لود کاربران فعال
   let users = [];
   try {
     const { data } = await sb.from('auth_user')
       .select('id, first_name, last_name, username')
-      .eq('is_active', true)
-      .neq('id', myId)
-      .order('first_name');
+      .eq('is_active', true).neq('id', myId).order('first_name');
     users = data || [];
-  } catch (e) {
-    toast('خطا در لود کاربران: ' + e.message, 'danger');
-    return;
-  }
+  } catch (e) { toast('خطا در لود کاربران', 'danger'); return; }
 
   const modalHtml = `
     <div class="modal fade" id="referralModal" tabindex="-1" data-bs-backdrop="static">
@@ -1627,6 +1906,10 @@ async function openReferralModal(visit) {
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
+            <div class="alert alert-warning small">
+              <i class="bi bi-exclamation-triangle"></i>
+              <strong>توجه:</strong> بعد از ارجاع، شما دیگر نمی‌توانید این ویزیت را ویرایش کنید.
+            </div>
             <div class="mb-3">
               <label class="form-label">جستجوی کاربر:</label>
               <input type="text" class="form-control" id="refSearch" placeholder="نام یا یوزرنیم..." autocomplete="off">
@@ -1638,7 +1921,6 @@ async function openReferralModal(visit) {
                   data-ref-user="${u.id}" data-ref-name="${escapeHtml(name)}"
                   style="border:1px solid #e2e8f0;border-radius:10px;">
                   <i class="bi bi-person"></i> <strong>${escapeHtml(name)}</strong>
-                  <small class="muted" style="margin-right:8px;" dir="ltr">@${escapeHtml(u.username)}</small>
                 </button>`;
               }).join('')}
             </div>
@@ -1651,11 +1933,9 @@ async function openReferralModal(visit) {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
-
   const modal = new bootstrap.Modal(document.getElementById('referralModal'));
   modal.show();
 
-  // فیلتر کاربران
   const searchInput = document.getElementById('refSearch');
   const usersList = document.getElementById('refUsersList');
   searchInput.addEventListener('input', e => {
@@ -1671,13 +1951,11 @@ async function openReferralModal(visit) {
             data-ref-user="${u.id}" data-ref-name="${escapeHtml(name)}"
             style="border:1px solid #e2e8f0;border-radius:10px;">
             <i class="bi bi-person"></i> <strong>${escapeHtml(name)}</strong>
-            <small class="muted" style="margin-right:8px;" dir="ltr">@${escapeHtml(u.username)}</small>
           </button>`;
         }).join('')
       : '<div class="text-center muted small py-3">یافت نشد</div>';
   });
 
-  // کلیک روی کاربر
   document.getElementById('referralModal').addEventListener('click', async e => {
     const btn = e.target.closest('[data-ref-user]');
     if (!btn) return;
@@ -1688,10 +1966,14 @@ async function openReferralModal(visit) {
 
     try {
       const { error } = await sb.from('visits_visit').update({
-        assigned_to_id: userId,
-        status: 'referred'
+        assigned_to_id: userId, status: 'referred'
       }).eq('id', visit.id);
       if (error) throw error;
+
+      // ⭐ لاگ ارجاع
+      await logChange(visit.id, 'refer',
+        [{ field: 'assigned_to_id', label: 'مسئول', old: getUserName(visit.assigned_to_id), new: userName }],
+        `ارجاع به ${userName}`);
 
       toast(`✅ ویزیت به "${userName}" ارجاع شد`, 'success');
       beep();
@@ -1717,20 +1999,21 @@ async function openReferralModal(visit) {
 async function completeVisit(visitId) {
   if (!confirm('ویزیت تکمیل شود؟ موجودی انبار کسر می‌شود.')) return;
   const btn = $('vCompleteBtn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> بررسی موجودی...'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> بررسی...'; }
 
   try {
     const { data: items, error: e0 } = await sb.from('visits_visititem')
-      .select('drug_id, quantity, drug:drugs_drug(name)')
-      .eq('visit_id', visitId);
+      .select('drug_id, quantity, drug:drugs_drug(name)').eq('visit_id', visitId);
     if (e0) throw e0;
 
     if (!items?.length) {
+      const myId = getMyDjangoId();
       const { error: e2 } = await sb.from('visits_visit').update({
-        status: 'completed', completed_at: new Date().toISOString()
+        status: 'completed', completed_at: new Date().toISOString(), completed_by_id: myId
       }).eq('id', visitId);
       if (e2) throw e2;
-      toast('✅ ویزیت تکمیل شد (بدون دارو)', 'success');
+      await logChange(visitId, 'complete', [], 'تکمیل ویزیت (بدون دارو)');
+      toast('✅ ویزیت تکمیل شد', 'success');
       beep(); openDetail(visitId); return;
     }
 
@@ -1752,42 +2035,41 @@ async function completeVisit(visitId) {
         `• ${s.name}\n  نیاز: ${faNum(s.required)} | موجودی: ${faNum(s.available)} | کمبود: ${faNum(s.missing)}`
       ).join('\n\n');
       alert(`⚠️ ویزیت تکمیل نشد\n\nموجودی داروهای زیر کافی نیست:\n\n${lines}\n\n` +
-        `این ویزیت در وضعیت «در حال بررسی» باقی می‌ماند.\n` +
-        `لطفاً از منوی «دریافت دارو»، موجودی را تأمین کنید.`);
+        `این ویزیت در وضعیت «در حال بررسی» باقی می‌ماند.`);
       toast('⚠️ موجودی کافی نیست', 'warning');
       beep(300); openDetail(visitId); return;
     }
 
-    if (btn) btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> کسر موجودی...';
+    if (btn) btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> کسر...';
 
     const errors = [], succeeded = [];
     for (const it of items) {
       const { error: e } = await sb.rpc('deduct_stock_fifo', {
         p_drug_id: it.drug_id, p_quantity: it.quantity
       });
-      if (e) errors.push(`${it.drug?.name || '#' + it.drug_id}: ${e.message}`);
+      if (e) errors.push(`${it.drug?.name}: ${e.message}`);
       else succeeded.push(it.drug?.name);
     }
 
     if (errors.length) {
-      alert(`❌ خطا در کسر موجودی:\n\n${errors.join('\n')}`);
-      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> تلاش مجدد'; }
+      alert(`❌ خطا:\n\n${errors.join('\n')}`);
+      if (btn) { btn.disabled = false; btn.innerHTML = 'تلاش مجدد'; }
       return;
     }
 
     const myId = getMyDjangoId();
     const { error: e2 } = await sb.from('visits_visit').update({
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      completed_by_id: myId
+      status: 'completed', completed_at: new Date().toISOString(), completed_by_id: myId
     }).eq('id', visitId);
     if (e2) throw e2;
 
-    toast(`✅ ویزیت تکمیل شد (${faNum(succeeded.length)} دارو کسر شد)`, 'success');
+    await logChange(visitId, 'complete', [], `تکمیل ویزیت (${succeeded.length} دارو کسر شد)`);
+
+    toast(`✅ ویزیت تکمیل شد`, 'success');
     beep(); openDetail(visitId);
   } catch (e) {
     console.error(e);
     alert('❌ ' + e.message);
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> تکمیل ویزیت'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = 'تکمیل ویزیت'; }
   }
 }
