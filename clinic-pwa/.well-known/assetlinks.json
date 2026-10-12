@@ -1,7 +1,7 @@
 [{
       "relation": ["delegate_permission/common.handle_all_urls"],
       "target": {
-        "namespace": "android_app",
+        "namespace": "cafebazaar_twa",
         "package_name": "cafebazaar_twa.dev.workers.mohammad_zb70.clinicpwa",
         "sha256_cert_fingerprints": ["01:A7:F3:94:69:7F:4A:7B:6C:22:F0:A4:65:5B:CE:37:98:27:80:41:DB:A0:9B:FC:F2:42:45:65:2D:40:56:7A"]
       }
