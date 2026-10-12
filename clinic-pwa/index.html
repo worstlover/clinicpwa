@@ -13,13 +13,11 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>کلینیک گندله سازی بهاباد</title>
 
-<!-- ⭐ CSS محلی (از سرور خودت) -->
 <link href="lib/vazirmatn.css" rel="stylesheet">
 <link href="lib/bootstrap.rtl.min.css" rel="stylesheet">
 <link href="lib/bootstrap-icons.min.css" rel="stylesheet">
 <link href="styles/main.css" rel="stylesheet">
 
-<!-- ⭐ CSS بحرانی - جلوگیری از نمایش چند صفحه همزمان -->
 <style>
   .screen { display: none !important; }
   .screen.active { display: block !important; }
@@ -37,9 +35,7 @@
       <div class="mb-3">
         <label class="form-label">نام کاربری</label>
         <input type="text" id="loginEmail" class="form-control" placeholder="مثال: alighasemi" dir="ltr" autocomplete="username">
-        <small style="display:block;color:#64748b;font-size:0.72rem;margin-top:4px;">
-          نام کاربری خود را وارد کنید
-        </small>
+        <small style="display:block;color:#64748b;font-size:0.72rem;margin-top:4px;">نام کاربری خود را وارد کنید</small>
       </div>
       <div class="mb-4">
         <label class="form-label">رمز عبور</label>
@@ -88,15 +84,6 @@
         </button>
       </div>
 
-      <!-- تحویل -->
-      <div class="col-6">
-        <button class="menu-card" data-nav="dispense">
-          <div class="icon-bg success"><i class="bi bi-capsule"></i></div>
-          <div class="label">تحویل دارو</div>
-          <div class="sub">تحویل نسخه</div>
-        </button>
-      </div>
-
       <!-- دریافت -->
       <div class="col-6">
         <button class="menu-card" data-nav="receive">
@@ -134,9 +121,9 @@
       </div>
 
       <!-- پروفایل -->
-      <div class="col-6">
+      <div class="col-12">
         <button class="menu-card" data-nav="profile">
-          <div class="icon-bg" style="background:#e0e7ff;color:#4f46e5;"><i class="bi bi-person-circle"></i></div>
+          <div class="icon-bg" style="background:#e0e7ff;color:#4f46e5;margin:0 auto 12px;"><i class="bi bi-person-circle"></i></div>
           <div class="label">پروفایل</div>
           <div class="sub">حساب کاربری</div>
         </button>
@@ -156,7 +143,6 @@
 <!-- ═════════════ صفحات ═════════════ -->
 <div id="screenVisit"        class="screen"><div class="content" id="visitContent"></div></div>
 <div id="screenInventory"    class="screen"><div class="content" id="invContent"></div></div>
-<div id="screenDispense"     class="screen"><div class="content" id="dispContent"></div></div>
 <div id="screenReceive"      class="screen"><div class="content" id="recvContent"></div></div>
 <div id="screenDisposal"     class="screen"><div class="content" id="disp2Content"></div></div>
 <div id="screenReport"       class="screen"><div class="content" id="repContent"></div></div>
@@ -168,7 +154,7 @@
   <a href="#" data-nav="home"><i class="bi bi-house-door-fill"></i>خانه</a>
   <a href="#" data-nav="visits"><i class="bi bi-clipboard2-pulse"></i>ویزیت</a>
   <a href="#" data-nav="inventory"><i class="bi bi-clipboard-check"></i>انبارگردانی</a>
-  <a href="#" data-nav="dispense"><i class="bi bi-capsule"></i>تحویل</a>
+  <a href="#" data-nav="receive"><i class="bi bi-truck"></i>دریافت</a>
   <a href="#" data-nav="profile"><i class="bi bi-person-circle"></i>پروفایل</a>
 </div>
 
@@ -246,7 +232,6 @@
   </div>
 </div>
 
-<!-- ⭐ JS محلی (از سرور خودت) -->
 <script src="lib/bootstrap.bundle.min.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
