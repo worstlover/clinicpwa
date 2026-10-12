@@ -394,4 +394,198 @@ async function saveEdit(visit, modal, ctx) {
         }
       } else if (!newIncLocName && visit.incident_location_id) {
         newData.incident_location_id = null;
-        changes.push({ field: 'incident_location_id', label: 'محل حادثه', old: oldIncLocName,
+        changes.push({ field: 'incident_location_id', label: 'محل حادثه', old: oldIncLocName, new: '—' });
+      }
+
+      const newIncDesc = getVal('editIncDesc') || '';
+      const oldIncDesc = visit.incident_description || '';
+      if (newIncDesc !== oldIncDesc) {
+        newData.incident_description = newIncDesc || null;
+        changes.push({ field: 'incident_description', label: 'شرح حادثه', old: oldIncDesc || '—', new: newIncDesc || '—' });
+      }
+    } else {
+      if (visit.incident_type !== 'none') {
+        newData.incident_type = 'none';
+        changes.push({ field: 'incident_type', label: 'نوع حادثه', old: getIncLabel(visit.incident_type), new: 'ندارد' });
+      }
+    }
+  }
+
+  // بالینی
+  if (!incidentOnly && canClinical) {
+    const newDateStr = getVal('editDate');
+    if (newDateStr) {
+      const parts = newDateStr.trim().split(' ');
+      const greg = jalaliToGregorian(parts[0]);
+      if (greg) {
+        const timeOnly = parts[1] || '12:00';
+        const [hh, mm] = timeOnly.split(':').map(Number);
+        const newDate = new Date(`${greg}T${String(hh||12).padStart(2,'0')}:${String(mm||0).padStart(2,'0')}:00`);
+        const oldDate = new Date(visit.visit_date);
+        if (Math.abs(newDate.getTime() - oldDate.getTime()) > 60000) {
+          newData.visit_date = newDate.toISOString();
+          changes.push({ field: 'visit_date', label: 'تاریخ ویزیت', old: gregorianToJalali(visit.visit_date), new: gregorianToJalali(newDate.toISOString()) });
+        }
+      }
+    }
+
+    const newReason = getInt('editReason');
+    if (newReason && newReason !== visit.reason_for_visit_id) {
+      newData.reason_for_visit_id = newReason;
+      changes.push({
+        field: 'reason_for_visit_id', label: 'علت مراجعه',
+        old: visit.reason?.name || '—',
+        new: state.reasons.find(r => r.id === newReason)?.name || '—'
+      });
+    }
+
+    const newTreat = getInt('editTreatment');
+    if (newTreat && newTreat !== visit.treatment_result_id) {
+      newData.treatment_result_id = newTreat;
+      changes.push({
+        field: 'treatment_result_id', label: 'نتیجه درمان',
+        old: visit.result?.name || '—',
+        new: state.treatments.find(t => t.id === newTreat)?.name || '—'
+      });
+    }
+
+    const simpleFields = {
+      'editBP': 'blood_pressure', 'editHR': 'heart_rate', 'editSpo2': 'spo2',
+      'editTemp': 'temperature', 'editSugar': 'blood_sugar',
+      'editHeight': 'height_cm', 'editWeight': 'weight_kg',
+      'editGcsE': 'gcs_eye', 'editGcsV': 'gcs_verbal', 'editGcsM': 'gcs_motor',
+      'editECG': 'ecg_interpretation', 'editNotes': 'notes'
+    };
+
+    Object.entries(simpleFields).forEach(([elId, field]) => {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      const v = el.value.trim();
+      let newVal;
+      if (['blood_pressure', 'ecg_interpretation', 'notes'].includes(field)) newVal = v || null;
+      else if (['heart_rate', 'spo2', 'gcs_eye', 'gcs_verbal', 'gcs_motor'].includes(field)) newVal = v ? parseInt(v) : null;
+      else newVal = v ? parseFloat(v) : null;
+
+      const oldVal = visit[field];
+      const oldStr = oldVal == null ? '' : String(oldVal);
+      const newStr = newVal == null ? '' : String(newVal);
+
+      if (oldStr !== newStr) {
+        newData[field] = newVal;
+        changes.push({ field, label: labelMap[field] || field, old: oldStr || '—', new: newStr || '—' });
+      }
+    });
+
+    // اعزام
+    const dtStr = getVal('editDispatchTime');
+    if (dtStr) {
+      const [dh, dm] = dtStr.split(':').map(Number);
+      const d = new Date(visit.dispatch_time || Date.now());
+      d.setHours(dh, dm, 0, 0);
+      const newTimeIso = d.toISOString();
+      if (newTimeIso !== visit.dispatch_time) {
+        newData.dispatch_time = newTimeIso;
+        changes.push({
+          field: 'dispatch_time', label: 'ساعت اعزام',
+          old: visit.dispatch_time ? new Date(visit.dispatch_time).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : '—',
+          new: d.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })
+        });
+      }
+    } else if (visit.dispatch_time) {
+      newData.dispatch_time = null;
+      changes.push({ field: 'dispatch_time', label: 'ساعت اعزام', old: new Date(visit.dispatch_time).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }), new: '—' });
+    }
+
+    const newDest = getVal('editDispatchDest') || '';
+    const oldDest = visit.dispatch_destination || '';
+    if (newDest !== oldDest) {
+      newData.dispatch_destination = newDest || null;
+      changes.push({ field: 'dispatch_destination', label: 'مقصد اعزام', old: oldDest || '—', new: newDest || '—' });
+    }
+  }
+
+  // Injuries
+  let injuriesChanged = false;
+  if (canIncident) {
+    const oldIds = (visit.injuries || []).map(i => i.id).sort();
+    const newIds = editInjuries.map(i => i.id).sort();
+    if (JSON.stringify(oldIds) !== JSON.stringify(newIds)) {
+      injuriesChanged = true;
+      changes.push({
+        field: 'injuries', label: 'نواحی مصدومیت',
+        old: oldIds.length ? (visit.injuries || []).map(i => i.name).join('، ') : '—',
+        new: newIds.length ? editInjuries.map(i => i.name).join('، ') : '—'
+      });
+    }
+  }
+
+  // Items
+  let itemsChanged = false;
+  const oldItemsMap = {};
+  (visit.items || []).forEach(it => { oldItemsMap[it.drug_id] = it; });
+  const newItemsMap = {};
+  editItems.forEach(it => { newItemsMap[it.drug_id] = it; });
+
+  const oldDrugIds = Object.keys(oldItemsMap).map(Number).sort();
+  const newDrugIds = Object.keys(newItemsMap).map(Number).sort();
+  const idsEqual = JSON.stringify(oldDrugIds) === JSON.stringify(newDrugIds);
+
+  if (!idsEqual || (idsEqual && oldDrugIds.some(id => oldItemsMap[id].quantity !== newItemsMap[id].quantity))) {
+    itemsChanged = true;
+    changes.push({
+      field: 'items', label: 'داروهای تجویزی',
+      old: Object.values(oldItemsMap).map(it => `${it.drug?.name} (${it.quantity})`).join('، ') || '—',
+      new: Object.values(newItemsMap).map(it => `${it.drug?.name} (${it.quantity})`).join('، ') || '—'
+    });
+  }
+
+  if (!changes.length) { modal.hide(); return; }
+
+  const actionLabel = incidentOnly ? 'ویرایش اطلاعات حادثه' : 'ویرایش ویزیت';
+  if (!confirm(`${changes.length} مورد تغییر کرده است. ذخیره شود؟`)) return;
+
+  const btn = document.getElementById('editSaveBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ذخیره...';
+
+  try {
+    if (Object.keys(newData).length > 0) {
+      const { error } = await sb.from('visits_visit').update(newData).eq('id', visit.id);
+      if (error) throw error;
+    }
+
+    if (injuriesChanged) {
+      await sb.from('visits_visit_injury_locations').delete().eq('visit_id', visit.id);
+      if (editInjuries.length) {
+        await sb.from('visits_visit_injury_locations').insert(
+          editInjuries.map(i => ({ visit_id: visit.id, injurylocation_id: i.id }))
+        );
+      }
+    }
+
+    if (itemsChanged) {
+      await sb.from('visits_visititem').delete().eq('visit_id', visit.id);
+      if (editItems.length) {
+        await sb.from('visits_visititem').insert(
+          editItems.map(it => ({
+            visit_id: visit.id, drug_id: it.drug_id,
+            quantity: it.quantity, notes: it.notes || null
+          }))
+        );
+      }
+    }
+
+    await logChange(visit.id, 'edit', changes, actionLabel);
+
+    modal.hide();
+    setTimeout(() => {
+      document.getElementById('visitEditModal')?.remove();
+      openDetail(visit.id);
+    }, 300);
+  } catch (e) {
+    console.error(e);
+    alert('❌ خطا: ' + e.message);
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check-circle"></i> ذخیره تغییرات';
+  }
+}
