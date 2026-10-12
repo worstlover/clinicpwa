@@ -1,6 +1,6 @@
 // js/modules/visit/edit.js
 import { sb } from '../../sb.js';
-import { $, escapeHtml, gregorianToJalali, jalaliToGregorian } from '../../utils.js';
+import { $, escapeHtml, gregorianToJalali, jalaliToGregorian, toast, beep } from '../../utils.js';
 import { state, INJURY_MAP, loadRefs } from './state.js';
 import { canEditClinical, canEditIncident, isIncidentOnlyMode, getTimeStr, getIncLabel } from './helpers.js';
 import { renderEditBodyMap } from './bodymap.js';
@@ -242,21 +242,32 @@ export async function openEditModal(visit) {
     };
   });
 
-  // Body map
+  // ⭐ Body Map در ویرایش
   const rebindEditBodyMap = () => {
     if (!canIncident) return;
+
     modalEl.querySelectorAll('[data-edit-part]').forEach(p => {
       p.onclick = () => {
         const key = p.dataset.editPart;
+        if (!key) return;
         const loc = INJURY_MAP[key];
-        if (!loc) return;
+        if (!loc) {
+          console.warn('ناحیه تعریف نشده:', key);
+          toast(`ناحیه "${key}" در دیتابیس تعریف نشده`, 'warning');
+          return;
+        }
         const idx = editInjuries.findIndex(x => x.id === loc.id);
-        if (idx >= 0) editInjuries.splice(idx, 1);
-        else editInjuries.push({ id: loc.id, name: loc.name, svg_key: key });
+        if (idx >= 0) {
+          editInjuries.splice(idx, 1);
+        } else {
+          editInjuries.push({ id: loc.id, name: loc.name, svg_key: key });
+        }
+        beep();
         document.getElementById('editBodyMapContainer').innerHTML = renderEditBodyMap(editInjuries, canIncident);
         rebindEditBodyMap();
       };
     });
+
     modalEl.querySelectorAll('.remove-part-edit').forEach(b => {
       b.onclick = e => {
         e.stopPropagation();
