@@ -57,11 +57,21 @@ document.addEventListener('keydown', e => {
 // نصب PWA
 let deferredInstallPrompt = null;
 
+// اگر برنامه قبلاً نصب شده (حالت standalone یا TWA)، دکمه نصب مخفی بماند
+const isInstalledApp =
+  window.matchMedia('(display-mode: standalone)').matches ||
+  window.navigator.standalone === true ||
+  document.referrer.startsWith('android-app://');
+if (isInstalledApp) {
+  const b = document.getElementById('btnInstallPWA');
+  if (b) b.style.display = 'none';
+}
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
   const btn = document.getElementById('btnInstallPWA');
-  if (btn) btn.style.display = 'flex';
+  if (btn && !isInstalledApp) btn.style.display = 'flex';
 });
 
 window.addEventListener('appinstalled', () => {
