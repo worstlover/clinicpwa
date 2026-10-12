@@ -1,8 +1,0 @@
-[{
-  "relation": ["delegate_permission/common.handle_all_urls"],
-  "target": {
-    "namespace": "android_app",
-    "package_name": "dev.workers.mohammad_zb70.clinicpwa.twa",
-    "sha256_cert_fingerprints": ["A6:0F:87:9C:0C:06:1E:FA:ED:22:E6:9C:D9:F5:F6:C7:F2:B3:B3:50:BD:D5:5C:91:3C:DF:38:6E:81:73:A6:DF"]
-  }
-}]
