@@ -5,7 +5,6 @@ const SCREENS = [
   'screenHome',
   'screenVisit',
   'screenInventory',
-  'screenDispense',
   'screenReceive',
   'screenDisposal',
   'screenReport',
@@ -25,17 +24,14 @@ const TITLES = {
 };
 
 export function showScreen(name) {
-  // حذف active از همه
   SCREENS.forEach(s => {
     const el = $(s);
     if (el) el.classList.remove('active');
   });
 
-  // افزودن active به صفحه هدف
   const target = $('screen' + name);
   if (target) target.classList.add('active');
 
-  // هدر و نوار پایین
   if (name === 'Login') {
     $('appHeader')?.classList.add('hidden');
     $('bottomNav')?.classList.add('hidden');
