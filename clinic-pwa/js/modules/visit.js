@@ -25,11 +25,10 @@ const state = {
   injuryLocations: [],
   quickDrugs: [],
   drugPrefs: { order: [], hidden: [] },
-  editDrugMode: false,
-  bodyMapData: {}
+  editDrugMode: false
 };
 
-const INJURY_MAP = {};   // svg_key → {id, name}
+const INJURY_MAP = {};
 
 // ═══════════════════════════════════════════════════════
 // ورود
@@ -145,15 +144,14 @@ function getIncLabel(type) {
 // بارگذاری داده‌های مرجع
 // ═══════════════════════════════════════════════════════
 async function loadRefs() {
-  const [r, t, il, inj, qd, pr] = await Promise.all([
+  const [r, t, il, inj, qd] = await Promise.all([
     sb.from('visits_reasonforvisit').select('id, name').eq('is_active', true).order('name'),
     sb.from('visits_treatmentresult').select('id, name').eq('is_active', true).order('name'),
     sb.from('visits_incidentlocation').select('id, name').eq('is_active', true).order('name').limit(200),
     sb.from('visits_injurylocation').select('id, name, svg_key, view_type').eq('is_active', true),
     sb.from('visits_visititem')
       .select('drug_id, drug:drugs_drug(id, name, form)')
-      .order('id', { ascending: false }).limit(500),
-    sb.from('visits_usertopdrugorder').select('*').limit(1)
+      .order('id', { ascending: false }).limit(500)
   ]);
 
   state.reasons = r.data || [];
@@ -162,7 +160,6 @@ async function loadRefs() {
   state.injuryLocations = inj.data || [];
   state.drugPrefs = { order: [], hidden: [] };
 
-  // بچ بچ داروهای پرکاربرد (شمارش در ۳۰ روز - ساده)
   const counts = {};
   (qd.data || []).forEach(item => {
     const d = item.drug;
@@ -172,7 +169,7 @@ async function loadRefs() {
   });
   state.quickDrugs = Object.values(counts).sort((a, b) => b.count - a.count).slice(0, 15);
 
-  // نقشه Injury Locations
+  Object.keys(INJURY_MAP).forEach(k => delete INJURY_MAP[k]);
   state.injuryLocations.forEach(loc => {
     if (loc.svg_key) INJURY_MAP[loc.svg_key] = { id: loc.id, name: loc.name };
   });
@@ -180,7 +177,7 @@ async function loadRefs() {
 
 function getIcon(form) {
   if (!form) return '💊';
-  const f = form.toLowerCase();
+  const f = String(form).toLowerCase();
   if (f.includes('آمپول') || f.includes('ویال') || f.includes('سرنگ')) return '💉';
   if (f.includes('شربت') || f.includes('سوسپانسیون')) return '🧪';
   if (f.includes('قطره') || f.includes('سرم')) return '💧';
@@ -230,7 +227,6 @@ function renderWizard() {
       </div>
     </div>
 
-    <!-- ═══════ مرحله ۱: بیمار ═══════ -->
     <div class="wizard-panel ${state.step === 1 ? 'active' : ''}" data-panel="1">
       <div class="card">
         <div class="card-head"><i class="bi bi-person-badge"></i> مرحله ۱: انتخاب بیمار</div>
@@ -238,7 +234,7 @@ function renderWizard() {
           <div id="vPatientBox">
             <input type="text" class="form-control mb-2" id="vPatientSearch"
               placeholder="نام، کد ملی، پرسنلی..." autocomplete="off">
-            <div id="vPatientResults"></div>
+            <div id="vPatientResults" style="max-height:400px;overflow-y:auto;"></div>
           </div>
           <div id="vPatientSelected" class="hidden">
             <div class="badge-soft success" style="display:flex;align-items:center;gap:10px;padding:12px;">
@@ -250,12 +246,10 @@ function renderWizard() {
               <button style="background:none;border:none;color:#dc3545;font-size:1.2rem;font-weight:700;" id="vPatientClear">✕</button>
             </div>
           </div>
-          <div id="vPatientHistory" class="mt-3"></div>
         </div>
       </div>
     </div>
 
-    <!-- ═══════ مرحله ۲: علت + حادثه ═══════ -->
     <div class="wizard-panel ${state.step === 2 ? 'active' : ''}" data-panel="2">
       <div class="card">
         <div class="card-head"><i class="bi bi-clipboard-pulse"></i> مرحله ۲: علت و حادثه</div>
@@ -305,7 +299,6 @@ function renderWizard() {
       </div>
     </div>
 
-    <!-- ═══════ مرحله ۳: مصدومیت ═══════ -->
     <div class="wizard-panel ${state.step === 3 ? 'active' : ''}" data-panel="3">
       <div class="card">
         <div class="card-head danger"><i class="bi bi-body-text"></i> مرحله ۳: محل حادثه و مصدومیت</div>
@@ -333,7 +326,6 @@ function renderWizard() {
       </div>
     </div>
 
-    <!-- ═══════ مرحله ۴: علائم حیاتی ═══════ -->
     <div class="wizard-panel ${state.step === 4 ? 'active' : ''}" data-panel="4">
       <div class="card">
         <div class="card-head warning"><i class="bi bi-heart-pulse"></i> مرحله ۴: تاریخ، GCS و علائم حیاتی</div>
@@ -423,7 +415,6 @@ function renderWizard() {
       </div>
     </div>
 
-    <!-- ═══════ مرحله ۵: داروها ═══════ -->
     <div class="wizard-panel ${state.step === 5 ? 'active' : ''}" data-panel="5">
       <div class="card">
         <div class="card-head success"><i class="bi bi-capsule"></i> مرحله ۵: داروهای تجویزی</div>
@@ -447,7 +438,6 @@ function renderWizard() {
       </div>
     </div>
 
-    <!-- ═══════ مرحله ۶: تشخیص ═══════ -->
     <div class="wizard-panel ${state.step === 6 ? 'active' : ''}" data-panel="6">
       <div class="card">
         <div class="card-head"><i class="bi bi-journal-medical"></i> مرحله ۶: تشخیص و نتیجه</div>
@@ -476,7 +466,6 @@ function renderWizard() {
       </div>
     </div>
 
-    <!-- ناوبری -->
     <div class="card">
       <div class="card-body">
         <div class="wizard-nav">
@@ -502,7 +491,6 @@ function renderWizard() {
       </button>
     </div>
 
-    <!-- FAB -->
     <div class="fab-container ${state.step === 5 ? 'show' : ''}" id="vFab">
       <div class="fab-hint">افزودن دارو</div>
       <button class="fab-add-drug" id="vFabAdd">+</button>
@@ -517,7 +505,7 @@ function renderWizard() {
 // ═══════════════════════════════════════════════════════
 function renderBodyMap() {
   const sel = new Set(state.selectedInjuries.map(i => i.id));
-  const isSelected = (key) => {
+  const cls = (key) => {
     const loc = INJURY_MAP[key];
     return loc && sel.has(loc.id) ? 'selected' : '';
   };
@@ -528,38 +516,38 @@ function renderBodyMap() {
         <div class="body-map-title">روبرو</div>
         <div class="body-map">
           <svg viewBox="0 0 240 560" xmlns="http://www.w3.org/2000/svg">
-            <ellipse class="body-part ${isSelected('head')}" data-part="head" cx="120" cy="45" rx="30" ry="35"/>
-            <ellipse class="body-part ${isSelected('ear_left')}" data-part="ear_left" cx="152" cy="50" rx="5" ry="9"/>
-            <ellipse class="body-part ${isSelected('ear_right')}" data-part="ear_right" cx="88" cy="50" rx="5" ry="9"/>
-            <rect class="body-part ${isSelected('neck')}" data-part="neck" x="108" y="78" width="24" height="18" rx="4"/>
-            <rect class="body-part ${isSelected('shoulder_left')}" data-part="shoulder_left" x="136" y="100" width="44" height="25" rx="10"/>
-            <rect class="body-part ${isSelected('shoulder_right')}" data-part="shoulder_right" x="60" y="100" width="44" height="25" rx="10"/>
-            <rect class="body-part ${isSelected('chest')}" data-part="chest" x="98" y="100" width="44" height="65" rx="8"/>
-            <rect class="body-part ${isSelected('upper_arm_left')}" data-part="upper_arm_left" x="155" y="125" width="30" height="80" rx="12"/>
-            <rect class="body-part ${isSelected('upper_arm_right')}" data-part="upper_arm_right" x="55" y="125" width="30" height="80" rx="12"/>
-            <rect class="body-part ${isSelected('elbow_left')}" data-part="elbow_left" x="157" y="205" width="26" height="22" rx="8"/>
-            <rect class="body-part ${isSelected('elbow_right')}" data-part="elbow_right" x="57" y="205" width="26" height="22" rx="8"/>
-            <rect class="body-part ${isSelected('forearm_left')}" data-part="forearm_left" x="158" y="227" width="24" height="55" rx="8"/>
-            <rect class="body-part ${isSelected('forearm_right')}" data-part="forearm_right" x="58" y="227" width="24" height="55" rx="8"/>
-            <rect class="body-part ${isSelected('palm_left')}" data-part="palm_left" x="158" y="282" width="24" height="45" rx="6"/>
-            <rect class="body-part ${isSelected('palm_right')}" data-part="palm_right" x="58" y="282" width="24" height="45" rx="6"/>
-            <rect class="body-part ${isSelected('epigastrium')}" data-part="epigastrium" x="98" y="165" width="44" height="35" rx="6"/>
-            <rect class="body-part ${isSelected('hypogastrium')}" data-part="hypogastrium" x="98" y="200" width="44" height="35" rx="6"/>
-            <rect class="body-part ${isSelected('flank_left')}" data-part="flank_left" x="142" y="165" width="13" height="70" rx="5"/>
-            <rect class="body-part ${isSelected('flank_right')}" data-part="flank_right" x="85" y="165" width="13" height="70" rx="5"/>
-            <rect class="body-part ${isSelected('groin')}" data-part="groin" x="105" y="235" width="30" height="15" rx="5"/>
-            <rect class="body-part ${isSelected('hip_left')}" data-part="hip_left" x="122" y="250" width="28" height="25" rx="8"/>
-            <rect class="body-part ${isSelected('hip_right')}" data-part="hip_right" x="90" y="250" width="28" height="25" rx="8"/>
-            <rect class="body-part ${isSelected('thigh_left')}" data-part="thigh_left" x="128" y="275" width="32" height="90" rx="12"/>
-            <rect class="body-part ${isSelected('thigh_right')}" data-part="thigh_right" x="80" y="275" width="32" height="90" rx="12"/>
-            <rect class="body-part ${isSelected('knee_left')}" data-part="knee_left" x="130" y="365" width="28" height="25" rx="8"/>
-            <rect class="body-part ${isSelected('knee_right')}" data-part="knee_right" x="82" y="365" width="28" height="25" rx="8"/>
-            <rect class="body-part ${isSelected('shin_left')}" data-part="shin_left" x="131" y="390" width="26" height="80" rx="8"/>
-            <rect class="body-part ${isSelected('shin_right')}" data-part="shin_right" x="83" y="390" width="26" height="80" rx="8"/>
-            <rect class="body-part ${isSelected('ankle_left')}" data-part="ankle_left" x="133" y="470" width="22" height="15" rx="5"/>
-            <rect class="body-part ${isSelected('ankle_right')}" data-part="ankle_right" x="85" y="470" width="22" height="15" rx="5"/>
-            <rect class="body-part ${isSelected('sole_left')}" data-part="sole_left" x="126" y="485" width="36" height="25" rx="6"/>
-            <rect class="body-part ${isSelected('sole_right')}" data-part="sole_right" x="78" y="485" width="36" height="25" rx="6"/>
+            <ellipse class="body-part ${cls('head')}" data-part="head" cx="120" cy="45" rx="30" ry="35"/>
+            <ellipse class="body-part ${cls('ear_left')}" data-part="ear_left" cx="152" cy="50" rx="5" ry="9"/>
+            <ellipse class="body-part ${cls('ear_right')}" data-part="ear_right" cx="88" cy="50" rx="5" ry="9"/>
+            <rect class="body-part ${cls('neck')}" data-part="neck" x="108" y="78" width="24" height="18" rx="4"/>
+            <rect class="body-part ${cls('shoulder_left')}" data-part="shoulder_left" x="136" y="100" width="44" height="25" rx="10"/>
+            <rect class="body-part ${cls('shoulder_right')}" data-part="shoulder_right" x="60" y="100" width="44" height="25" rx="10"/>
+            <rect class="body-part ${cls('chest')}" data-part="chest" x="98" y="100" width="44" height="65" rx="8"/>
+            <rect class="body-part ${cls('upper_arm_left')}" data-part="upper_arm_left" x="155" y="125" width="30" height="80" rx="12"/>
+            <rect class="body-part ${cls('upper_arm_right')}" data-part="upper_arm_right" x="55" y="125" width="30" height="80" rx="12"/>
+            <rect class="body-part ${cls('elbow_left')}" data-part="elbow_left" x="157" y="205" width="26" height="22" rx="8"/>
+            <rect class="body-part ${cls('elbow_right')}" data-part="elbow_right" x="57" y="205" width="26" height="22" rx="8"/>
+            <rect class="body-part ${cls('forearm_left')}" data-part="forearm_left" x="158" y="227" width="24" height="55" rx="8"/>
+            <rect class="body-part ${cls('forearm_right')}" data-part="forearm_right" x="58" y="227" width="24" height="55" rx="8"/>
+            <rect class="body-part ${cls('palm_left')}" data-part="palm_left" x="158" y="282" width="24" height="45" rx="6"/>
+            <rect class="body-part ${cls('palm_right')}" data-part="palm_right" x="58" y="282" width="24" height="45" rx="6"/>
+            <rect class="body-part ${cls('epigastrium')}" data-part="epigastrium" x="98" y="165" width="44" height="35" rx="6"/>
+            <rect class="body-part ${cls('hypogastrium')}" data-part="hypogastrium" x="98" y="200" width="44" height="35" rx="6"/>
+            <rect class="body-part ${cls('flank_left')}" data-part="flank_left" x="142" y="165" width="13" height="70" rx="5"/>
+            <rect class="body-part ${cls('flank_right')}" data-part="flank_right" x="85" y="165" width="13" height="70" rx="5"/>
+            <rect class="body-part ${cls('groin')}" data-part="groin" x="105" y="235" width="30" height="15" rx="5"/>
+            <rect class="body-part ${cls('hip_left')}" data-part="hip_left" x="122" y="250" width="28" height="25" rx="8"/>
+            <rect class="body-part ${cls('hip_right')}" data-part="hip_right" x="90" y="250" width="28" height="25" rx="8"/>
+            <rect class="body-part ${cls('thigh_left')}" data-part="thigh_left" x="128" y="275" width="32" height="90" rx="12"/>
+            <rect class="body-part ${cls('thigh_right')}" data-part="thigh_right" x="80" y="275" width="32" height="90" rx="12"/>
+            <rect class="body-part ${cls('knee_left')}" data-part="knee_left" x="130" y="365" width="28" height="25" rx="8"/>
+            <rect class="body-part ${cls('knee_right')}" data-part="knee_right" x="82" y="365" width="28" height="25" rx="8"/>
+            <rect class="body-part ${cls('shin_left')}" data-part="shin_left" x="131" y="390" width="26" height="80" rx="8"/>
+            <rect class="body-part ${cls('shin_right')}" data-part="shin_right" x="83" y="390" width="26" height="80" rx="8"/>
+            <rect class="body-part ${cls('ankle_left')}" data-part="ankle_left" x="133" y="470" width="22" height="15" rx="5"/>
+            <rect class="body-part ${cls('ankle_right')}" data-part="ankle_right" x="85" y="470" width="22" height="15" rx="5"/>
+            <rect class="body-part ${cls('sole_left')}" data-part="sole_left" x="126" y="485" width="36" height="25" rx="6"/>
+            <rect class="body-part ${cls('sole_right')}" data-part="sole_right" x="78" y="485" width="36" height="25" rx="6"/>
           </svg>
         </div>
       </div>
@@ -567,29 +555,29 @@ function renderBodyMap() {
         <div class="body-map-title">پشت</div>
         <div class="body-map">
           <svg viewBox="0 0 240 560" xmlns="http://www.w3.org/2000/svg">
-            <ellipse class="body-part ${isSelected('occiput')}" data-part="occiput" cx="120" cy="45" rx="30" ry="35"/>
-            <ellipse class="body-part ${isSelected('ear_left')}" data-part="ear_left" cx="88" cy="50" rx="5" ry="9"/>
-            <ellipse class="body-part ${isSelected('ear_right')}" data-part="ear_right" cx="152" cy="50" rx="5" ry="9"/>
-            <rect class="body-part ${isSelected('neck_back')}" data-part="neck_back" x="108" y="78" width="24" height="18" rx="4"/>
-            <rect class="body-part ${isSelected('shoulder_left_back')}" data-part="shoulder_left_back" x="60" y="100" width="44" height="25" rx="10"/>
-            <rect class="body-part ${isSelected('shoulder_right_back')}" data-part="shoulder_right_back" x="136" y="100" width="44" height="25" rx="10"/>
-            <rect class="body-part ${isSelected('upper_back')}" data-part="upper_back" x="98" y="100" width="44" height="45" rx="8"/>
-            <rect class="body-part ${isSelected('mid_back')}" data-part="mid_back" x="98" y="145" width="44" height="45" rx="6"/>
-            <rect class="body-part ${isSelected('lower_back')}" data-part="lower_back" x="98" y="190" width="44" height="35" rx="6"/>
-            <rect class="body-part ${isSelected('upper_arm_left_back')}" data-part="upper_arm_left_back" x="55" y="125" width="30" height="80" rx="12"/>
-            <rect class="body-part ${isSelected('upper_arm_right_back')}" data-part="upper_arm_right_back" x="155" y="125" width="30" height="80" rx="12"/>
-            <rect class="body-part ${isSelected('forearm_left_back')}" data-part="forearm_left_back" x="58" y="227" width="24" height="55" rx="8"/>
-            <rect class="body-part ${isSelected('forearm_right_back')}" data-part="forearm_right_back" x="158" y="227" width="24" height="55" rx="8"/>
-            <rect class="body-part ${isSelected('glute_left')}" data-part="glute_left" x="90" y="255" width="28" height="35" rx="10"/>
-            <rect class="body-part ${isSelected('glute_right')}" data-part="glute_right" x="122" y="255" width="28" height="35" rx="10"/>
-            <rect class="body-part ${isSelected('thigh_left_back')}" data-part="thigh_left_back" x="80" y="290" width="32" height="75" rx="12"/>
-            <rect class="body-part ${isSelected('thigh_right_back')}" data-part="thigh_right_back" x="128" y="290" width="32" height="75" rx="12"/>
-            <rect class="body-part ${isSelected('knee_left_back')}" data-part="knee_left_back" x="82" y="365" width="28" height="25" rx="8"/>
-            <rect class="body-part ${isSelected('knee_right_back')}" data-part="knee_right_back" x="130" y="365" width="28" height="25" rx="8"/>
-            <rect class="body-part ${isSelected('calf_left')}" data-part="calf_left" x="83" y="390" width="26" height="75" rx="8"/>
-            <rect class="body-part ${isSelected('calf_right')}" data-part="calf_right" x="131" y="390" width="26" height="75" rx="8"/>
-            <rect class="body-part ${isSelected('heel_left')}" data-part="heel_left" x="78" y="480" width="36" height="30" rx="6"/>
-            <rect class="body-part ${isSelected('heel_right')}" data-part="heel_right" x="126" y="480" width="36" height="30" rx="6"/>
+            <ellipse class="body-part ${cls('occiput')}" data-part="occiput" cx="120" cy="45" rx="30" ry="35"/>
+            <ellipse class="body-part ${cls('ear_left')}" data-part="ear_left" cx="88" cy="50" rx="5" ry="9"/>
+            <ellipse class="body-part ${cls('ear_right')}" data-part="ear_right" cx="152" cy="50" rx="5" ry="9"/>
+            <rect class="body-part ${cls('neck_back')}" data-part="neck_back" x="108" y="78" width="24" height="18" rx="4"/>
+            <rect class="body-part ${cls('shoulder_left_back')}" data-part="shoulder_left_back" x="60" y="100" width="44" height="25" rx="10"/>
+            <rect class="body-part ${cls('shoulder_right_back')}" data-part="shoulder_right_back" x="136" y="100" width="44" height="25" rx="10"/>
+            <rect class="body-part ${cls('upper_back')}" data-part="upper_back" x="98" y="100" width="44" height="45" rx="8"/>
+            <rect class="body-part ${cls('mid_back')}" data-part="mid_back" x="98" y="145" width="44" height="45" rx="6"/>
+            <rect class="body-part ${cls('lower_back')}" data-part="lower_back" x="98" y="190" width="44" height="35" rx="6"/>
+            <rect class="body-part ${cls('upper_arm_left_back')}" data-part="upper_arm_left_back" x="55" y="125" width="30" height="80" rx="12"/>
+            <rect class="body-part ${cls('upper_arm_right_back')}" data-part="upper_arm_right_back" x="155" y="125" width="30" height="80" rx="12"/>
+            <rect class="body-part ${cls('forearm_left_back')}" data-part="forearm_left_back" x="58" y="227" width="24" height="55" rx="8"/>
+            <rect class="body-part ${cls('forearm_right_back')}" data-part="forearm_right_back" x="158" y="227" width="24" height="55" rx="8"/>
+            <rect class="body-part ${cls('glute_left')}" data-part="glute_left" x="90" y="255" width="28" height="35" rx="10"/>
+            <rect class="body-part ${cls('glute_right')}" data-part="glute_right" x="122" y="255" width="28" height="35" rx="10"/>
+            <rect class="body-part ${cls('thigh_left_back')}" data-part="thigh_left_back" x="80" y="290" width="32" height="75" rx="12"/>
+            <rect class="body-part ${cls('thigh_right_back')}" data-part="thigh_right_back" x="128" y="290" width="32" height="75" rx="12"/>
+            <rect class="body-part ${cls('knee_left_back')}" data-part="knee_left_back" x="82" y="365" width="28" height="25" rx="8"/>
+            <rect class="body-part ${cls('knee_right_back')}" data-part="knee_right_back" x="130" y="365" width="28" height="25" rx="8"/>
+            <rect class="body-part ${cls('calf_left')}" data-part="calf_left" x="83" y="390" width="26" height="75" rx="8"/>
+            <rect class="body-part ${cls('calf_right')}" data-part="calf_right" x="131" y="390" width="26" height="75" rx="8"/>
+            <rect class="body-part ${cls('heel_left')}" data-part="heel_left" x="78" y="480" width="36" height="30" rx="6"/>
+            <rect class="body-part ${cls('heel_right')}" data-part="heel_right" x="126" y="480" width="36" height="30" rx="6"/>
           </svg>
         </div>
       </div>
@@ -601,7 +589,6 @@ function renderBodyMap() {
 // رویدادهای Wizard
 // ═══════════════════════════════════════════════════════
 function bindWizard() {
-  // Steps - ناوبری از طریق کلیک روی مراحل
   document.querySelectorAll('.wizard-step').forEach(el => {
     el.onclick = () => {
       const n = parseInt(el.dataset.step);
@@ -612,7 +599,6 @@ function bindWizard() {
     };
   });
 
-  // بیمار - جستجو
   const pSearch = $('vPatientSearch');
   if (pSearch) {
     let t;
@@ -622,31 +608,49 @@ function bindWizard() {
     });
   }
 
-  // انتخاب بیمار
-  document.querySelectorAll('[data-pick-patient]').forEach(b => {
-    b.onclick = () => pickPatient(
-      parseInt(b.dataset.pickPatient),
-      b.dataset.patientName,
-      b.dataset.patientMeta
-    );
-  });
+  const resultsBox = $('vPatientResults');
+  if (resultsBox && !resultsBox.dataset.bound) {
+    resultsBox.dataset.bound = '1';
+    resultsBox.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-pick-patient]');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.pickPatient);
+      const name = btn.dataset.patientName || '';
+      const meta = btn.dataset.patientMeta || '';
+      pickPatient(id, name, meta);
+    });
+  }
 
-  // پاک کردن بیمار
   const pClear = $('vPatientClear');
-  if (pClear) pClear.onclick = () => {
-    state.patientId = null;
-    $('vPatientBox').classList.remove('hidden');
-    $('vPatientSelected').classList.add('hidden');
-    $('vPatientHistory').innerHTML = '';
-  };
+  if (pClear) {
+    pClear.onclick = () => {
+      state.patientId = null;
+      state.patientName = '';
+      const box = $('vPatientBox');
+      const sel = $('vPatientSelected');
+      if (box) box.classList.remove('hidden');
+      if (sel) sel.classList.add('hidden');
+    };
+  }
 
-  // مرحله ۲ - حادثه
   document.querySelectorAll('.incident-card').forEach(card => {
     card.onclick = () => {
       const yes = card.dataset.incident === 'yes';
       state.isIncident = yes;
       if (!yes) state.incidentType = 'none';
+      const reasonVal = $('vReason')?.value;
+      const incLocVal = $('vIncidentLocation')?.value;
+      const incDescVal = $('vIncidentDesc')?.value;
+      const dateVal = $('vDate')?.value;
+      const treatVal = $('vTreatment')?.value;
       renderWizard();
+      if (reasonVal && $('vReason')) $('vReason').value = reasonVal;
+      if (incLocVal && $('vIncidentLocation')) $('vIncidentLocation').value = incLocVal;
+      if (incDescVal && $('vIncidentDesc')) $('vIncidentDesc').value = incDescVal;
+      if (dateVal && $('vDate')) $('vDate').value = dateVal;
+      if (treatVal && $('vTreatment')) $('vTreatment').value = treatVal;
     };
   });
 
@@ -654,11 +658,10 @@ function bindWizard() {
     r.onchange = () => {
       state.incidentType = r.value;
       document.querySelectorAll('.incident-type-radio').forEach(l => l.classList.remove('active'));
-      r.closest('.incident-type-radio').classList.add('active');
+      r.closest('.incident-type-radio')?.classList.add('active');
     };
   });
 
-  // مرحله ۳ - Body Map
   document.querySelectorAll('.body-part').forEach(p => {
     p.onclick = () => {
       const key = p.dataset.part;
@@ -680,11 +683,10 @@ function bindWizard() {
     };
   });
 
-  // مرحله ۴ - GCS و Vitals
   const consCheck = $('consciousCheck');
   if (consCheck) {
     consCheck.onchange = () => {
-      $('consciousToggle').classList.toggle('active', consCheck.checked);
+      $('consciousToggle')?.classList.toggle('active', consCheck.checked);
       if (consCheck.checked) {
         $('vGcsE').value = 4; $('vGcsV').value = 5; $('vGcsM').value = 6;
       } else {
@@ -695,13 +697,14 @@ function bindWizard() {
   }
 
   ['vGcsE', 'vGcsV', 'vGcsM'].forEach(id => {
-    const el = $(id); if (el) el.onchange = calcGCS;
+    const el = $(id);
+    if (el) el.onchange = calcGCS;
   });
 
   const vitCheck = $('vitalsCheck');
   if (vitCheck) {
     vitCheck.onchange = () => {
-      $('vitalsToggle').classList.toggle('active', vitCheck.checked);
+      $('vitalsToggle')?.classList.toggle('active', vitCheck.checked);
       if (vitCheck.checked) {
         const rand = (a,b) => Math.floor(Math.random()*(b-a+1))+a;
         $('vHR').value = rand(68, 88);
@@ -709,16 +712,16 @@ function bindWizard() {
         $('vBP').value = `${rand(110,125)}/${rand(70,85)}`;
         $('vTemp').value = (36.4 + Math.random()*0.8).toFixed(1);
       } else {
-        ['vHR','vSpo2','vBP','vTemp'].forEach(id => $(id).value = '');
+        ['vHR','vSpo2','vBP','vTemp'].forEach(id => { const el = $(id); if (el) el.value = ''; });
       }
     };
   }
 
   ['vHeight','vWeight'].forEach(id => {
-    const el = $(id); if (el) el.oninput = calcBMI;
+    const el = $(id);
+    if (el) el.oninput = calcBMI;
   });
 
-  // مرحله ۵ - داروها
   renderQuickDrugs();
   renderItems();
 
@@ -736,7 +739,6 @@ function bindWizard() {
   const saveEdit = $('saveEditDrugs');
   if (saveEdit) {
     saveEdit.onclick = async () => {
-      // ذخیره در Supabase
       try {
         const { data: existing } = await sb.from('visits_usertopdrugorder').select('*').limit(1);
         if (existing?.length) {
@@ -752,9 +754,11 @@ function bindWizard() {
         }
         state.editDrugMode = false;
         toast('✅ ذخیره شد', 'success');
-        $('toggleEditDrugs').classList.remove('active');
-        $('toggleEditDrugs').textContent = '✏️ ویرایش';
-        saveEdit.style.display = 'none';
+        if ($('toggleEditDrugs')) {
+          $('toggleEditDrugs').classList.remove('active');
+          $('toggleEditDrugs').textContent = '✏️ ویرایش';
+        }
+        if ($('saveEditDrugs')) $('saveEditDrugs').style.display = 'none';
         renderQuickDrugs();
       } catch (e) {
         toast('خطا: ' + e.message, 'danger');
@@ -762,17 +766,24 @@ function bindWizard() {
     };
   }
 
-  document.querySelectorAll('[data-quick-drug]').forEach(b => {
-    b.onclick = () => {
-      if (state.editDrugMode) {
-        const action = b.dataset.action;
-        const drugId = parseInt(b.dataset.quickDrug);
+  const qdList = $('quickDrugsList');
+  if (qdList && !qdList.dataset.bound) {
+    qdList.dataset.bound = '1';
+    qdList.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-quick-drug]');
+      if (!btn) return;
+      e.preventDefault();
+      const drugId = parseInt(btn.dataset.quickDrug);
+      const action = btn.dataset.action;
+
+      if (state.editDrugMode && action) {
         handleEditAction(action, drugId);
-        return;
+      } else if (!state.editDrugMode) {
+        const name = btn.dataset.quickName;
+        if (name) addQuickDrug(drugId, name);
       }
-      addQuickDrug(parseInt(b.dataset.quickDrug), b.dataset.quickName);
-    };
-  });
+    });
+  }
 
   const addBtn = $('vAddDrug');
   if (addBtn) addBtn.onclick = openDrugSearchModal;
@@ -780,25 +791,49 @@ function bindWizard() {
   const fabAdd = $('vFabAdd');
   if (fabAdd) fabAdd.onclick = openDrugSearchModal;
 
-  // مرحله ۶ - dispatch
+  const itemsList = $('vItemsList');
+  if (itemsList && !itemsList.dataset.bound) {
+    itemsList.dataset.bound = '1';
+    itemsList.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      e.preventDefault();
+      const i = parseInt(btn.dataset.i);
+      if (btn.dataset.action === 'remove') { state.items.splice(i, 1); renderItems(); }
+      else if (btn.dataset.action === 'inc') { state.items[i].quantity++; renderItems(); }
+      else if (btn.dataset.action === 'dec') { if (state.items[i].quantity > 1) state.items[i].quantity--; renderItems(); }
+    });
+    itemsList.addEventListener('input', (e) => {
+      const qty = e.target.closest('[data-item-qty]');
+      const notes = e.target.closest('[data-item-notes]');
+      if (qty) {
+        const i = +qty.dataset.itemQty;
+        state.items[i].quantity = Math.max(1, parseInt(qty.value) || 1);
+      }
+      if (notes) {
+        const i = +notes.dataset.itemNotes;
+        state.items[i].notes = notes.value;
+      }
+    });
+  }
+
   const treatmentSel = $('vTreatment');
   if (treatmentSel) {
     treatmentSel.onchange = (e) => {
       const text = e.target.options[e.target.selectedIndex].text;
       const dispatch = $('vDispatchSection');
       if (text.includes('اعزام')) {
-        dispatch.classList.remove('hidden');
-        if (!$('vDispatchTime').value) {
+        dispatch?.classList.remove('hidden');
+        if ($('vDispatchTime') && !$('vDispatchTime').value) {
           const now = new Date();
           $('vDispatchTime').value = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
         }
       } else {
-        dispatch.classList.add('hidden');
+        dispatch?.classList.add('hidden');
       }
     };
   }
 
-  // ناوبری
   const btnPrev = $('btnPrev');
   if (btnPrev) btnPrev.onclick = () => {
     if (state.step > 1) {
@@ -836,8 +871,9 @@ function bindWizard() {
 // ═══════════════════════════════════════════════════════
 async function searchPatients(q) {
   const box = $('vPatientResults');
+  if (!box) return;
   if (!q || q.length < 2) {
-    box.innerHTML = '<div class="text-center muted small py-2">حداقل ۲ حرف</div>';
+    box.innerHTML = '<div class="text-center muted small py-2">حداقل ۲ حرف تایپ کنید</div>';
     return;
   }
   box.innerHTML = '<div class="text-center py-2"><div class="spinner-border spinner-border-sm"></div></div>';
@@ -867,18 +903,23 @@ async function searchPatients(q) {
 }
 
 function pickPatient(id, name, meta) {
+  if (!id) {
+    toast('شناسه بیمار معتبر نیست', 'warning');
+    return;
+  }
+
   state.patientId = id;
   state.patientName = name;
-  $('vPatientName').textContent = name;
-  $('vPatientMeta').textContent = meta || '';
-  $('vPatientBox').classList.add('hidden');
-  $('vPatientSelected').classList.remove('hidden');
-  // رفتن به مرحله بعد به‌طور خودکار
+
+  state.step = 2;
+  if (state.step > state.maxStep) state.maxStep = state.step;
+  renderWizard();
+
   setTimeout(() => {
-    state.step = 2;
-    if (state.step > state.maxStep) state.maxStep = state.step;
-    renderWizard();
-  }, 500);
+    toast(`بیمار "${name}" انتخاب شد`, 'success');
+  }, 100);
+
+  beep();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -921,7 +962,7 @@ function renderQuickDrugs() {
 
     if (state.editDrugMode) {
       return `
-        <div class="quick-drug-btn ${cls}" data-quick-drug="${d.id}">
+        <div class="quick-drug-btn ${cls}">
           <span style="margin-left:5px;">${d.icon}</span>${escapeHtml(d.name)}
           <span class="btn-edit-action" data-action="up" data-quick-drug="${d.id}">▲</span>
           <span class="btn-edit-action" data-action="down" data-quick-drug="${d.id}">▼</span>
@@ -988,45 +1029,21 @@ function renderItems() {
     <div class="item-card">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <div class="name">${escapeHtml(it.drug_name)}</div>
-        <button class="num-btn" style="width:34px;height:34px;" data-remove-item="${i}">
+        <button class="num-btn" style="width:34px;height:34px;" data-action="remove" data-i="${i}">
           <i class="bi bi-trash text-danger"></i>
         </button>
       </div>
       <div class="d-flex align-items-center gap-2 mb-2">
         <label class="muted small">تعداد:</label>
-        <button class="num-btn" style="width:34px;height:34px;" data-item-dec="${i}">−</button>
-        <input type="number" class="form-control form-control-sm text-center" style="max-width:80px;" value="${it.quantity}" min="1" data-item-qty="${i}">
-        <button class="num-btn" style="width:34px;height:34px;" data-item-inc="${i}">+</button>
+        <button class="num-btn" style="width:34px;height:34px;" data-action="dec" data-i="${i}">−</button>
+        <input type="number" class="form-control form-control-sm text-center" style="max-width:80px;"
+          value="${it.quantity}" min="1" data-item-qty="${i}">
+        <button class="num-btn" style="width:34px;height:34px;" data-action="inc" data-i="${i}">+</button>
       </div>
-      <input type="text" class="form-control form-control-sm" placeholder="دستور مصرف..." value="${escapeHtml(it.notes)}" data-item-notes="${i}">
+      <input type="text" class="form-control form-control-sm" placeholder="دستور مصرف..."
+        value="${escapeHtml(it.notes)}" data-item-notes="${i}">
     </div>
   `).join('');
-
-  list.querySelectorAll('[data-remove-item]').forEach(b => {
-    b.onclick = () => { state.items.splice(+b.dataset.removeItem, 1); renderItems(); };
-  });
-  list.querySelectorAll('[data-item-inc]').forEach(b => {
-    b.onclick = () => { state.items[+b.dataset.itemInc].quantity++; renderItems(); };
-  });
-  list.querySelectorAll('[data-item-dec]').forEach(b => {
-    b.onclick = () => {
-      const i = +b.dataset.itemDec;
-      if (state.items[i].quantity > 1) state.items[i].quantity--;
-      renderItems();
-    };
-  });
-  list.querySelectorAll('[data-item-qty]').forEach(inp => {
-    inp.oninput = e => {
-      const i = +inp.dataset.itemQty;
-      state.items[i].quantity = Math.max(1, parseInt(e.target.value) || 1);
-    };
-  });
-  list.querySelectorAll('[data-item-notes]').forEach(inp => {
-    inp.oninput = e => {
-      const i = +inp.dataset.itemNotes;
-      state.items[i].notes = e.target.value;
-    };
-  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1038,17 +1055,17 @@ function validateStep(step) {
     return true;
   }
   if (step === 2) {
-    if (!$('vReason').value) { toast('علت مراجعه را انتخاب کنید', 'warning'); return false; }
+    if (!$('vReason')?.value) { toast('علت مراجعه را انتخاب کنید', 'warning'); return false; }
     if (state.isIncident && state.incidentType === 'none') { toast('نوع حادثه را انتخاب کنید', 'warning'); return false; }
     return true;
   }
   if (step === 3) {
-    if (!$('vIncidentLocation').value.trim()) { toast('محل حادثه را وارد کنید', 'warning'); return false; }
+    if (!$('vIncidentLocation')?.value.trim()) { toast('محل حادثه را وارد کنید', 'warning'); return false; }
     return true;
   }
   if (step === 4) {
-    if (!$('vDate').value.trim()) { toast('تاریخ ویزیت را وارد کنید', 'warning'); return false; }
-    if (!$('vTreatment').value) { toast('نتیجه درمان را انتخاب کنید', 'warning'); return false; }
+    if (!$('vDate')?.value.trim()) { toast('تاریخ ویزیت را وارد کنید', 'warning'); return false; }
+    if (!$('vTreatment')?.value) { toast('نتیجه درمان را انتخاب کنید', 'warning'); return false; }
     return true;
   }
   return true;
@@ -1061,8 +1078,7 @@ async function saveVisit() {
   if (!validateStep(4)) { state.step = 4; renderWizard(); return; }
 
   const btn = $('vSave');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ذخیره...';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ذخیره...'; }
 
   try {
     const dateStr = $('vDate').value.trim();
@@ -1075,7 +1091,6 @@ async function saveVisit() {
     const [hh, mm] = timeOnly.split(':').map(Number);
     const visitDate = new Date(`${greg}T${String(hh||12).padStart(2,'0')}:${String(mm||0).padStart(2,'0')}:00`);
 
-    // محل حادثه
     let incidentLocId = null;
     if (state.isIncident) {
       const name = $('vIncidentLocation').value.trim();
@@ -1088,7 +1103,6 @@ async function saveVisit() {
       }
     }
 
-    // اعزام
     let dispatchTime = null;
     if ($('vDispatchTime')?.value) {
       const [dh, dm] = $('vDispatchTime').value.split(':').map(Number);
@@ -1126,7 +1140,6 @@ async function saveVisit() {
     const { data: visit, error: e1 } = await sb.from('visits_visit').insert(payload).select().single();
     if (e1) throw e1;
 
-    // داروها
     if (state.items.length) {
       await sb.from('visits_visititem').insert(
         state.items.map(it => ({
@@ -1136,7 +1149,6 @@ async function saveVisit() {
       );
     }
 
-    // نواحی مصدومیت
     if (state.selectedInjuries.length) {
       await sb.from('visits_visit_injury_locations').insert(
         state.selectedInjuries.map(i => ({ visit_id: visit.id, injurylocation_id: i.id }))
@@ -1151,8 +1163,7 @@ async function saveVisit() {
   } catch (e) {
     console.error(e);
     alert('❌ ' + e.message);
-    btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> ثبت نهایی ویزیت';
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> ثبت نهایی ویزیت'; }
   }
 }
 
@@ -1176,13 +1187,26 @@ async function openDetail(visitId) {
     if (!v) throw new Error('یافت نشد');
 
     const [items, injuries] = await Promise.all([
-      sb.from('visits_visititem').select('quantity, notes, drug:drugs_drug(name)').eq('visit_id', visitId),
+      sb.from('visits_visititem').select('drug_id, quantity, notes, drug:drugs_drug(name)').eq('visit_id', visitId),
       sb.from('visits_visit_injury_locations').select('loc:visits_injurylocation(name)').eq('visit_id', visitId)
     ]);
 
+    // ⭐ برای هر دارو، موجودی فعلی را بگیر
+    let itemsWithStock = items.data || [];
+    if (itemsWithStock.length) {
+      const drugIds = itemsWithStock.map(i => i.drug_id);
+      const { data: stocks } = await sb.from('v_drug_stock')
+        .select('drug_id, total_quantity').in('drug_id', drugIds);
+      const stockMap = Object.fromEntries((stocks || []).map(s => [s.drug_id, s.total_quantity]));
+      itemsWithStock = itemsWithStock.map(it => ({
+        ...it,
+        available: stockMap[it.drug_id] || 0
+      }));
+    }
+
     state.visit = {
       ...v,
-      items: items.data || [],
+      items: itemsWithStock,
       injuries: (injuries.data || []).map(x => x.loc?.name).filter(Boolean)
     };
     renderDetail();
@@ -1204,6 +1228,12 @@ function renderDetail() {
     : v.status === 'referred'
       ? '<span class="badge-soft warning"><i class="bi bi-arrow-left-right"></i> ارجاع شده</span>'
       : '<span class="badge-soft primary"><i class="bi bi-hourglass"></i> در انتظار</span>';
+
+  // بررسی کمبود دارو
+  let hasShortage = false;
+  (v.items || []).forEach(it => {
+    if ((it.available ?? 0) < it.quantity) hasShortage = true;
+  });
 
   let html = `
     <div class="card">
@@ -1250,7 +1280,6 @@ function renderDetail() {
     </div>
   `;
 
-  // حادثه
   if (isInc) {
     html += `
       <div class="card">
@@ -1277,7 +1306,6 @@ function renderDetail() {
     `;
   }
 
-  // علائم حیاتی
   const hasVitals = v.height_cm || v.weight_kg || v.blood_pressure || v.heart_rate || v.temperature || v.blood_sugar || v.spo2;
   if (hasVitals) {
     html += `
@@ -1298,7 +1326,6 @@ function renderDetail() {
     `;
   }
 
-  // GCS
   if (v.gcs_eye || v.gcs_verbal || v.gcs_motor) {
     const total = (v.gcs_eye || 0) + (v.gcs_verbal || 0) + (v.gcs_motor || 0);
     const color = total >= 13 ? 'success' : (total >= 9 ? 'warning' : 'danger');
@@ -1319,7 +1346,6 @@ function renderDetail() {
     `;
   }
 
-  // ECG
   if (v.ecg_interpretation) {
     html += `
       <div class="card">
@@ -1329,7 +1355,6 @@ function renderDetail() {
     `;
   }
 
-  // اعزام
   if (v.dispatch_time || v.dispatch_destination) {
     html += `
       <div class="card">
@@ -1348,27 +1373,36 @@ function renderDetail() {
     `;
   }
 
-  // داروها
+  // داروها با نمایش موجودی
   if (v.items.length) {
     html += `
       <div class="card">
-        <div class="card-head success"><i class="bi bi-capsule"></i> داروهای تجویزی</div>
+        <div class="card-head ${hasShortage ? 'danger' : 'success'}">
+          <i class="bi bi-capsule"></i> داروهای تجویزی ${hasShortage ? '⚠️ (کمبود موجودی)' : ''}
+        </div>
         <div class="card-body">
-          ${v.items.map(it => `
-            <div class="row-item d-flex justify-content-between">
-              <div>
-                <strong>${escapeHtml(it.drug?.name || '—')}</strong>
-                ${it.notes ? `<div class="small muted">${escapeHtml(it.notes)}</div>` : ''}
+          ${v.items.map(it => {
+            const avail = it.available ?? 0;
+            const short = avail < it.quantity;
+            return `
+              <div class="row-item d-flex justify-content-between align-items-center">
+                <div class="flex-grow-1">
+                  <strong>${escapeHtml(it.drug?.name || '—')}</strong>
+                  ${it.notes ? `<div class="small muted">${escapeHtml(it.notes)}</div>` : ''}
+                  <div class="small mt-1" style="font-size:0.72rem;">
+                    موجودی انبار: <strong style="color:${short ? 'var(--danger)' : 'var(--success)'};">${faNum(avail)}</strong>
+                    ${short ? ` <span class="badge-soft danger" style="font-size:0.6rem;">کمبود ${faNum(it.quantity - avail)}</span>` : ''}
+                  </div>
+                </div>
+                <span class="badge-soft ${short ? 'danger' : 'success'}">${faNum(it.quantity)}</span>
               </div>
-              <span class="badge-soft success">${faNum(it.quantity)}</span>
-            </div>
-          `).join('')}
+            `;
+          }).join('')}
         </div>
       </div>
     `;
   }
 
-  // ملاحظات
   if (v.notes) {
     html += `
       <div class="card">
@@ -1378,14 +1412,30 @@ function renderDetail() {
     `;
   }
 
-  // دکمه‌ها
+  // ⭐ نمایش هشدار کلی
+  if (hasShortage && v.status !== 'completed') {
+    html += `
+      <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle"></i>
+        <strong>موجودی برخی داروها کافی نیست.</strong>
+        تا زمان تأمین موجودی، این ویزیت در وضعیت «در انتظار» می‌ماند.
+        <div class="small mt-2">لطفاً از منوی «دریافت دارو» موجودی را تأمین کنید.</div>
+      </div>
+    `;
+  }
+
   html += `
     <div class="d-grid gap-2 mb-5">
       ${v.status !== 'completed' ? `
-        <button class="btn btn-success btn-lg py-3" id="vCompleteBtn">
-          <i class="bi bi-check-circle-fill"></i> تکمیل ویزیت (کسر موجودی)
+        <button class="btn ${hasShortage ? 'btn-warning' : 'btn-success'} btn-lg py-3" id="vCompleteBtn">
+          <i class="bi bi-check-circle-fill"></i>
+          ${hasShortage ? 'تلاش برای تکمیل (نیاز به تأمین موجودی)' : 'تکمیل ویزیت (کسر موجودی)'}
         </button>
-      ` : ''}
+      ` : `
+        <div class="alert alert-success text-center">
+          <i class="bi bi-check-circle-fill"></i> این ویزیت تکمیل شده است
+        </div>
+      `}
       <button class="btn btn-outline-secondary" id="vBackBtn">
         <i class="bi bi-arrow-right"></i> بازگشت
       </button>
@@ -1394,8 +1444,10 @@ function renderDetail() {
 
   c.innerHTML = html;
 
-  $('vCompleteBtn')?.addEventListener('click', () => completeVisit(v.id));
-  $('vBackBtn').onclick = () => { state.view = 'list'; renderList(); };
+  const completeBtn = $('vCompleteBtn');
+  if (completeBtn) completeBtn.onclick = () => completeVisit(v.id);
+  const backBtn = $('vBackBtn');
+  if (backBtn) backBtn.onclick = () => { state.view = 'list'; renderList(); };
 }
 
 function cellBadge(label, value, color) {
@@ -1403,31 +1455,127 @@ function cellBadge(label, value, color) {
 }
 
 // ═══════════════════════════════════════════════════════
-// تکمیل ویزیت
+// تکمیل ویزیت + کسر موجودی (با چک قبلی)
 // ═══════════════════════════════════════════════════════
 async function completeVisit(visitId) {
   if (!confirm('ویزیت تکمیل شود؟ موجودی انبار کسر می‌شود.')) return;
 
+  const btn = $('vCompleteBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال بررسی موجودی...';
+  }
+
   try {
-    await sb.from('visits_visit').update({
+    // ═══ ۱. دریافت داروهای ویزیت ═══
+    const { data: items, error: e0 } = await sb.from('visits_visititem')
+      .select('drug_id, quantity, drug:drugs_drug(name)')
+      .eq('visit_id', visitId);
+    if (e0) throw e0;
+
+    // اگر دارویی نیست → بدون سوال تکمیل کن
+    if (!items?.length) {
+      const { error: e2 } = await sb.from('visits_visit').update({
+        status: 'completed',
+        completed_at: new Date().toISOString()
+      }).eq('id', visitId);
+      if (e2) throw e2;
+      toast('✅ ویزیت تکمیل شد (بدون دارو)', 'success');
+      beep();
+      openDetail(visitId);
+      return;
+    }
+
+    // ═══ ۲. چک موجودی هر دارو (بدون تغییر) ═══
+    const shortages = [];
+    for (const it of items) {
+      const { data: stock } = await sb.from('v_drug_stock')
+        .select('total_quantity')
+        .eq('drug_id', it.drug_id)
+        .maybeSingle();
+      const available = stock?.total_quantity || 0;
+      if (available < it.quantity) {
+        shortages.push({
+          name: it.drug?.name || `#${it.drug_id}`,
+          required: it.quantity,
+          available: available,
+          missing: it.quantity - available
+        });
+      }
+    }
+
+    // ═══ ۳. اگر کمبود وجود دارد → متوقف شو ═══
+    if (shortages.length) {
+      const lines = shortages.map(s =>
+        `• ${s.name}\n  نیاز: ${faNum(s.required)} | موجودی: ${faNum(s.available)} | کمبود: ${faNum(s.missing)}`
+      ).join('\n\n');
+
+      alert(
+        `⚠️ ویزیت تکمیل نشد\n\n` +
+        `موجودی داروهای زیر کافی نیست:\n\n${lines}\n\n` +
+        `این ویزیت در وضعیت «در حال بررسی» باقی می‌ماند.\n` +
+        `لطفاً از منوی «دریافت دارو»، موجودی را تأمین کنید و سپس دوباره تلاش کنید.`
+      );
+
+      toast('⚠️ موجودی کافی نیست - ویزیت در انتظار ماند', 'warning');
+      beep(300);
+
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> تلاش برای تکمیل (نیاز به تأمین موجودی)';
+      }
+      // دوباره رندر کن تا اطلاعات به‌روز شود
+      openDetail(visitId);
+      return;
+    }
+
+    // ═══ ۴. همه موجودی کافیست → کسر با FIFO ═══
+    if (btn) btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال کسر موجودی...';
+
+    const errors = [];
+    const succeeded = [];
+    for (const it of items) {
+      const { error: e } = await sb.rpc('deduct_stock_fifo', {
+        p_drug_id: it.drug_id,
+        p_quantity: it.quantity
+      });
+      if (e) {
+        errors.push(`${it.drug?.name || '#' + it.drug_id}: ${e.message}`);
+      } else {
+        succeeded.push(it.drug?.name || '#' + it.drug_id);
+      }
+    }
+
+    // اگر خطایی در کسر افتاد → ویزیت تکمیل نشود
+    if (errors.length) {
+      alert(
+        `❌ خطا در کسر موجودی:\n\n${errors.join('\n')}\n\n` +
+        `ویزیت تکمیل نشد. لطفاً با پشتیبانی تماس بگیرید.`
+      );
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> تلاش برای تکمیل';
+      }
+      return;
+    }
+
+    // ═══ ۵. تغییر وضعیت به completed ═══
+    const { error: e2 } = await sb.from('visits_visit').update({
       status: 'completed',
       completed_at: new Date().toISOString()
     }).eq('id', visitId);
+    if (e2) throw e2;
 
-    const { data: items } = await sb.from('visits_visititem').select('drug_id, quantity').eq('visit_id', visitId);
-    for (const it of (items || [])) {
-      try {
-        await sb.rpc('deduct_stock_fifo', {
-          p_drug_id: it.drug_id,
-          p_quantity: it.quantity
-        });
-      } catch (e) { console.warn(e); }
-    }
-
-    toast('✅ ویزیت تکمیل شد', 'success');
+    toast(`✅ ویزیت تکمیل شد (${faNum(succeeded.length)} دارو کسر شد)`, 'success');
     beep();
     openDetail(visitId);
+
   } catch (e) {
+    console.error(e);
     alert('❌ ' + e.message);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> تکمیل ویزیت';
+    }
   }
 }
