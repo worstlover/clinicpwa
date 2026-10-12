@@ -1,14 +1,33 @@
 import { $ } from './utils.js';
 
-const SCREENS = ['screenLogin', 'screenHome', 'screenInventory', 'screenDispense', 'screenReceive', 'screenDisposal', 'screenReport'];
+const SCREENS = [
+  'screenLogin',
+  'screenHome',
+  'screenInventory',
+  'screenDispense',
+  'screenReceive',
+  'screenDisposal',
+  'screenReport',
+  'screenProfile'
+];
+
 const TITLES = {
-  Home: 'داروخانه', Inventory: 'انبارگردانی', Dispense: 'تحویل دارو',
-  Receive: 'دریافت دارو', Disposal: 'خروج منقضی', Report: 'گزارش‌ها'
+  Home: 'داروخانه',
+  Inventory: 'انبارگردانی',
+  Dispense: 'تحویل دارو',
+  Receive: 'دریافت دارو',
+  Disposal: 'خروج منقضی',
+  Report: 'گزارش‌ها',
+  Profile: 'پروفایل'
 };
 
 export function showScreen(name) {
-  SCREENS.forEach(s => $(s)?.classList.remove('active'));
-  $('screen' + name)?.classList.add('active');
+  SCREENS.forEach(s => {
+    const el = $(s);
+    if (el) el.classList.remove('active');
+  });
+  const target = $('screen' + name);
+  if (target) target.classList.add('active');
 
   if (name === 'Login') {
     $('appHeader').classList.add('hidden');
