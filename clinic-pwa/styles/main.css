@@ -689,50 +689,145 @@ body {
   background: #fff3cd; border-color: var(--warning); color: #92400e;
 }
 
-/* Body Map */
+/* ═══════════════════════════════════════════════════════
+   Body Map (ادمک مصدومیت)
+   ═══════════════════════════════════════════════════════ */
+
 .body-map-container {
-  display: flex; justify-content: center; gap: 12px;
-  padding: 12px; background: #f8fafc; border-radius: 14px;
-  flex-wrap: wrap; margin-top: 12px;
-}
-.body-map-wrap { flex: 1; min-width: 130px; max-width: 180px; }
-.body-map-title {
-  text-align: center; font-weight: 700; color: #1565c0;
-  margin-bottom: 8px; font-size: 12px;
-  background: #fff; padding: 6px; border-radius: 8px;
-}
-.body-map { position: relative; width: 100%; padding-top: 220%; }
-.body-map svg {
-  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.08));
-}
-.body-part {
-  cursor: pointer; transition: all 0.15s;
-  fill: #e3f2fd; stroke: #1976d2; stroke-width: 1;
-}
-.body-part.selected {
-  fill: #ef5350 !important; stroke: #b71c1c !important; stroke-width: 2.5 !important;
-  filter: drop-shadow(0 0 6px rgba(239,83,80,0.7));
-}
-.selected-parts-list {
-  margin-top: 14px; padding: 12px;
-  background: #fff7ed; border-radius: 12px;
-  border-right: 4px solid #f59e0b; min-height: 54px;
-}
-.part-tag {
-  display: inline-flex; align-items: center;
-  background: linear-gradient(135deg, #ef5350, #e53935);
-  color: #fff; padding: 6px 12px; border-radius: 20px;
-  margin: 4px 4px 4px 0; font-size: 12px; font-weight: 600;
-}
-.part-tag .remove-part {
-  margin-right: 8px; cursor: pointer;
-  background: rgba(255,255,255,0.3); border-radius: 50%;
-  width: 18px; height: 18px; display: inline-flex;
-  align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 700;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 16px 8px;
+  background: #f8fafc;
+  border-radius: 14px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 
+.body-map-wrap {
+  flex: 1;
+  min-width: 140px;
+  max-width: 200px;
+}
+
+.body-map-title {
+  text-align: center;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+  background: #fff;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.body-map {
+  position: relative;
+  width: 100%;
+  padding-top: 245%;
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+.body-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.body-part {
+  fill: #ffffff;
+  stroke: #cbd5e1;
+  stroke-width: 1;
+  cursor: pointer;
+  transition: fill 0.15s ease, stroke 0.15s ease;
+  pointer-events: auto;
+}
+
+.body-part:hover {
+  fill: #f1f5f9;
+  stroke: #94a3b8;
+  stroke-width: 1.5;
+}
+
+.body-part.selected {
+  fill: #fce7f3 !important;
+  stroke: #ec4899 !important;
+  stroke-width: 2 !important;
+}
+
+.body-part:not(.editable) {
+  cursor: not-allowed;
+}
+
+.body-part:not(.editable):hover {
+  fill: #ffffff;
+  stroke: #cbd5e1;
+}
+
+.selected-parts-list {
+  margin-top: 14px;
+  padding: 12px;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  min-height: 54px;
+}
+
+.part-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #fce7f3;
+  color: #9d174d;
+  border: 1px solid #fbcfe8;
+  padding: 6px 12px;
+  border-radius: 20px;
+  margin: 4px 4px 4px 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.part-tag .remove-part,
+.part-tag .remove-part-edit {
+  cursor: pointer;
+  background: rgba(157, 23, 77, 0.15);
+  color: #9d174d;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  transition: background 0.15s;
+}
+
+.part-tag .remove-part:hover,
+.part-tag .remove-part-edit:hover {
+  background: rgba(157, 23, 77, 0.3);
+}
+
+@media (max-width: 480px) {
+  .body-map-container {
+    gap: 10px;
+    padding: 12px 6px;
+  }
+  .body-map-wrap {
+    min-width: 120px;
+  }
+  .body-map-title {
+    font-size: 0.75rem;
+    padding: 4px 8px;
+  }
+}
 /* Toggle Boxes */
 .toggle-box {
   background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
