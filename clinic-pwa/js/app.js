@@ -9,6 +9,7 @@ import { openReceive } from './modules/receive.js';
 import { openDisposal } from './modules/disposal.js';
 import { openReport } from './modules/report.js';
 import { openProfile } from './modules/profile.js';
+import { openOccupational } from './modules/occupational.js';
 
 initQtyModal();
 initSearchModal();
@@ -20,20 +21,20 @@ $('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin
 $('btnBack').onclick = () => showScreen('Home');
 $('btnLogout').onclick = doLogout;
 
-// ⭐ دکمه پروفایل در هدر
+// دکمه پروفایل در هدر
 const btnProfile = $('btnProfile');
 if (btnProfile) {
   btnProfile.onclick = () => openProfile();
 }
 
-// ⭐ کلیک روی ایمیل کاربر در داشبورد
+// کلیک روی ایمیل کاربر
 const userEmailEl = $('userEmail');
 if (userEmailEl) {
   userEmailEl.style.cursor = 'pointer';
   userEmailEl.onclick = () => openProfile();
 }
 
-// ⭐ ناوبری از کارت‌ها و نوار پایین
+// ناوبری
 document.querySelectorAll('[data-nav]').forEach(el => {
   el.addEventListener('click', e => {
     e.preventDefault();
@@ -45,6 +46,7 @@ document.querySelectorAll('[data-nav]').forEach(el => {
     else if (n === 'disposal') openDisposal();
     else if (n === 'report') openReport();
     else if (n === 'profile') openProfile();
+    else if (n === 'occupational') openOccupational();
   });
 });
 
@@ -52,7 +54,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && $('scannerWrap').classList.contains('active')) closeScanner();
 });
 
-// ⭐ نصب PWA
+// نصب PWA
 let deferredInstallPrompt = null;
 
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -82,10 +84,8 @@ window._triggerInstall = async () => {
   deferredInstallPrompt = null;
 };
 
-// ⭐ راه‌اندازی
 (async () => { await checkAuth(); })();
 
-// ⭐ Service Worker
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./service-worker.js', { scope: './' }).catch(console.error);
 }
