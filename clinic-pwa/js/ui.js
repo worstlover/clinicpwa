@@ -3,6 +3,7 @@ import { $ } from './utils.js';
 const SCREENS = [
   'screenLogin',
   'screenHome',
+  'screenVisit',
   'screenInventory',
   'screenDispense',
   'screenReceive',
@@ -13,9 +14,9 @@ const SCREENS = [
 ];
 
 const TITLES = {
-  Home: 'داروخانه',
+  Home: 'کلینیک',
+  Visit: 'ویزیت‌ها',
   Inventory: 'انبارگردانی',
-  Dispense: 'تحویل دارو',
   Receive: 'دریافت دارو',
   Disposal: 'خروج منقضی',
   Report: 'گزارش‌ها',
@@ -24,21 +25,26 @@ const TITLES = {
 };
 
 export function showScreen(name) {
+  // حذف active از همه
   SCREENS.forEach(s => {
     const el = $(s);
     if (el) el.classList.remove('active');
   });
+
+  // افزودن active به صفحه هدف
   const target = $('screen' + name);
   if (target) target.classList.add('active');
 
+  // هدر و نوار پایین
   if (name === 'Login') {
-    $('appHeader').classList.add('hidden');
-    $('bottomNav').classList.add('hidden');
+    $('appHeader')?.classList.add('hidden');
+    $('bottomNav')?.classList.add('hidden');
   } else {
-    $('appHeader').classList.remove('hidden');
-    $('bottomNav').classList.remove('hidden');
-    $('headerTitle').textContent = TITLES[name] || 'داروخانه';
-    $('btnBack').classList.toggle('hidden', name === 'Home');
+    $('appHeader')?.classList.remove('hidden');
+    $('bottomNav')?.classList.remove('hidden');
+    const titleEl = $('headerTitle');
+    if (titleEl) titleEl.textContent = TITLES[name] || 'کلینیک';
+    $('btnBack')?.classList.toggle('hidden', name === 'Home');
     document.querySelectorAll('.bottom-nav a').forEach(a => {
       a.classList.toggle('active', a.dataset.nav === name.toLowerCase());
     });
