@@ -1,4 +1,4 @@
-const CACHE = 'clinic-drugs-v7';
+const CACHE = 'clinic-drugs-v8';
 
 // همه‌ی فایل‌ها حالا روی خود سایت هستند (بدون وابستگی به CDN)
 const ASSETS = [
