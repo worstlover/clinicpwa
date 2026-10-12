@@ -56,6 +56,27 @@ jobs:
             -F "document=@${FILE}" \
             -F "caption=${CAPTION}"
 
+      - name: Send to Bale
+        continue-on-error: true
+        env:
+          BALE_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
+        run: |
+          FILE=$(ls backups/*.sql.gz)
+          SIZE=$(du -h "$FILE" | cut -f1)
+          CAPTION="📦 بکاپ روزانه داروخانه
+          📅 تاریخ: $(date +'%Y-%m-%d %H:%M')
+          💾 حجم: $SIZE
+          📄 فایل: $(basename $FILE)"
+
+          RESPONSE=$(curl -s --max-time 120 -X POST \
+            "https://tapi.bale.ai/bot${BALE_TOKEN}/sendDocument" \
+            -F "chat_id=${BALE_CHAT_ID}" \
+            -F "document=@${FILE}" \
+            -F "caption=${CAPTION}")
+          echo "$RESPONSE"
+          echo "$RESPONSE" | grep -q '"ok":true' || { echo "Bale send failed"; exit 1; }
+
       - name: Save last 30 backups as artifact
         uses: actions/upload-artifact@v4
         with:
