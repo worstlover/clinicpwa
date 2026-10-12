@@ -8,7 +8,8 @@ const SCREENS = [
   'screenReceive',
   'screenDisposal',
   'screenReport',
-  'screenProfile'
+  'screenProfile',
+  'screenOccupational'
 ];
 
 const TITLES = {
@@ -18,7 +19,8 @@ const TITLES = {
   Receive: 'دریافت دارو',
   Disposal: 'خروج منقضی',
   Report: 'گزارش‌ها',
-  Profile: 'پروفایل'
+  Profile: 'پروفایل',
+  Occupational: 'طب کار'
 };
 
 export function showScreen(name) {
