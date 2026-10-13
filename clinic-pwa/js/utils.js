@@ -4,6 +4,23 @@ export const $ = id => document.getElementById(id);
 
 export const faNum = n => String(n ?? '').replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]);
 
+// ═══════════════════════════════════════════════════════
+// 🌟 جدید: تبدیل اعداد فارسی/عربی به انگلیسی
+// برای جستجوی صحیح در دیتابیس (کد ملی، شماره پرسنلی و...)
+// ═══════════════════════════════════════════════════════
+export const faToEn = (str) => {
+  if (!str) return str;
+  const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
+  const arabicDigits  = '٠١٢٣٤٥٦٧٨٩';
+  const englishDigits = '0123456789';
+  const table = {};
+  for (let i = 0; i < 10; i++) {
+    table[persianDigits[i]] = englishDigits[i];
+    table[arabicDigits[i]]  = englishDigits[i];
+  }
+  return String(str).replace(/[۰-۹٠-٩]/g, d => table[d] || d);
+};
+
 export const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -80,11 +97,7 @@ export function toast(msg, type = 'info') {
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 2400);
 }
-// ═══════════════════════════════════════════════════════
-// ساخت شماره بچ (مطابق فرمول Django)
-// فرمول: {نام ۱۲ حرفی بدون فاصله}-{فرم ۴ حرفی بزرگ}-{YYMM}
-// مثال: ناپروکسن-TABL-2605
-// ═══════════════════════════════════════════════════════
+
 export function makeBatchNumber(drugName, drugForm, expiryGregorian) {
   if (!drugName || !expiryGregorian) return null;
   const name = String(drugName).slice(0, 12).replace(/\s+/g, '');
@@ -95,6 +108,7 @@ export function makeBatchNumber(drugName, drugForm, expiryGregorian) {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   return `${name}-${form}-${yy}${mm}`;
 }
+
 export function checkExpiry(greg) {
   if (!greg) return null;
   try {
