@@ -661,7 +661,7 @@ function bindWizard() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🌟 مودال ثبت سریع بیمار (اصلاح شده با is_foreign_national)
+// 🌟 مودال ثبت سریع بیمار (با جنسیت)
 // ═══════════════════════════════════════════════════════
 function openQuickPatientModal() {
   const existing = $('quickPatientModal');
@@ -678,6 +678,26 @@ function openQuickPatientModal() {
           <div class="modal-body">
             <div class="mb-2"><input type="text" id="qpFirstName" class="form-control" placeholder="نام *"></div>
             <div class="mb-2"><input type="text" id="qpLastName" class="form-control" placeholder="نام خانوادگی *"></div>
+
+            <!-- 🌟 انتخاب جنسیت -->
+            <div class="mb-3">
+              <label class="form-label small">جنسیت *</label>
+              <div class="row g-2">
+                <div class="col-6">
+                  <div class="gender-card" id="qpGenderMale" data-gender="male">
+                    <div style="font-size:1.6rem;">👨</div>
+                    <div style="font-weight:700;">مرد</div>
+                  </div>
+                </div>
+                <div class="col-6">
+                  <div class="gender-card" id="qpGenderFemale" data-gender="female">
+                    <div style="font-size:1.6rem;">👩</div>
+                    <div style="font-weight:700;">زن</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div class="mb-2"><input type="text" id="qpNationalCode" class="form-control" placeholder="کد ملی (۱۰ رقم)" inputmode="numeric" dir="ltr"></div>
             <div class="mb-2"><input type="text" id="qpPassportNumber" class="form-control" placeholder="شماره پاسپورت" dir="ltr"></div>
             <div class="mb-2"><input type="text" id="qpPersonnelCode" class="form-control" placeholder="کد پرسنلی" dir="ltr"></div>
@@ -685,7 +705,7 @@ function openQuickPatientModal() {
             <div class="mb-2"><input type="text" id="qpDateOfBirth" class="form-control" placeholder="تاریخ تولد (مثال: 1370/01/15)" dir="ltr"></div>
             <div id="qpError" class="text-danger small mt-2" style="min-height:18px;"></div>
             <div class="alert alert-info small mt-2 mb-0">
-              ℹ️ کد ملی یا شماره پاسپورت الزامی است.
+              ℹ️ فیلدهای ستاره‌دار الزامی هستند.
             </div>
           </div>
           <div class="modal-footer">
@@ -697,10 +717,54 @@ function openQuickPatientModal() {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+  // 🌟 استایل inline برای کارت‌های جنسیت
+  if (!document.getElementById('genderCardStyle')) {
+    const style = document.createElement('style');
+    style.id = 'genderCardStyle';
+    style.textContent = `
+      .gender-card {
+        padding: 12px 8px;
+        text-align: center;
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        background: #fff;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .gender-card:active { transform: scale(0.97); }
+      .gender-card.selected {
+        border-color: #0d6efd;
+        background: #e0eaff;
+        box-shadow: 0 4px 12px rgba(13,110,253,0.2);
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   const modalEl = $('quickPatientModal');
   const modal = new bootstrap.Modal(modalEl);
   modal.show();
   modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
+
+  // 🌟 انتخاب جنسیت
+  let selectedGender = null;
+  const maleCard = $('qpGenderMale');
+  const femaleCard = $('qpGenderFemale');
+  const errEl = $('qpError');
+
+  maleCard.onclick = () => {
+    selectedGender = 'male';
+    maleCard.classList.add('selected');
+    femaleCard.classList.remove('selected');
+    errEl.textContent = '';
+  };
+  femaleCard.onclick = () => {
+    selectedGender = 'female';
+    femaleCard.classList.add('selected');
+    maleCard.classList.remove('selected');
+    errEl.textContent = '';
+  };
 
   $('btnSaveQuickPatient').onclick = async () => {
     const firstName    = $('qpFirstName').value.trim();
@@ -710,10 +774,11 @@ function openQuickPatientModal() {
     const personnelNo  = $('qpPersonnelCode').value.trim();
     const companyName  = $('qpCompanyName').value.trim();
     const dobInput     = faToEn($('qpDateOfBirth').value.trim());
-    const errEl        = $('qpError');
     errEl.textContent  = '';
 
+    // 🌟 اعتبارسنجی‌ها
     if (!firstName || !lastName) { errEl.textContent = '❌ نام و نام خانوادگی الزامی است.'; return; }
+    if (!selectedGender) { errEl.textContent = '❌ جنسیت را انتخاب کنید.'; return; }
     if (!nationalCode && !passportNo) {
       errEl.textContent = '❌ کد ملی یا شماره پاسپورت الزامی است.'; return;
     }
@@ -744,15 +809,15 @@ function openQuickPatientModal() {
         }
       }
 
-      // 🌟 payload با is_foreign_national
+      // 🌟 payload با تمام فیلدهای NOT NULL
       const payload = {
         first_name: firstName,
         last_name: lastName,
+        gender: selectedGender,                    // 🌟 جدید
+        is_foreign_national: !!passportNo && !nationalCode,
         national_code: nationalCode || null,
         personnel_number: personnelNo || null,
         company_id: companyId,
-        // 🌟 کلید رفع خطای null
-        is_foreign_national: !!passportNo && !nationalCode,
       };
 
       if (passportNo) payload.passport_number = passportNo;
