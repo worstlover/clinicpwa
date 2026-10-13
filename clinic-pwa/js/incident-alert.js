@@ -5,7 +5,7 @@
 import { sb } from './sb.js';
 
 const ALLOWED_ROLES = ['Nurse', 'doctor', 'safety', 'Supervisor'];
-const ALERT_MP3_PATH = './sounds/incident-alert.mp3';
+const ALERT_MP3_PATH = './sounds/incident-alert1.mp3';
 
 let currentUserRole = null;
 let currentUserUuid = null;
