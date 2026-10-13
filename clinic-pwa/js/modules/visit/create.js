@@ -6,6 +6,8 @@ import { getMyDjangoId, getIncLabel } from './helpers.js';
 import { renderBodyMap } from './bodymap.js';
 import { logChange } from './changelog.js';
 import { renderList } from './list.js';
+// 🌟 هشدار حادثه - جدید
+import { broadcastIncidentAlert } from '../../incident-alert.js';
 
 // ═══════════════════════════════════════════════════════
 // 🌟 تشخیص دارو از لوازم مصرفی (form === 'other')
@@ -21,6 +23,7 @@ export async function openCreate() {
   state.patientId = null; state.patientName = '';
   state.isIncident = false; state.incidentType = 'none';
   state.selectedInjuries = []; state.items = [];
+  state.alertBroadcasted = false; // 🌟 هشدار حادثه - ریست فلگ
   resetFormData();
 
   // 🌟 ساعت فعلی به جای 12:00 ثابت
@@ -45,7 +48,7 @@ function renderWizard() {
     { n: 3, label: 'مصدومیت' }, 
     { n: 4, label: 'علائم حیاتی' },
     { n: 5, label: 'داروها' }, 
-    { n: 6, label: 'لوازم مصرفی' },  // 🌟 جدید
+    { n: 6, label: 'لوازم مصرفی' },
     { n: 7, label: 'تشخیص' }
   ];
 
@@ -405,13 +408,31 @@ function bindWizard() {
     renderWizard();
   };
 
-  // کارت حادثه
+  // 🌟 هشدار حادثه - کارت حادثه با broadcast
   document.querySelectorAll('.incident-card').forEach(card => {
-    card.onclick = () => {
+    card.onclick = async () => {
       saveFormState();
       const yes = card.dataset.incident === 'yes';
+      const wasIncident = state.isIncident;
       state.isIncident = yes;
-      if (!yes) state.incidentType = 'none';
+
+      if (!yes) {
+        state.incidentType = 'none';
+        state.alertBroadcasted = false; // اگه بعداً دوباره yes زد، هشدار بفرسته
+      } else if (!wasIncident && !state.alertBroadcasted) {
+        // 🌟 فقط بار اول که حادثه انتخاب شد، هشدار بفرست
+        state.alertBroadcasted = true;
+        try {
+          await broadcastIncidentAlert({
+            patientName: state.patientName || '',
+            patientId:   state.patientId   || null,
+            visitId:     null,
+          });
+        } catch (e) {
+          console.error('[Alert] Broadcast failed:', e);
+        }
+      }
+
       renderWizard();
     };
   });
@@ -499,7 +520,6 @@ function bindWizard() {
   const incLocEl = $('vIncidentLocation'); if (incLocEl) incLocEl.addEventListener('input', saveFormState);
   const incDescEl = $('vIncidentDesc'); if (incDescEl) incDescEl.addEventListener('input', saveFormState);
 
-  // 🌟 Quick Drugs & Quick Consumables (فیلتر شده)
   renderQuickList('quickDrugsList', d => !isConsumableDrug(d), 'drug');
   renderQuickList('quickConsumablesList', d => isConsumableDrug(d), 'consumable');
   renderItems();
@@ -679,7 +699,6 @@ function openQuickPatientModal() {
             <div class="mb-2"><input type="text" id="qpFirstName" class="form-control" placeholder="نام *"></div>
             <div class="mb-2"><input type="text" id="qpLastName" class="form-control" placeholder="نام خانوادگی *"></div>
 
-            <!-- 🌟 انتخاب جنسیت -->
             <div class="mb-3">
               <label class="form-label small">جنسیت *</label>
               <div class="row g-2">
@@ -718,7 +737,6 @@ function openQuickPatientModal() {
   `;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-  // 🌟 استایل inline برای کارت‌های جنسیت
   if (!document.getElementById('genderCardStyle')) {
     const style = document.createElement('style');
     style.id = 'genderCardStyle';
@@ -747,7 +765,6 @@ function openQuickPatientModal() {
   modal.show();
   modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
 
-  // 🌟 انتخاب جنسیت
   let selectedGender = null;
   const maleCard = $('qpGenderMale');
   const femaleCard = $('qpGenderFemale');
@@ -776,7 +793,6 @@ function openQuickPatientModal() {
     const dobInput     = faToEn($('qpDateOfBirth').value.trim());
     errEl.textContent  = '';
 
-    // 🌟 اعتبارسنجی‌ها
     if (!firstName || !lastName) { errEl.textContent = '❌ نام و نام خانوادگی الزامی است.'; return; }
     if (!selectedGender) { errEl.textContent = '❌ جنسیت را انتخاب کنید.'; return; }
     if (!nationalCode && !passportNo) {
@@ -809,11 +825,10 @@ function openQuickPatientModal() {
         }
       }
 
-      // 🌟 payload با تمام فیلدهای NOT NULL
       const payload = {
         first_name: firstName,
         last_name: lastName,
-        gender: selectedGender,                    // 🌟 جدید
+        gender: selectedGender,
         is_foreign_national: !!passportNo && !nationalCode,
         national_code: nationalCode || null,
         personnel_number: personnelNo || null,
@@ -1003,15 +1018,12 @@ async function searchPatients(q) {
   }).join('');
 }
 
-// 🌟 اصلاح شده: چک کردن کد ملی/پاسپورت
 function pickPatient(id, name, nationalCode, passportNumber) {
   if (!id) return;
   const hasNational = (nationalCode || '').trim();
   const hasPassport = (passportNumber || '').trim();
 
-  // 🌟 اگه هیچکدام نبود، مودال اجباری باز میشه
   if (!hasNational && !hasPassport) {
-    // fetch patient for modal
     sb.from('core_patient').select('*').eq('id', id).single().then(({ data }) => {
       if (data) {
         openNationalCodeFixModal(data);
@@ -1083,7 +1095,6 @@ function handleEditAction(action, drugId) {
   renderQuickList('quickDrugsList', d => !isConsumableDrug(d), 'drug');
 }
 
-// 🌟 افزودن آیتم با type
 function addQuickItem(id, name, type = 'drug') {
   const existing = state.items.find(i => i.drug_id === id && (i.type || 'drug') === type);
   if (existing) existing.quantity++;
@@ -1175,13 +1186,12 @@ async function openItemSearchModal(isConsumable) {
     modal.hide();
   });
 
-  // Initial load
   doSearch('');
   setTimeout(() => input.focus(), 300);
 }
 
 // ═══════════════════════════════════════════════════════
-// Render Items (با type filter)
+// Render Items
 // ═══════════════════════════════════════════════════════
 function renderItems() {
   const list = $('vItemsList');
@@ -1213,7 +1223,6 @@ function renderItems() {
   `).join('');
 }
 
-// 🌟 رندر لوازم مصرفی
 function renderConsumables() {
   const list = $('vConsumablesList');
   if (!list) return;
@@ -1329,7 +1338,7 @@ async function saveVisit() {
       status: 'pending',
       doctor_id: myId,
       assigned_to_id: myId,
-      is_read: false,  // 🌟 رفع خطای null مشابه is_foreign_national
+      is_read: false,
     };
 
     const { data: visit, error: e1 } = await sb.from('visits_visit').insert(payload).select().single();
