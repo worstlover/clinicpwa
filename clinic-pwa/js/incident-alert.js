@@ -1,17 +1,20 @@
 // js/incident-alert.js
 // ═══════════════════════════════════════════════════════
-// سیستم هشدار حادثه (Realtime + TTS + بنر بصری)
+// سیستم هشدار حادثه (Realtime + MP3/TTS + بنر بصری)
 // ═══════════════════════════════════════════════════════
 import { sb } from './sb.js';
 
 const ALLOWED_ROLES = ['Nurse', 'doctor', 'safety', 'Supervisor'];
-const BEEP_DURATION = 1.2;
+
+// 🌟 مسیر فایل MP3 (اختیاری)
+const ALERT_MP3_PATH = './sounds/incident-alert.mp3';
 
 let currentUserRole = null;
 let currentUserUuid = null;
 let alertChannel = null;
 let isPlaying = false;
 let lastAlertTime = 0;
+let mp3Available = null;  // null = unknown, true/false بعد از چک
 
 // ═══════════════════════════════════════════════════════
 // راه‌اندازی listener
@@ -43,10 +46,10 @@ export async function initIncidentAlertListener() {
 
     console.log('[Alert] User role:', currentUserRole);
 
-    if (!ALLOWED_ROLES.includes(currentUserRole)) {
-      console.log('[Alert] Role not allowed, no listener');
-      return;
-    }
+    if (!ALLOWED_ROLES.includes(currentUserRole)) return;
+
+    // 🌟 چک کن MP3 موجوده یا نه
+    checkMp3Availability();
 
     if (alertChannel) {
       await sb.removeChannel(alertChannel);
@@ -69,7 +72,21 @@ export async function initIncidentAlertListener() {
 }
 
 // ═══════════════════════════════════════════════════════
-// ارسال هشدار (از create.js)
+// 🌟 چک کن فایل MP3 قابل دسترسی هست یا نه
+// ═══════════════════════════════════════════════════════
+async function checkMp3Availability() {
+  try {
+    const res = await fetch(ALERT_MP3_PATH, { method: 'HEAD' });
+    mp3Available = res.ok;
+    console.log('[Alert] MP3 file available:', mp3Available);
+  } catch (e) {
+    mp3Available = false;
+    console.log('[Alert] MP3 not available, will use TTS');
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// ارسال هشدار
 // ═══════════════════════════════════════════════════════
 export async function broadcastIncidentAlert({ patientName, patientId, visitId }) {
   try {
@@ -92,8 +109,6 @@ export async function broadcastIncidentAlert({ patientName, patientId, visitId }
     }
 
     console.log('[Alert] ✅ Broadcasted by:', userName);
-
-    // 🌟 نمایش تایید به خود فرستنده
     showSenderToast(userName);
   } catch (e) {
     console.error('[Alert] broadcast error:', e);
@@ -122,28 +137,23 @@ function handleNewAlert(alert) {
 }
 
 // ═══════════════════════════════════════════════════════
-// پخش هشدار (بوق + TTS + بنر)
+// پخش هشدار
 // ═══════════════════════════════════════════════════════
 function playIncidentAlert(alert) {
-  if (isPlaying) {
-    console.log('[Alert] Already playing');
-    return;
-  }
+  if (isPlaying) return;
   isPlaying = true;
 
   try {
-    // ۱. بوق
-    playBeep();
-
-    // ۲. نمایش بنر بصری
+    // ۱. بنر بصری
     showIncidentBanner(alert);
 
-    // ۳. TTS بعد از بوق
-    setTimeout(() => {
-      const name = alert.triggered_name || 'کاربر';
-      const text = `اعلام حادثه توسط ${name}`;
-      speakTwice(text);
-    }, 1300);
+    // ۲. پخش صدا
+    if (mp3Available === true) {
+      playMp3Alert(alert);
+    } else {
+      // fallback به TTS
+      playTtsAlert(alert);
+    }
 
   } catch (e) {
     console.error('[Alert] play failed:', e);
@@ -152,10 +162,117 @@ function playIncidentAlert(alert) {
 }
 
 // ═══════════════════════════════════════════════════════
-// بنر قرمز تمام‌صفحه (بالای صفحه، ثابت)
+// 🎙️ حالت ۱: پخش MP3 (دو بار)
+// ═══════════════════════════════════════════════════════
+function playMp3Alert(alert) {
+  const audio = new Audio(ALERT_MP3_PATH);
+  audio.volume = 1.0;
+
+  let playCount = 0;
+  const MAX = 2;
+
+  const playNext = () => {
+    if (playCount >= MAX) {
+      isPlaying = false;
+      console.log('[Alert] ✅ MP3 playback finished');
+      return;
+    }
+    playCount++;
+    audio.currentTime = 0;
+    audio.play().catch(err => {
+      console.warn('[Alert] MP3 play error:', err);
+      // اگه پخش نشد، برو سراغ TTS
+      playTtsAlert(alert);
+    });
+  };
+
+  audio.onended = () => {
+    if (playCount < MAX) {
+      setTimeout(playNext, 500);
+    } else {
+      isPlaying = false;
+      console.log('[Alert] ✅ MP3 finished');
+    }
+  };
+
+  playNext();
+}
+
+// ═══════════════════════════════════════════════════════
+// 🎙️ حالت ۲: TTS با بهترین صدای فارسی
+// ═══════════════════════════════════════════════════════
+function playTtsAlert(alert) {
+  if (!('speechSynthesis' in window)) {
+    isPlaying = false;
+    return;
+  }
+
+  const name = alert.triggered_name || 'کاربر';
+  const text = `اعلام حادثه توسط ${name}`;
+
+  // صبر کن صداها لود بشن
+  const trySpeak = () => {
+    const voices = window.speechSynthesis.getVoices();
+
+    // پیدا کردن بهترین صدای فارسی
+    let faVoice = voices.find(v => v.lang === 'fa-IR');
+    if (!faVoice) faVoice = voices.find(v => v.lang && v.lang.startsWith('fa'));
+    // اگه فارسی نبود، عربی یا پیش‌فرض
+    if (!faVoice) faVoice = voices.find(v => v.lang && v.lang.startsWith('ar'));
+
+    console.log('[Alert] Using voice:', faVoice?.name || 'default', faVoice?.lang);
+
+    window.speechSynthesis.cancel();
+
+    let count = 0;
+    const MAX = 2;
+
+    const speak = () => {
+      const utt = new SpeechSynthesisUtterance(text);
+      if (faVoice) utt.voice = faVoice;
+      utt.lang = 'fa-IR';
+      utt.rate = 0.85;    // کندتر و واضح‌تر
+      utt.pitch = 1.05;
+      utt.volume = 1.0;
+
+      utt.onend = () => {
+        count++;
+        if (count < MAX) {
+          setTimeout(speak, 500);
+        } else {
+          isPlaying = false;
+          console.log('[Alert] ✅ TTS finished');
+        }
+      };
+
+      utt.onerror = (e) => {
+        console.warn('[Alert] TTS error:', e);
+        isPlaying = false;
+      };
+
+      window.speechSynthesis.speak(utt);
+    };
+
+    speak();
+  };
+
+  // بعضی مرورگرها صداها رو async لود می‌کنن
+  if (window.speechSynthesis.getVoices().length === 0) {
+    window.speechSynthesis.onvoiceschanged = () => {
+      window.speechSynthesis.onvoiceschanged = null;
+      trySpeak();
+    };
+    // fallback اگه رویداد نیومد
+    setTimeout(trySpeak, 500);
+  } else {
+    trySpeak();
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// بنر قرمز تمام‌صفحه
 // ═══════════════════════════════════════════════════════
 function showIncidentBanner(alert) {
-  // اگه بنر قبلی هست، حذفش کن
   document.querySelectorAll('.incident-alert-banner').forEach(el => el.remove());
 
   const banner = document.createElement('div');
@@ -181,7 +298,6 @@ function showIncidentBanner(alert) {
     </div>
   `;
 
-  // استایل
   if (!document.getElementById('incidentBannerStyle')) {
     const style = document.createElement('style');
     style.id = 'incidentBannerStyle';
@@ -248,7 +364,6 @@ function showIncidentBanner(alert) {
       }
       .incident-alert-close:active { background: rgba(255,255,255,0.35); }
 
-      /* Toast فرستنده */
       .incident-sender-toast {
         position: fixed;
         bottom: 100px;
@@ -280,14 +395,13 @@ function showIncidentBanner(alert) {
     banner.remove();
   };
 
-  // 🚨 لرزش گوشی (اگه پشتیبانی کنه)
   if (navigator.vibrate) {
-    navigator.vibrate([300, 150, 300, 150, 300]);
+    navigator.vibrate([400, 150, 400, 150, 400, 500, 300, 100, 300]);
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// Toast برای فرستنده (تایید ارسال)
+// Toast برای فرستنده
 // ═══════════════════════════════════════════════════════
 function showSenderToast(userName) {
   document.querySelectorAll('.incident-sender-toast').forEach(el => el.remove());
@@ -301,72 +415,7 @@ function showSenderToast(userName) {
 }
 
 // ═══════════════════════════════════════════════════════
-// بوق
-// ═══════════════════════════════════════════════════════
-function playBeep() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.type = 'sine';
-    osc.frequency.value = 880;
-    gain.gain.setValueAtTime(0.4, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + BEEP_DURATION);
-
-    osc.start();
-    osc.stop(ctx.currentTime + BEEP_DURATION);
-  } catch (e) {
-    console.warn('[Alert] beep failed:', e);
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-// TTS دو بار
-// ═══════════════════════════════════════════════════════
-function speakTwice(text) {
-  if (!('speechSynthesis' in window)) {
-    isPlaying = false;
-    return;
-  }
-
-  window.speechSynthesis.cancel();
-
-  let count = 0;
-  const MAX = 2;
-
-  const speak = () => {
-    const utt = new SpeechSynthesisUtterance(text);
-    utt.lang = 'fa-IR';
-    utt.rate = 0.9;
-    utt.pitch = 1.0;
-    utt.volume = 1.0;
-
-    utt.onend = () => {
-      count++;
-      if (count < MAX) {
-        setTimeout(speak, 600);
-      } else {
-        isPlaying = false;
-        console.log('[Alert] ✅ Finished playing');
-      }
-    };
-
-    utt.onerror = () => {
-      isPlaying = false;
-    };
-
-    window.speechSynthesis.speak(utt);
-  };
-
-  speak();
-}
-
-// ═══════════════════════════════════════════════════════
-// Helper: escape HTML
+// Helper
 // ═══════════════════════════════════════════════════════
 function escapeHtmlSafe(s) {
   return String(s ?? '').replace(/[&<>"']/g,
