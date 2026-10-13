@@ -53,7 +53,7 @@
   <button id="btnBack" class="hidden"><i class="bi bi-arrow-right"></i></button>
   <div class="title" id="headerTitle">کلینیک</div>
   <div style="display:flex;gap:8px;align-items:center;">
-    <!-- 🌟 زنگوله -->
+    <!-- 🌟 زنگوله هشدارها -->
     <button id="btnAlertBell" title="هشدارها" style="position:relative;">
       <i class="bi bi-bell-fill"></i>
       <span id="alertBellBadge" class="bell-badge"></span>
@@ -62,14 +62,28 @@
     <button id="btnLogout" title="خروج"><i class="bi bi-box-arrow-left"></i></button>
   </div>
 </div>
+
 <!-- ═════════════ منوی اصلی ═════════════ -->
 <div id="screenHome" class="screen">
   <div class="menu-grid">
+
+    <!-- سلام -->
     <div class="text-center mb-4 mt-2">
       <div style="font-size:1.6rem;">سلام 👋</div>
       <small class="muted" id="userEmail"></small>
     </div>
-    <div class="row g-3">
+
+    <!-- 🌟 دکمه حادثه سریع - بالای همه چیز -->
+    <button id="btnQuickIncident" class="quick-incident-btn">
+      <i class="bi bi-exclamation-triangle-fill"></i>
+      <div>
+        <div style="font-weight:800;font-size:1.05rem;">اعلام حادثه سریع</div>
+        <div style="font-size:0.72rem;opacity:0.9;">هشدار فوری به کل تیم درمان</div>
+      </div>
+    </button>
+
+    <!-- منوی اصلی -->
+    <div class="row g-3" style="margin-top:20px;">
       <!-- ویزیت -->
       <div class="col-6">
         <button class="menu-card" data-nav="visits">
@@ -133,23 +147,16 @@
         </button>
       </div>
     </div>
-      <!-- 🌟 دکمه حادثه سریع -->
-<button id="btnQuickIncident" class="quick-incident-btn">
-  <i class="bi bi-exclamation-triangle-fill"></i>
-  <div>
-    <div style="font-weight:800;font-size:1.05rem;">اعلام حادثه سریع</div>
-    <div style="font-size:0.72rem;opacity:0.9;">هشدار فوری به کل تیم درمان</div>
-  </div>
-</button>
 
-<button id="btnInstallPWA" style="display:none;width:100%;margin-top:16px;
-  background:linear-gradient(135deg,#0d6efd,#6610f2);color:#fff;border:none;border-radius:14px;
-  padding:14px;font-weight:700;font-size:0.95rem;box-shadow:0 8px 20px rgba(13,110,253,.4);
-  align-items:center;justify-content:center;gap:8px;cursor:pointer;font-family:inherit;"
-  onclick="window._triggerInstall()">
-  <i class="bi bi-download"></i> نصب اپ روی صفحه اصلی
-</button>
-   
+    <!-- دکمه نصب PWA - ته صفحه -->
+    <button id="btnInstallPWA" style="display:none;width:100%;margin-top:16px;
+      background:linear-gradient(135deg,#0d6efd,#6610f2);color:#fff;border:none;border-radius:14px;
+      padding:14px;font-weight:700;font-size:0.95rem;box-shadow:0 8px 20px rgba(13,110,253,.4);
+      align-items:center;justify-content:center;gap:8px;cursor:pointer;font-family:inherit;"
+      onclick="window._triggerInstall()">
+      <i class="bi bi-download"></i> نصب اپ روی صفحه اصلی
+    </button>
+
   </div>
 </div>
 
