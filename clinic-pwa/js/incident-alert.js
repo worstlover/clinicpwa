@@ -1,12 +1,10 @@
 // js/incident-alert.js
 // ═══════════════════════════════════════════════════════
-// سیستم هشدار حادثه (Realtime + پیجر + MP3/TTS + بنر بصری)
+// سیستم هشدار حادثه (Realtime + آژیر طولانی + MP3/TTS + بنر)
 // ═══════════════════════════════════════════════════════
 import { sb } from './sb.js';
 
 const ALLOWED_ROLES = ['Nurse', 'doctor', 'safety', 'Supervisor'];
-
-// 🌟 مسیر فایل MP3 (اختیاری)
 const ALERT_MP3_PATH = './sounds/incident-alert.mp3';
 
 let currentUserRole = null;
@@ -14,7 +12,7 @@ let currentUserUuid = null;
 let alertChannel = null;
 let isPlaying = false;
 let lastAlertTime = 0;
-let mp3Available = null;  // null = unknown, true/false بعد از چک
+let mp3Available = null;
 
 // ═══════════════════════════════════════════════════════
 // راه‌اندازی listener
@@ -47,11 +45,10 @@ export async function initIncidentAlertListener() {
     console.log('[Alert] User role:', currentUserRole);
 
     if (!ALLOWED_ROLES.includes(currentUserRole)) {
-      console.log('[Alert] Role not allowed, no listener');
+      console.log('[Alert] Role not allowed');
       return;
     }
 
-    // 🌟 چک کن MP3 موجوده یا نه
     checkMp3Availability();
 
     if (alertChannel) {
@@ -74,24 +71,20 @@ export async function initIncidentAlertListener() {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// چک کن فایل MP3 قابل دسترسی هست یا نه
-// ═══════════════════════════════════════════════════════
 async function checkMp3Availability() {
   try {
     const res = await fetch(ALERT_MP3_PATH, { method: 'HEAD' });
     mp3Available = res.ok;
-    console.log('[Alert] MP3 file available:', mp3Available);
+    console.log('[Alert] MP3 available:', mp3Available);
   } catch (e) {
     mp3Available = false;
-    console.log('[Alert] MP3 not available, will use TTS');
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// ارسال هشدار (از create.js)
+// ارسال هشدار (از create.js یا quick-incident.js)
 // ═══════════════════════════════════════════════════════
-export async function broadcastIncidentAlert({ patientName, patientId, visitId }) {
+export async function broadcastIncidentAlert({ patientName, patientId, visitId, location }) {
   try {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
@@ -104,6 +97,7 @@ export async function broadcastIncidentAlert({ patientName, patientId, visitId }
       patient_id:     patientId || null,
       patient_name:   patientName || null,
       visit_id:       visitId || null,
+      location:       location || null,      // 🌟 جدید
     });
 
     if (error) {
@@ -130,7 +124,7 @@ function handleNewAlert(alert) {
   }
 
   const now = Date.now();
-  if (now - lastAlertTime < 3000) {
+  if (now - lastAlertTime < 5000) {
     console.log('[Alert] Throttled');
     return;
   }
@@ -140,7 +134,7 @@ function handleNewAlert(alert) {
 }
 
 // ═══════════════════════════════════════════════════════
-// پخش هشدار (پیجر → صدا)
+// پخش هشدار (آژیر → صدا)
 // ═══════════════════════════════════════════════════════
 function playIncidentAlert(alert) {
   if (isPlaying) {
@@ -150,20 +144,17 @@ function playIncidentAlert(alert) {
   isPlaying = true;
 
   try {
-    // ۱. بنر بصری
     showIncidentBanner(alert);
+    playLongAlarm();   // 🌟 آژیر طولانی
 
-    // ۲. صدای پیجر بیمارستان (دینگ دینگ دونگ)
-    playHospitalPager();
-
-    // ۳. بعد از پیجر (~۱.۵ ثانیه)، فایل صوتی پخش شه
+    // 🌟 بعد از آژیر (~۴.۵ ثانیه)، فایل صوتی
     setTimeout(() => {
       if (mp3Available === true) {
         playMp3Alert(alert);
       } else {
         playTtsAlert(alert);
       }
-    }, 1500);
+    }, 4500);
 
   } catch (e) {
     console.error('[Alert] play failed:', e);
@@ -172,65 +163,88 @@ function playIncidentAlert(alert) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🔔 صدای پیجر بیمارستان (دینگ دینگ دونگ)
+// 🚨 آژیر طولانی (حدود ۴.۵ ثانیه) - شبیه آمبولانس
 // ═══════════════════════════════════════════════════════
-function playHospitalPager() {
+function playLongAlarm() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     if (ctx.state === 'suspended') ctx.resume();
 
     const t0 = ctx.currentTime;
+    const cycles = 6;              // 🌟 ۶ سیکل بالا-پایین
+    const cycleDur = 0.75;         // هر سیکل ۰.۷۵ ثانیه → کل: ۴.۵ ثانیه
 
-    // ─── تعریف یک نُت با صدای زنگی ───
-    const playBell = (startTime, freq, duration, volume = 0.5) => {
-      // صدای اصلی
-      const osc1 = ctx.createOscillator();
-      const gain1 = ctx.createGain();
-      osc1.connect(gain1);
-      gain1.connect(ctx.destination);
-      osc1.type = 'sine';
-      osc1.frequency.value = freq;
+    // ─── لایه ۱: Sweep اصلی (آژیر آمبولانس) ───
+    for (let i = 0; i < cycles; i++) {
+      const start = t0 + i * cycleDur;
 
-      // هارمونیک دوم (زنگی‌تر می‌کنه)
-      const osc2 = ctx.createOscillator();
-      const gain2 = ctx.createGain();
-      osc2.connect(gain2);
-      gain2.connect(ctx.destination);
-      osc2.type = 'sine';
-      osc2.frequency.value = freq * 2.76;  // فرکانس زنگی
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sawtooth';
 
-      const harmVol = volume * 0.25;
+      osc.frequency.setValueAtTime(550, start);
+      osc.frequency.linearRampToValueAtTime(1250, start + cycleDur * 0.5);
+      osc.frequency.linearRampToValueAtTime(550, start + cycleDur);
 
-      // Envelope با دیکِی نمایی (شبیه زنگ)
-      gain1.gain.setValueAtTime(0, startTime);
-      gain1.gain.linearRampToValueAtTime(volume, startTime + 0.005);
-      gain1.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.35, start + 0.03);
+      gain.gain.setValueAtTime(0.35, start + cycleDur - 0.05);
+      gain.gain.linearRampToValueAtTime(0, start + cycleDur);
 
-      gain2.gain.setValueAtTime(0, startTime);
-      gain2.gain.linearRampToValueAtTime(harmVol, startTime + 0.005);
-      gain2.gain.exponentialRampToValueAtTime(0.001, startTime + duration * 0.6);
+      osc.start(start);
+      osc.stop(start + cycleDur + 0.02);
+    }
 
-      osc1.start(startTime);
-      osc1.stop(startTime + duration + 0.05);
-      osc2.start(startTime);
-      osc2.stop(startTime + duration + 0.05);
-    };
+    // ─── لایه ۲: هارمونیک مربع (نافذتر) ───
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.type = 'square';
+    osc2.frequency.setValueAtTime(1900, t0);
 
-    // ─── الگوی "دینگ دینگ دونگ" ───
-    // دینگ: A5 (~880 Hz)
-    // دونگ: E5 (~660 Hz) - پایین‌تر و طولانی‌تر
+    gain2.gain.setValueAtTime(0, t0);
+    for (let i = 0; i < cycles; i++) {
+      const start = t0 + i * cycleDur;
+      gain2.gain.setValueAtTime(0.12, start);
+      gain2.gain.setValueAtTime(0, start + cycleDur * 0.65);
+    }
 
-    playBell(t0 + 0.00, 880, 0.20, 0.45);   // دینگ
-    playBell(t0 + 0.30, 880, 0.20, 0.45);   // دینگ
-    playBell(t0 + 0.60, 660, 0.55, 0.55);   // دونگ (پایین‌تر و طولانی‌تر)
+    osc2.start(t0);
+    osc2.stop(t0 + cycles * cycleDur + 0.02);
+
+    // ─── لایه ۳: نویز سفید (واقعی‌تر) ───
+    const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseData.length; i++) {
+      noiseData[i] = Math.random() * 2 - 1;
+    }
+
+    for (let i = 0; i < cycles; i++) {
+      const start = t0 + i * cycleDur;
+      const noise = ctx.createBufferSource();
+      const noiseGain = ctx.createGain();
+      noise.buffer = noiseBuffer;
+      noise.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+
+      noiseGain.gain.setValueAtTime(0, start);
+      noiseGain.gain.linearRampToValueAtTime(0.05, start + 0.03);
+      noiseGain.gain.linearRampToValueAtTime(0, start + 0.12);
+
+      noise.start(start);
+      noise.stop(start + 0.15);
+    }
 
   } catch (e) {
-    console.warn('[Alert] pager failed:', e);
+    console.warn('[Alert] alarm failed:', e);
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// 🎙️ حالت ۱: پخش MP3 (دو بار)
+// 🎙️ پخش MP3 (دو بار)
 // ═══════════════════════════════════════════════════════
 function playMp3Alert(alert) {
   const audio = new Audio(ALERT_MP3_PATH);
@@ -242,32 +256,27 @@ function playMp3Alert(alert) {
   const playNext = () => {
     if (playCount >= MAX) {
       isPlaying = false;
-      console.log('[Alert] ✅ MP3 playback finished');
+      console.log('[Alert] ✅ MP3 finished');
       return;
     }
     playCount++;
     audio.currentTime = 0;
     audio.play().catch(err => {
       console.warn('[Alert] MP3 play error:', err);
-      // اگه پخش نشد، برو سراغ TTS
       playTtsAlert(alert);
     });
   };
 
   audio.onended = () => {
-    if (playCount < MAX) {
-      setTimeout(playNext, 500);
-    } else {
-      isPlaying = false;
-      console.log('[Alert] ✅ MP3 finished');
-    }
+    if (playCount < MAX) setTimeout(playNext, 500);
+    else isPlaying = false;
   };
 
   playNext();
 }
 
 // ═══════════════════════════════════════════════════════
-// 🎙️ حالت ۲: TTS با بهترین صدای فارسی
+// 🎙️ TTS با ذکر محل
 // ═══════════════════════════════════════════════════════
 function playTtsAlert(alert) {
   if (!('speechSynthesis' in window)) {
@@ -276,17 +285,14 @@ function playTtsAlert(alert) {
   }
 
   const name = alert.triggered_name || 'کاربر';
-  const text = `اعلام حادثه توسط ${name}`;
+  const loc = alert.location ? `. محل حادثه: ${alert.location}` : '';
+  const text = `اعلام حادثه توسط ${name}${loc}`;
 
   const trySpeak = () => {
     const voices = window.speechSynthesis.getVoices();
-
-    // پیدا کردن بهترین صدای فارسی
     let faVoice = voices.find(v => v.lang === 'fa-IR');
-    if (!faVoice) faVoice = voices.find(v => v.lang && v.lang.startsWith('fa'));
-    if (!faVoice) faVoice = voices.find(v => v.lang && v.lang.startsWith('ar'));
-
-    console.log('[Alert] Using voice:', faVoice?.name || 'default', faVoice?.lang);
+    if (!faVoice) faVoice = voices.find(v => v.lang?.startsWith('fa'));
+    if (!faVoice) faVoice = voices.find(v => v.lang?.startsWith('ar'));
 
     window.speechSynthesis.cancel();
 
@@ -303,18 +309,11 @@ function playTtsAlert(alert) {
 
       utt.onend = () => {
         count++;
-        if (count < MAX) {
-          setTimeout(speak, 500);
-        } else {
-          isPlaying = false;
-          console.log('[Alert] ✅ TTS finished');
-        }
+        if (count < MAX) setTimeout(speak, 500);
+        else isPlaying = false;
       };
 
-      utt.onerror = () => {
-        isPlaying = false;
-      };
-
+      utt.onerror = () => { isPlaying = false; };
       window.speechSynthesis.speak(utt);
     };
 
@@ -333,7 +332,7 @@ function playTtsAlert(alert) {
 }
 
 // ═══════════════════════════════════════════════════════
-// بنر قرمز تمام‌صفحه
+// بنر قرمز با نمایش محل
 // ═══════════════════════════════════════════════════════
 function showIncidentBanner(alert) {
   document.querySelectorAll('.incident-alert-banner').forEach(el => el.remove());
@@ -351,6 +350,11 @@ function showIncidentBanner(alert) {
         ${alert.patient_name ? `
           <div class="incident-alert-line">
             بیمار: <strong>${escapeHtmlSafe(alert.patient_name)}</strong>
+          </div>
+        ` : ''}
+        ${alert.location ? `
+          <div class="incident-alert-line" style="background:rgba(255,255,255,0.15);padding:5px 8px;border-radius:6px;margin-top:6px;">
+            📍 محل حادثه: <strong>${escapeHtmlSafe(alert.location)}</strong>
           </div>
         ` : ''}
         <div class="incident-alert-time">
@@ -426,7 +430,6 @@ function showIncidentBanner(alert) {
         flex-shrink: 0;
       }
       .incident-alert-close:active { background: rgba(255,255,255,0.35); }
-
       .incident-sender-toast {
         position: fixed;
         bottom: 100px;
@@ -459,13 +462,10 @@ function showIncidentBanner(alert) {
   };
 
   if (navigator.vibrate) {
-    navigator.vibrate([400, 150, 400, 150, 400, 500, 300, 100, 300]);
+    navigator.vibrate([500, 200, 500, 200, 500, 200, 500]);
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// Toast برای فرستنده
-// ═══════════════════════════════════════════════════════
 function showSenderToast(userName) {
   document.querySelectorAll('.incident-sender-toast').forEach(el => el.remove());
 
@@ -477,9 +477,6 @@ function showSenderToast(userName) {
   setTimeout(() => toast.remove(), 4000);
 }
 
-// ═══════════════════════════════════════════════════════
-// Helper
-// ═══════════════════════════════════════════════════════
 function escapeHtmlSafe(s) {
   return String(s ?? '').replace(/[&<>"']/g,
     c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
