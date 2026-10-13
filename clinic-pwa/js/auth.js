@@ -4,6 +4,7 @@ import { $, toast, escapeHtml } from './utils.js';
 import { showScreen } from './ui.js';
 import { startSession, endSession } from './session.js';
 import { initIncidentAlertListener } from './incident-alert.js';
+import { initReferralAlertListener } from './referral-alert.js';   // 🌟 جدید
 
 export let currentUser = null;
 export let isAdmin = false;
@@ -49,6 +50,14 @@ export async function doLogin() {
     console.error('[AUTH] incident listener FAILED:', e);
   }
 
+  // 🌟 راه‌اندازی listener هشدار ارجاع
+  try {
+    await initReferralAlertListener();
+    console.log('[AUTH] referral listener OK');
+  } catch (e) {
+    console.error('[AUTH] referral listener FAILED:', e);
+  }
+
   showScreen('Home');
 }
 
@@ -66,6 +75,7 @@ export async function checkAuth() {
     $('userEmail').textContent = currentUser.email;
     await loadAdminStatus();
 
+    // 🌟 شروع Session
     try {
       await startSession();
       console.log('[AUTH] startSession OK (checkAuth)');
@@ -73,11 +83,20 @@ export async function checkAuth() {
       console.error('[AUTH] startSession FAILED (checkAuth):', e);
     }
 
+    // 🌟 راه‌اندازی listener هشدار حادثه
     try {
       await initIncidentAlertListener();
       console.log('[AUTH] incident listener OK (checkAuth)');
     } catch (e) {
       console.error('[AUTH] incident listener FAILED (checkAuth):', e);
+    }
+
+    // 🌟 راه‌اندازی listener هشدار ارجاع
+    try {
+      await initReferralAlertListener();
+      console.log('[AUTH] referral listener OK (checkAuth)');
+    } catch (e) {
+      console.error('[AUTH] referral listener FAILED (checkAuth):', e);
     }
 
     showScreen('Home');
