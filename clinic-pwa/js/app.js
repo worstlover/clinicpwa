@@ -10,10 +10,12 @@ import { openReport } from './modules/report.js';
 import { openProfile } from './modules/profile.js';
 import { openOccupational } from './modules/occupational.js';
 import { openVisits } from './modules/visit/index.js';
+import { initSessionLifecycle } from './session.js';
 
 initQtyModal();
 initSearchModal();
 initScannerButtons();
+initSessionLifecycle();
 
 // لاگین
 $('btnLogin').onclick = doLogin;
