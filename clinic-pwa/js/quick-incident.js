@@ -1,0 +1,96 @@
+// js/quick-incident.js
+// ═══════════════════════════════════════════════════════
+// دکمه حادثه سریع (روی صفحه اصلی)
+// ═══════════════════════════════════════════════════════
+import { sb } from './sb.js';
+import { $, toast } from './utils.js';
+import { broadcastIncidentAlert } from './incident-alert.js';
+
+export function initQuickIncidentButton() {
+  const btn = $('btnQuickIncident');
+  if (btn) btn.onclick = openQuickIncidentModal;
+}
+
+function openQuickIncidentModal() {
+  const existing = $('quickIncidentModal');
+  if (existing) existing.remove();
+
+  const modalHtml = `
+    <div class="modal fade" id="quickIncidentModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header" style="background:linear-gradient(135deg,#dc2626,#991b1b);color:#fff;">
+            <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill"></i> اعلام حادثه سریع</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="alert alert-danger small mb-3">
+              <i class="bi bi-info-circle"></i>
+              با تایید، هشدار صوتی + تصویری به همه کادر درمان، ایمنی و سوپروایزرها ارسال می‌شود.
+            </div>
+            <div class="mb-3">
+              <label class="form-label small">محل حادثه (اختیاری)</label>
+              <input type="text" class="form-control" id="qiLocation" 
+                placeholder="مثال: خط تولید ۳، انبار..." autocomplete="off">
+            </div>
+            <div class="mb-3">
+              <label class="form-label small">توضیح کوتاه (اختیاری)</label>
+              <input type="text" class="form-control" id="qiNote" 
+                placeholder="مثال: سقوط از ارتفاع..." autocomplete="off">
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+            <button class="btn btn-danger" id="qiConfirm">
+              <i class="bi bi-megaphone-fill"></i> اعلام حادثه
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  const modalEl = $('quickIncidentModal');
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+  modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
+
+  $('qiConfirm').onclick = async () => {
+    const location = $('qiLocation').value.trim();
+    const note = $('qiNote').value.trim();
+
+    const btn = $('qiConfirm');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ارسال...';
+
+    try {
+      // 🌟 استفاده از همون تابع موجود + اضافه کردن location
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) throw new Error('کاربر یافت نشد');
+
+      const userName = user.user_metadata?.full_name || user.email || 'کاربر';
+      const fullLocation = [location, note].filter(Boolean).join(' | ');
+
+      const { error } = await sb.from('incident_alerts').insert({
+        triggered_by:   user.id,
+        triggered_name: userName,
+        patient_id:     null,
+        patient_name:   null,
+        visit_id:       null,
+        location:       fullLocation || null,
+      });
+
+      if (error) throw error;
+
+      toast('🚨 هشدار حادثه به همه ارسال شد', 'success');
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      modal.hide();
+
+    } catch (e) {
+      console.error(e);
+      alert('❌ خطا: ' + e.message);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-megaphone-fill"></i> اعلام حادثه';
+    }
+  };
+}
