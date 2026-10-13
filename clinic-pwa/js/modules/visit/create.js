@@ -7,6 +7,14 @@ import { renderBodyMap } from './bodymap.js';
 import { logChange } from './changelog.js';
 import { renderList } from './list.js';
 
+// ═══════════════════════════════════════════════════════
+// 🌟 تشخیص دارو از لوازم مصرفی (form === 'other')
+// ═══════════════════════════════════════════════════════
+const isConsumableDrug = (drug) => {
+  const f = (drug?.form || '').toString().toLowerCase();
+  return f === 'other' || f.includes('سایر');
+};
+
 export async function openCreate() {
   state.view = 'create';
   state.step = 1; state.maxStep = 1;
@@ -15,7 +23,7 @@ export async function openCreate() {
   state.selectedInjuries = []; state.items = [];
   resetFormData();
 
-  // 🌟 تغییر: استفاده از ساعت فعلی به جای 12:00 ثابت
+  // 🌟 ساعت فعلی به جای 12:00 ثابت
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, '0');
   const mm = String(now.getMinutes()).padStart(2, '0');
@@ -32,9 +40,13 @@ function renderWizard() {
   const c = $('visitContent');
   const fd = state.formData;
   const steps = [
-    { n: 1, label: 'بیمار' }, { n: 2, label: 'علت و حادثه' },
-    { n: 3, label: 'مصدومیت' }, { n: 4, label: 'علائم حیاتی' },
-    { n: 5, label: 'داروها' }, { n: 6, label: 'تشخیص' }
+    { n: 1, label: 'بیمار' }, 
+    { n: 2, label: 'علت و حادثه' },
+    { n: 3, label: 'مصدومیت' }, 
+    { n: 4, label: 'علائم حیاتی' },
+    { n: 5, label: 'داروها' }, 
+    { n: 6, label: 'لوازم مصرفی' },  // 🌟 جدید
+    { n: 7, label: 'تشخیص' }
   ];
 
   c.innerHTML = `
@@ -230,7 +242,27 @@ function renderWizard() {
 
     <div class="wizard-panel ${state.step === 6 ? 'active' : ''}">
       <div class="card">
-        <div class="card-head"><i class="bi bi-journal-medical"></i> مرحله ۶: تشخیص و نتیجه</div>
+        <div class="card-head" style="background: linear-gradient(135deg, #0891b2, #06b6d4);">
+          <i class="bi bi-bandaid"></i> مرحله ۶: لوازم مصرفی
+        </div>
+        <div class="card-body">
+          <div class="quick-drug-wrapper" style="background:#ecfeff;border-color:#67e8f9;">
+            <div class="drug-edit-toolbar">
+              <label style="color:#0891b2;">⚡ لوازم پرمصرف</label>
+            </div>
+            <div class="d-flex flex-wrap" id="quickConsumablesList"></div>
+          </div>
+          <button class="btn w-100 mb-3" id="vAddConsumable" style="background:#0891b2;color:#fff;border:none;">
+            <i class="bi bi-plus-circle"></i> افزودن لوازم مصرفی
+          </button>
+          <div id="vConsumablesList"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wizard-panel ${state.step === 7 ? 'active' : ''}">
+      <div class="card">
+        <div class="card-head"><i class="bi bi-journal-medical"></i> مرحله ۷: تشخیص و نتیجه</div>
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label">نتیجه درمان *</label>
@@ -266,11 +298,11 @@ function renderWizard() {
       <div class="wizard-nav">
         <button class="btn btn-outline-secondary" id="btnPrev" ${state.step === 1 ? 'disabled' : ''}>
           <i class="bi bi-arrow-right"></i> قبل</button>
-        <span class="step-indicator">مرحله ${faNum(state.step)} از ${faNum(6)}</span>
-        <button class="btn btn-primary" id="btnNext" ${state.step === 6 ? 'style="display:none;"' : ''}>
+        <span class="step-indicator">مرحله ${faNum(state.step)} از ${faNum(7)}</span>
+        <button class="btn btn-primary" id="btnNext" ${state.step === 7 ? 'style="display:none;"' : ''}>
           بعد <i class="bi bi-arrow-left"></i></button>
       </div>
-      ${state.step === 6 ? `
+      ${state.step === 7 ? `
         <button class="btn btn-success w-100 py-3 mt-3" id="vSave">
           <i class="bi bi-check-circle-fill"></i> ثبت نهایی ویزیت
         </button>
@@ -282,8 +314,8 @@ function renderWizard() {
         <i class="bi bi-x-circle"></i> انصراف</button>
     </div>
 
-    <div class="fab-container ${state.step === 5 ? 'show' : ''}" id="vFab">
-      <div class="fab-hint">افزودن دارو</div>
+    <div class="fab-container ${(state.step === 5 || state.step === 6) ? 'show' : ''}" id="vFab">
+      <div class="fab-hint">${state.step === 6 ? 'افزودن لوازم' : 'افزودن دارو'}</div>
       <button class="fab-add-drug" id="vFabAdd">+</button>
     </div>
   `;
@@ -298,7 +330,6 @@ function isDispatch(treatmentId) {
 }
 
 function bindWizard() {
-  // ناوبری مراحل
   document.querySelectorAll('.wizard-step').forEach(el => {
     el.onclick = () => {
       const n = parseInt(el.dataset.step);
@@ -320,7 +351,7 @@ function bindWizard() {
     });
   }
 
-  // 🌟 دکمه ثبت سریع بیمار جدید
+  // 🌟 دکمه ثبت سریع بیمار
   const quickAddBtn = $('vQuickAddPatient');
   if (quickAddBtn) quickAddBtn.onclick = openQuickPatientModal;
 
@@ -331,7 +362,12 @@ function bindWizard() {
       const btn = e.target.closest('[data-pick-patient]');
       if (!btn) return;
       e.preventDefault(); e.stopPropagation();
-      pickPatient(parseInt(btn.dataset.pickPatient), btn.dataset.patientName || '');
+      pickPatient(
+        parseInt(btn.dataset.pickPatient), 
+        btn.dataset.patientName || '',
+        btn.dataset.patientNational || '',
+        btn.dataset.patientPassport || ''
+      );
     });
   }
 
@@ -388,30 +424,25 @@ function bindWizard() {
     };
   });
 
-  // Body Map - انتخاب و حذف
+  // Body Map
   document.querySelectorAll('.body-part').forEach(p => {
     p.onclick = () => {
       const key = p.dataset.part;
       if (!key) return;
       const loc = INJURY_MAP[key];
       if (!loc) {
-        console.warn('ناحیه تعریف نشده:', key);
         toast(`ناحیه "${key}" در دیتابیس تعریف نشده`, 'warning');
         return;
       }
       saveFormState();
       const idx = state.selectedInjuries.findIndex(x => x.id === loc.id);
-      if (idx >= 0) {
-        state.selectedInjuries.splice(idx, 1);
-      } else {
-        state.selectedInjuries.push(loc);
-      }
+      if (idx >= 0) state.selectedInjuries.splice(idx, 1);
+      else state.selectedInjuries.push(loc);
       beep();
       renderWizard();
     };
   });
 
-  // حذف از chips
   document.querySelectorAll('.remove-part').forEach(b => {
     b.onclick = e => {
       e.stopPropagation();
@@ -468,17 +499,20 @@ function bindWizard() {
   const incLocEl = $('vIncidentLocation'); if (incLocEl) incLocEl.addEventListener('input', saveFormState);
   const incDescEl = $('vIncidentDesc'); if (incDescEl) incDescEl.addEventListener('input', saveFormState);
 
-  renderQuickDrugs();
+  // 🌟 Quick Drugs & Quick Consumables (فیلتر شده)
+  renderQuickList('quickDrugsList', d => !isConsumableDrug(d), 'drug');
+  renderQuickList('quickConsumablesList', d => isConsumableDrug(d), 'consumable');
   renderItems();
+  renderConsumables();
 
-  // Quick Drugs
+  // Edit mode (فقط برای داروها)
   const toggleEdit = $('toggleEditDrugs');
   if (toggleEdit) toggleEdit.onclick = () => {
     state.editDrugMode = !state.editDrugMode;
     toggleEdit.classList.toggle('active', state.editDrugMode);
     toggleEdit.textContent = state.editDrugMode ? '✖ انصراف' : '✏️ ویرایش';
     $('saveEditDrugs').style.display = state.editDrugMode ? 'inline-block' : 'none';
-    renderQuickDrugs();
+    renderQuickList('quickDrugsList', d => !isConsumableDrug(d), 'drug');
   };
 
   const saveEdit = $('saveEditDrugs');
@@ -498,31 +532,40 @@ function bindWizard() {
       toast('✅ ذخیره شد', 'success');
       if ($('toggleEditDrugs')) { $('toggleEditDrugs').classList.remove('active'); $('toggleEditDrugs').textContent = '✏️ ویرایش'; }
       if ($('saveEditDrugs')) $('saveEditDrugs').style.display = 'none';
-      renderQuickDrugs();
+      renderQuickList('quickDrugsList', d => !isConsumableDrug(d), 'drug');
     } catch (e) { toast('خطا: ' + e.message, 'danger'); }
   };
 
-  const qdList = $('quickDrugsList');
-  if (qdList && !qdList.dataset.bound) {
-    qdList.dataset.bound = '1';
-    qdList.addEventListener('click', e => {
-      const btn = e.target.closest('[data-quick-drug]');
-      if (!btn) return;
-      e.preventDefault();
-      const drugId = parseInt(btn.dataset.quickDrug);
-      const action = btn.dataset.action;
-      if (state.editDrugMode && action) handleEditAction(action, drugId);
-      else if (!state.editDrugMode) {
-        const name = btn.dataset.quickName;
-        if (name) addQuickDrug(drugId, name);
-      }
-    });
-  }
+  // کلیک روی quick items
+  ['quickDrugsList', 'quickConsumablesList'].forEach(boxId => {
+    const qdList = $(boxId);
+    if (qdList && !qdList.dataset.bound) {
+      qdList.dataset.bound = '1';
+      qdList.addEventListener('click', e => {
+        const btn = e.target.closest('[data-quick-drug]');
+        if (!btn) return;
+        e.preventDefault();
+        const drugId = parseInt(btn.dataset.quickDrug);
+        const action = btn.dataset.action;
+        const type = btn.dataset.quickType || 'drug';
+        if (state.editDrugMode && action) handleEditAction(action, drugId);
+        else if (!state.editDrugMode) {
+          const name = btn.dataset.quickName;
+          if (name) addQuickItem(drugId, name, type);
+        }
+      });
+    }
+  });
 
-  const addBtn = $('vAddDrug'); if (addBtn) addBtn.onclick = openDrugSearchModal;
-  const fabAdd = $('vFabAdd'); if (fabAdd) fabAdd.onclick = openDrugSearchModal;
+  // Add buttons
+  const addBtn = $('vAddDrug'); 
+  if (addBtn) addBtn.onclick = () => openItemSearchModal(false);
+  const addConsBtn = $('vAddConsumable'); 
+  if (addConsBtn) addConsBtn.onclick = () => openItemSearchModal(true);
+  const fabAdd = $('vFabAdd'); 
+  if (fabAdd) fabAdd.onclick = () => openItemSearchModal(state.step === 6);
 
-  // Items
+  // Items drug list
   const itemsList = $('vItemsList');
   if (itemsList && !itemsList.dataset.bound) {
     itemsList.dataset.bound = '1';
@@ -536,6 +579,27 @@ function bindWizard() {
       else if (btn.dataset.action === 'dec') { if (state.items[i].quantity > 1) state.items[i].quantity--; renderItems(); }
     });
     itemsList.addEventListener('input', e => {
+      const qty = e.target.closest('[data-item-qty]');
+      const notes = e.target.closest('[data-item-notes]');
+      if (qty) { const i = +qty.dataset.itemQty; state.items[i].quantity = Math.max(1, parseInt(qty.value) || 1); }
+      if (notes) { const i = +notes.dataset.itemNotes; state.items[i].notes = notes.value; }
+    });
+  }
+
+  // Items consumable list
+  const consList = $('vConsumablesList');
+  if (consList && !consList.dataset.bound) {
+    consList.dataset.bound = '1';
+    consList.addEventListener('click', e => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      e.preventDefault();
+      const i = parseInt(btn.dataset.i);
+      if (btn.dataset.action === 'remove') { state.items.splice(i, 1); renderConsumables(); }
+      else if (btn.dataset.action === 'inc') { state.items[i].quantity++; renderConsumables(); }
+      else if (btn.dataset.action === 'dec') { if (state.items[i].quantity > 1) state.items[i].quantity--; renderConsumables(); }
+    });
+    consList.addEventListener('input', e => {
       const qty = e.target.closest('[data-item-qty]');
       const notes = e.target.closest('[data-item-notes]');
       if (qty) { const i = +qty.dataset.itemQty; state.items[i].quantity = Math.max(1, parseInt(qty.value) || 1); }
@@ -581,7 +645,7 @@ function bindWizard() {
   if (btnNext) btnNext.onclick = () => {
     saveFormState();
     if (!validateStep(state.step)) return;
-    if (state.step < 6) {
+    if (state.step < 7) {
       state.step++;
       if (state.step === 3 && !state.isIncident) state.step++;
       if (state.step > state.maxStep) state.maxStep = state.step;
@@ -597,7 +661,7 @@ function bindWizard() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🌟 جدید: مودال ثبت سریع بیمار جدید
+// 🌟 مودال ثبت سریع بیمار (اصلاح شده با is_foreign_national)
 // ═══════════════════════════════════════════════════════
 function openQuickPatientModal() {
   const existing = $('quickPatientModal');
@@ -636,7 +700,6 @@ function openQuickPatientModal() {
   const modalEl = $('quickPatientModal');
   const modal = new bootstrap.Modal(modalEl);
   modal.show();
-
   modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
 
   $('btnSaveQuickPatient').onclick = async () => {
@@ -651,13 +714,9 @@ function openQuickPatientModal() {
     errEl.textContent  = '';
 
     if (!firstName || !lastName) { errEl.textContent = '❌ نام و نام خانوادگی الزامی است.'; return; }
-
-    // 🌟 اعتبارسنجی اصلی: کد ملی یا پاسپورت
     if (!nationalCode && !passportNo) {
-      errEl.textContent = '❌ کد ملی یا شماره پاسپورت الزامی است.';
-      return;
+      errEl.textContent = '❌ کد ملی یا شماره پاسپورت الزامی است.'; return;
     }
-
     if (nationalCode) {
       if (nationalCode.length !== 10 || !/^\d+$/.test(nationalCode)) {
         errEl.textContent = '❌ کد ملی باید ۱۰ رقم عددی باشد.'; return;
@@ -665,7 +724,6 @@ function openQuickPatientModal() {
       const { data: dup } = await sb.from('core_patient').select('id').eq('national_code', nationalCode).limit(1);
       if (dup?.length) { errEl.textContent = '❌ این کد ملی قبلاً ثبت شده است.'; return; }
     }
-
     if (personnelNo) {
       const { data: dupP } = await sb.from('core_patient').select('id').eq('personnel_number', personnelNo).limit(1);
       if (dupP?.length) { errEl.textContent = '❌ این کد پرسنلی قبلاً ثبت شده است.'; return; }
@@ -686,15 +744,17 @@ function openQuickPatientModal() {
         }
       }
 
+      // 🌟 payload با is_foreign_national
       const payload = {
         first_name: firstName,
         last_name: lastName,
         national_code: nationalCode || null,
         personnel_number: personnelNo || null,
         company_id: companyId,
+        // 🌟 کلید رفع خطای null
+        is_foreign_national: !!passportNo && !nationalCode,
       };
 
-      // پاسپورت (اگر ستون در Supabase وجود داشته باشد)
       if (passportNo) payload.passport_number = passportNo;
 
       if (dobInput) {
@@ -709,12 +769,112 @@ function openQuickPatientModal() {
       toast(`✅ بیمار "${fullName}" ثبت شد`, 'success');
       beep();
       modal.hide();
-      pickPatient(newPatient.id, fullName);
+      state.patientId = newPatient.id;
+      state.patientName = fullName;
+      state.step = 2;
+      if (state.step > state.maxStep) state.maxStep = state.step;
+      renderWizard();
     } catch (e) {
       console.error(e);
       errEl.textContent = '❌ ' + (e.message || 'خطا در ذخیره بیمار');
       btn.disabled = false;
       btn.innerHTML = 'ثبت بیمار';
+    }
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// 🌟 مودال تکمیل کد ملی برای بیماران قدیمی
+// ═══════════════════════════════════════════════════════
+function openNationalCodeFixModal(patient) {
+  const existing = $('fixNationalCodeModal');
+  if (existing) existing.remove();
+
+  const fullName = `${patient.first_name || ''} ${patient.last_name || ''}`.trim();
+  const modalHtml = `
+    <div class="modal fade" id="fixNationalCodeModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header" style="background:#fef3c7;">
+            <h5 class="modal-title" style="color:#92400e;">⚠️ تکمیل اطلاعات هویتی</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted small mb-3">
+              این بیمار قبلاً بدون کد ملی ثبت شده است. برای ثبت ویزیت جدید، ابتدا کد ملی یا شماره پاسپورت را وارد کنید.
+            </p>
+            <div class="mb-2">
+              <label class="form-label small">نام بیمار</label>
+              <input type="text" class="form-control" value="${escapeHtml(fullName)}" disabled>
+            </div>
+            <div class="mb-2">
+              <label class="form-label small">کد ملی (۱۰ رقم) *</label>
+              <input type="text" id="fixNationalCode" class="form-control" inputmode="numeric" dir="ltr" placeholder="مثال: 1234567890">
+            </div>
+            <div class="mb-2">
+              <label class="form-label small">یا شماره پاسپورت</label>
+              <input type="text" id="fixPassportNumber" class="form-control" dir="ltr" placeholder="مثال: X1234567">
+            </div>
+            <div id="fixError" class="text-danger small mt-2" style="min-height:18px;"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+            <button type="button" class="btn btn-primary" id="btnSaveFix">ذخیره و ادامه</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  const modalEl = $('fixNationalCodeModal');
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+  modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
+
+  $('btnSaveFix').onclick = async () => {
+    const nc = faToEn($('fixNationalCode').value.trim());
+    const pp = $('fixPassportNumber').value.trim();
+    const errEl = $('fixError');
+    errEl.textContent = '';
+
+    if (!nc && !pp) {
+      errEl.textContent = '❌ کد ملی یا شماره پاسپورت الزامی است.'; return;
+    }
+    if (nc && (nc.length !== 10 || !/^\d+$/.test(nc))) {
+      errEl.textContent = '❌ کد ملی باید ۱۰ رقم عددی باشد.'; return;
+    }
+    if (nc) {
+      const { data: dup } = await sb.from('core_patient').select('id').eq('national_code', nc).neq('id', patient.id).limit(1);
+      if (dup?.length) { errEl.textContent = '❌ این کد ملی قبلاً برای بیمار دیگری ثبت شده است.'; return; }
+    }
+
+    const btn = $('btnSaveFix');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ذخیره...';
+
+    try {
+      const update = {};
+      if (nc) update.national_code = nc;
+      if (pp) update.passport_number = pp;
+      update.is_foreign_national = !!pp && !nc;
+
+      const { error } = await sb.from('core_patient').update(update).eq('id', patient.id);
+      if (error) throw error;
+
+      toast('✅ اطلاعات هویتی به‌روز شد', 'success');
+      beep();
+      modal.hide();
+
+      state.patientId = patient.id;
+      state.patientName = `${patient.first_name || ''} ${patient.last_name || ''}`.trim();
+      state.step = 2;
+      if (state.step > state.maxStep) state.maxStep = state.step;
+      renderWizard();
+    } catch (e) {
+      console.error(e);
+      errEl.textContent = '❌ ' + (e.message || 'خطا در ذخیره');
+      btn.disabled = false;
+      btn.innerHTML = 'ذخیره و ادامه';
     }
   };
 }
@@ -751,14 +911,12 @@ async function searchPatients(q) {
   const box = $('vPatientResults');
   if (!box) return;
 
-  // 🌟 تبدیل اعداد فارسی به انگلیسی برای جستجو
   q = faToEn(q);
-
   if (!q || q.length < 2) { box.innerHTML = '<div class="text-center muted small py-2">حداقل ۲ حرف</div>'; return; }
   box.innerHTML = '<div class="text-center py-2"><div class="spinner-border spinner-border-sm"></div></div>';
 
   const { data } = await sb.from('core_patient')
-    .select('id, first_name, last_name, national_code, personnel_number')
+    .select('id, first_name, last_name, national_code, passport_number, personnel_number')
     .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,national_code.ilike.%${q}%,personnel_number.ilike.%${q}%`)
     .limit(20);
   if (!data?.length) { box.innerHTML = '<div class="text-center muted small py-2">یافت نشد</div>'; return; }
@@ -768,7 +926,11 @@ async function searchPatients(q) {
     const meta = [p.national_code, p.personnel_number].filter(Boolean).join(' | ');
     return `
       <button type="button" class="btn btn-light w-100 text-end mb-1 py-2"
-        data-pick-patient="${p.id}" data-patient-name="${escapeHtml(name)}" data-patient-meta="${escapeHtml(meta)}"
+        data-pick-patient="${p.id}" 
+        data-patient-name="${escapeHtml(name)}" 
+        data-patient-meta="${escapeHtml(meta)}"
+        data-patient-national="${escapeHtml(p.national_code || '')}"
+        data-patient-passport="${escapeHtml(p.passport_number || '')}"
         style="border:1px solid #e2e8f0;border-radius:10px;">
         <strong>${escapeHtml(name)}</strong>
         ${meta ? `<br><small class="muted" dir="ltr">${escapeHtml(meta)}</small>` : ''}
@@ -776,9 +938,27 @@ async function searchPatients(q) {
   }).join('');
 }
 
-function pickPatient(id, name) {
+// 🌟 اصلاح شده: چک کردن کد ملی/پاسپورت
+function pickPatient(id, name, nationalCode, passportNumber) {
   if (!id) return;
-  state.patientId = id; state.patientName = name;
+  const hasNational = (nationalCode || '').trim();
+  const hasPassport = (passportNumber || '').trim();
+
+  // 🌟 اگه هیچکدام نبود، مودال اجباری باز میشه
+  if (!hasNational && !hasPassport) {
+    // fetch patient for modal
+    sb.from('core_patient').select('*').eq('id', id).single().then(({ data }) => {
+      if (data) {
+        openNationalCodeFixModal(data);
+      } else {
+        toast('بیمار یافت نشد', 'danger');
+      }
+    });
+    return;
+  }
+
+  state.patientId = id; 
+  state.patientName = name;
   state.step = 2;
   if (state.step > state.maxStep) state.maxStep = state.step;
   renderWizard();
@@ -787,30 +967,37 @@ function pickPatient(id, name) {
 }
 
 // ═══════════════════════════════════════════════════════
-// Quick Drugs و Items
+// Quick Lists (Drug / Consumable)
 // ═══════════════════════════════════════════════════════
-function renderQuickDrugs() {
-  const box = $('quickDrugsList');
+function renderQuickList(boxId, filterFn, type) {
+  const box = $(boxId);
   if (!box) return;
-  let sorted = [...state.quickDrugs];
+  let sorted = [...state.quickDrugs].filter(filterFn);
   if (state.drugPrefs.order?.length) {
     const map = {};
     state.drugPrefs.order.forEach((id, idx) => map[id] = idx);
     sorted.sort((a,b) => (map[a.id] ?? 9999) - (map[b.id] ?? 9999));
   }
+  if (!sorted.length) {
+    box.innerHTML = '<span class="muted small">موردی موجود نیست</span>';
+    return;
+  }
   box.innerHTML = sorted.map(d => {
     const hidden = (state.drugPrefs.hidden || []).includes(d.id);
     const cls = state.editDrugMode ? `edit-mode ${hidden ? 'hidden-drug' : ''}` : (hidden ? 'hidden' : '');
-    if (state.editDrugMode) {
+    if (state.editDrugMode && type === 'drug') {
       return `<div class="quick-drug-btn ${cls}">
-        <span style="margin-left:5px;">${d.icon}</span>${escapeHtml(d.name)}
+        <span style="margin-left:5px;">${d.icon || '💊'}</span>${escapeHtml(d.name)}
         <span class="btn-edit-action" data-action="up" data-quick-drug="${d.id}">▲</span>
         <span class="btn-edit-action" data-action="down" data-quick-drug="${d.id}">▼</span>
         <span class="btn-edit-action danger" data-action="toggle" data-quick-drug="${d.id}">${hidden ? '👁' : '❌'}</span>
       </div>`;
     }
-    return `<button type="button" class="quick-drug-btn" data-quick-drug="${d.id}" data-quick-name="${escapeHtml(d.name)}">
-      <span style="margin-left:6px;">${d.icon}</span>${escapeHtml(d.name)}</button>`;
+    return `<button type="button" class="quick-drug-btn" 
+      data-quick-drug="${d.id}" 
+      data-quick-name="${escapeHtml(d.name)}"
+      data-quick-type="${type}">
+      <span style="margin-left:6px;">${d.icon || (type === 'consumable' ? '🩹' : '💊')}</span>${escapeHtml(d.name)}</button>`;
   }).join('');
 }
 
@@ -828,41 +1015,166 @@ function handleEditAction(action, drugId) {
     if (i >= 0) state.drugPrefs.hidden.splice(i, 1);
     else state.drugPrefs.hidden.push(drugId);
   }
-  renderQuickDrugs();
+  renderQuickList('quickDrugsList', d => !isConsumableDrug(d), 'drug');
 }
 
-function addQuickDrug(id, name) {
-  const existing = state.items.find(i => i.drug_id === id);
+// 🌟 افزودن آیتم با type
+function addQuickItem(id, name, type = 'drug') {
+  const existing = state.items.find(i => i.drug_id === id && (i.type || 'drug') === type);
   if (existing) existing.quantity++;
-  else state.items.push({ drug_id: id, drug_name: name, quantity: 1, notes: '' });
-  renderItems(); beep();
+  else state.items.push({ drug_id: id, drug_name: name, quantity: 1, notes: '', type });
+  if (type === 'consumable') renderConsumables();
+  else renderItems();
+  beep();
 }
 
-async function openDrugSearchModal() {
-  const { openDrugSearch } = await import('../../modals.js');
-  openDrugSearch('دارو را جستجو کنید', drug => addQuickDrug(drug.id, drug.name));
+// ═══════════════════════════════════════════════════════
+// 🌟 مودال جستجو (مشترک دارو / لوازم مصرفی)
+// ═══════════════════════════════════════════════════════
+async function openItemSearchModal(isConsumable) {
+  const modalId = 'itemSearchModal';
+  const existing = $(modalId);
+  if (existing) existing.remove();
+
+  const title = isConsumable ? 'جستجوی لوازم مصرفی' : 'جستجوی دارو';
+  const color = isConsumable ? '#0891b2' : '#198754';
+
+  const modalHtml = `
+    <div class="modal fade" id="${modalId}" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header" style="background:${color};color:#fff;">
+            <h5 class="modal-title">${title}</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <input type="text" id="itemSearchInput" class="form-control mb-3" 
+              placeholder="تایپ کنید..." autocomplete="off" dir="auto">
+            <div id="itemSearchResults" style="max-height:50vh;overflow-y:auto;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  const modalEl = $(modalId);
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+  modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
+
+  const input = $('itemSearchInput');
+  const results = $('itemSearchResults');
+
+  const doSearch = async (term) => {
+    term = faToEn(term || '').trim();
+    results.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div>';
+    try {
+      let q = sb.from('drugs_drug').select('id, name, form, generic_name');
+      if (isConsumable) q = q.eq('form', 'other');
+      else q = q.neq('form', 'other');
+      if (term.length >= 1) q = q.ilike('name', `%${term}%`);
+      q = q.order('name').limit(30);
+      const { data, error } = await q;
+      if (error) throw error;
+      if (!data?.length) {
+        results.innerHTML = '<div class="text-center muted small py-3">یافت نشد</div>';
+        return;
+      }
+      results.innerHTML = data.map(d => `
+        <button type="button" class="btn btn-light w-100 text-end mb-1 py-2"
+          data-pick-item="${d.id}" data-pick-name="${escapeHtml(d.name)}"
+          style="border:1px solid #e2e8f0;border-radius:10px;">
+          <strong>${escapeHtml(d.name)}</strong>
+          ${d.generic_name ? `<br><small class="muted">${escapeHtml(d.generic_name)}</small>` : ''}
+        </button>
+      `).join('');
+    } catch (e) {
+      console.error(e);
+      results.innerHTML = '<div class="text-center text-danger small py-3">خطا در جستجو</div>';
+    }
+  };
+
+  let timer;
+  input.addEventListener('input', e => {
+    clearTimeout(timer);
+    timer = setTimeout(() => doSearch(e.target.value), 300);
+  });
+
+  results.addEventListener('click', e => {
+    const btn = e.target.closest('[data-pick-item]');
+    if (!btn) return;
+    const id = parseInt(btn.dataset.pickItem);
+    const name = btn.dataset.pickName;
+    addQuickItem(id, name, isConsumable ? 'consumable' : 'drug');
+    toast(`"${name}" اضافه شد`, 'success');
+    modal.hide();
+  });
+
+  // Initial load
+  doSearch('');
+  setTimeout(() => input.focus(), 300);
 }
 
+// ═══════════════════════════════════════════════════════
+// Render Items (با type filter)
+// ═══════════════════════════════════════════════════════
 function renderItems() {
   const list = $('vItemsList');
   if (!list) return;
-  if (!state.items.length) { list.innerHTML = '<div class="text-center muted small py-3">دارویی اضافه نشده</div>'; return; }
-  list.innerHTML = state.items.map((it, i) => `
+  const entries = state.items
+    .map((it, idx) => ({ it, idx }))
+    .filter(x => (x.it.type || 'drug') === 'drug');
+  if (!entries.length) { 
+    list.innerHTML = '<div class="text-center muted small py-3">دارویی اضافه نشده</div>'; 
+    return; 
+  }
+  list.innerHTML = entries.map(({ it, idx }) => `
     <div class="item-card">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <div class="name">${escapeHtml(it.drug_name)}</div>
-        <button class="num-btn" style="width:34px;height:34px;" data-action="remove" data-i="${i}">
+        <button class="num-btn" style="width:34px;height:34px;" data-action="remove" data-i="${idx}">
           <i class="bi bi-trash text-danger"></i></button>
       </div>
       <div class="d-flex align-items-center gap-2 mb-2">
         <label class="muted small">تعداد:</label>
-        <button class="num-btn" style="width:34px;height:34px;" data-action="dec" data-i="${i}">−</button>
+        <button class="num-btn" style="width:34px;height:34px;" data-action="dec" data-i="${idx}">−</button>
         <input type="number" class="form-control form-control-sm text-center" style="max-width:80px;"
-          value="${it.quantity}" min="1" data-item-qty="${i}">
-        <button class="num-btn" style="width:34px;height:34px;" data-action="inc" data-i="${i}">+</button>
+          value="${it.quantity}" min="1" data-item-qty="${idx}">
+        <button class="num-btn" style="width:34px;height:34px;" data-action="inc" data-i="${idx}">+</button>
       </div>
       <input type="text" class="form-control form-control-sm" placeholder="دستور مصرف..."
-        value="${escapeHtml(it.notes)}" data-item-notes="${i}">
+        value="${escapeHtml(it.notes)}" data-item-notes="${idx}">
+    </div>
+  `).join('');
+}
+
+// 🌟 رندر لوازم مصرفی
+function renderConsumables() {
+  const list = $('vConsumablesList');
+  if (!list) return;
+  const entries = state.items
+    .map((it, idx) => ({ it, idx }))
+    .filter(x => x.it.type === 'consumable');
+  if (!entries.length) { 
+    list.innerHTML = '<div class="text-center muted small py-3">لوزام مصرفی اضافه نشده</div>'; 
+    return; 
+  }
+  list.innerHTML = entries.map(({ it, idx }) => `
+    <div class="item-card" style="border-right-color:#0891b2;">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="name">${escapeHtml(it.drug_name)}</div>
+        <button class="num-btn" style="width:34px;height:34px;" data-action="remove" data-i="${idx}">
+          <i class="bi bi-trash text-danger"></i></button>
+      </div>
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <label class="muted small">تعداد:</label>
+        <button class="num-btn" style="width:34px;height:34px;" data-action="dec" data-i="${idx}">−</button>
+        <input type="number" class="form-control form-control-sm text-center" style="max-width:80px;"
+          value="${it.quantity}" min="1" data-item-qty="${idx}">
+        <button class="num-btn" style="width:34px;height:34px;" data-action="inc" data-i="${idx}">+</button>
+      </div>
+      <input type="text" class="form-control form-control-sm" placeholder="توضیحات..."
+        value="${escapeHtml(it.notes)}" data-item-notes="${idx}">
     </div>
   `).join('');
 }
@@ -885,7 +1197,7 @@ function validateStep(step) {
 async function saveVisit() {
   saveFormState();
   if (!validateStep(4)) { state.step = 4; renderWizard(); return; }
-  if (!state.formData.treatmentId) { toast('نتیجه درمان را انتخاب کنید', 'warning'); state.step = 6; renderWizard(); return; }
+  if (!state.formData.treatmentId) { toast('نتیجه درمان را انتخاب کنید', 'warning'); state.step = 7; renderWizard(); return; }
 
   const btn = $('vSave');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ذخیره...'; }
@@ -896,7 +1208,6 @@ async function saveVisit() {
     const greg = jalaliToGregorian(parts[0]);
     if (!greg) throw new Error('تاریخ نامعتبر');
 
-    // 🌟 اگر ساعت وارد نشده باشد، از ساعت فعلی استفاده کن
     const now = new Date();
     const defaultTime = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
     const timeOnly = parts[1] || defaultTime;
@@ -952,7 +1263,8 @@ async function saveVisit() {
       notes: fd.notes?.trim() || null,
       status: 'pending',
       doctor_id: myId,
-      assigned_to_id: myId
+      assigned_to_id: myId,
+      is_read: false,  // 🌟 رفع خطای null مشابه is_foreign_national
     };
 
     const { data: visit, error: e1 } = await sb.from('visits_visit').insert(payload).select().single();
@@ -961,8 +1273,10 @@ async function saveVisit() {
     if (state.items.length) {
       await sb.from('visits_visititem').insert(
         state.items.map(it => ({
-          visit_id: visit.id, drug_id: it.drug_id,
-          quantity: it.quantity, notes: it.notes || null
+          visit_id: visit.id, 
+          drug_id: it.drug_id,
+          quantity: it.quantity, 
+          notes: it.notes || null
         }))
       );
     }
