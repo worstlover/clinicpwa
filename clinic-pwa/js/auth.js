@@ -4,10 +4,45 @@ import { $, toast, escapeHtml } from './utils.js';
 import { showScreen } from './ui.js';
 import { startSession, endSession } from './session.js';
 import { initIncidentAlertListener } from './incident-alert.js';
-import { initReferralAlertListener } from './referral-alert.js';   // 🌟 جدید
+import { initReferralAlertListener } from './referral-alert.js';
+import { initAlertCenter } from './alert-center.js';        // 🌟 جدید
+import { initQuickIncidentButton } from './quick-incident.js'; // 🌟 جدید
 
 export let currentUser = null;
 export let isAdmin = false;
+
+// 🌟 راه‌اندازی همه listener ها (مشترک بین doLogin و checkAuth)
+async function initAllListeners() {
+  // Session
+  try {
+    await startSession();
+    console.log('[AUTH] startSession OK');
+  } catch (e) { console.error('[AUTH] startSession FAILED:', e); }
+
+  // Incident Alert
+  try {
+    await initIncidentAlertListener();
+    console.log('[AUTH] incident listener OK');
+  } catch (e) { console.error('[AUTH] incident listener FAILED:', e); }
+
+  // Referral Alert
+  try {
+    await initReferralAlertListener();
+    console.log('[AUTH] referral listener OK');
+  } catch (e) { console.error('[AUTH] referral listener FAILED:', e); }
+
+  // Alert Center (زنگوله)
+  try {
+    await initAlertCenter();
+    console.log('[AUTH] alert center OK');
+  } catch (e) { console.error('[AUTH] alert center FAILED:', e); }
+
+  // Quick Incident Button
+  try {
+    initQuickIncidentButton();
+    console.log('[AUTH] quick incident OK');
+  } catch (e) { console.error('[AUTH] quick incident FAILED:', e); }
+}
 
 export async function doLogin() {
   console.log('[AUTH] doLogin called');
@@ -34,30 +69,7 @@ export async function doLogin() {
   $('userEmail').textContent = currentUser.email;
   await loadAdminStatus();
 
-  // 🌟 شروع Session
-  try {
-    await startSession();
-    console.log('[AUTH] startSession OK');
-  } catch (e) {
-    console.error('[AUTH] startSession FAILED:', e);
-  }
-
-  // 🌟 راه‌اندازی listener هشدار حادثه
-  try {
-    await initIncidentAlertListener();
-    console.log('[AUTH] incident listener OK');
-  } catch (e) {
-    console.error('[AUTH] incident listener FAILED:', e);
-  }
-
-  // 🌟 راه‌اندازی listener هشدار ارجاع
-  try {
-    await initReferralAlertListener();
-    console.log('[AUTH] referral listener OK');
-  } catch (e) {
-    console.error('[AUTH] referral listener FAILED:', e);
-  }
-
+  await initAllListeners();
   showScreen('Home');
 }
 
@@ -74,31 +86,7 @@ export async function checkAuth() {
     currentUser = session.user;
     $('userEmail').textContent = currentUser.email;
     await loadAdminStatus();
-
-    // 🌟 شروع Session
-    try {
-      await startSession();
-      console.log('[AUTH] startSession OK (checkAuth)');
-    } catch (e) {
-      console.error('[AUTH] startSession FAILED (checkAuth):', e);
-    }
-
-    // 🌟 راه‌اندازی listener هشدار حادثه
-    try {
-      await initIncidentAlertListener();
-      console.log('[AUTH] incident listener OK (checkAuth)');
-    } catch (e) {
-      console.error('[AUTH] incident listener FAILED (checkAuth):', e);
-    }
-
-    // 🌟 راه‌اندازی listener هشدار ارجاع
-    try {
-      await initReferralAlertListener();
-      console.log('[AUTH] referral listener OK (checkAuth)');
-    } catch (e) {
-      console.error('[AUTH] referral listener FAILED (checkAuth):', e);
-    }
-
+    await initAllListeners();
     showScreen('Home');
   } else {
     showScreen('Login');
