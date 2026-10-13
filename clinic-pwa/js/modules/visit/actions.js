@@ -6,6 +6,8 @@ import { getMyDjangoId, getUserName } from './helpers.js';
 import { logChange } from './changelog.js';
 import { openDetail } from './detail.js';
 import { renderList } from './list.js';
+// 🌟 جدید: هشدار ارجاع
+import { broadcastVisitReferralAlert } from '../../referral-alert.js';
 
 // ═══════════════════════════════════════════════════════
 // ارجاع
@@ -99,6 +101,23 @@ export async function openReferralModal(visit) {
       await logChange(visit.id, 'refer',
         [{ field: 'assigned_to_id', label: 'مسئول', old: getUserName(visit.assigned_to_id), new: userName }],
         `ارجاع به ${userName}`);
+
+      // 🌟 جدید: ارسال هشدار به کاربر مقصد
+      try {
+        const patientObj = visit.patient || {};
+        const patientName = patientObj.first_name
+          ? `${patientObj.first_name} ${patientObj.last_name || ''}`.trim()
+          : (visit.patient_name || '');
+        await broadcastVisitReferralAlert({
+          visitId:            visit.id,
+          patientName:        patientName,
+          targetDjangoUserId: userId,
+        });
+        console.log('[Referral] ✅ Alert sent to user', userId);
+      } catch (alertErr) {
+        console.error('[Referral] Alert send failed:', alertErr);
+        // هشدار failure نباید جلوی ارجاع رو بگیره
+      }
 
       toast(`✅ ویزیت به "${userName}" ارجاع شد`, 'success');
       beep();
