@@ -4,11 +4,8 @@
 // ═══════════════════════════════════════════════════════
 import { sb } from './sb.js';
 import { $, escapeHtml, gregorianToJalali } from './utils.js';
-import { openDetail } from './modules/visit/detail.js';
-import { state } from './modules/visit/state.js';
 
 let currentUserUuid = null;
-let currentUserDjangoId = null;
 let alertCenterChannel = null;
 
 // ═══════════════════════════════════════════════════════
@@ -20,16 +17,11 @@ export async function initAlertCenter() {
     if (!user) return;
 
     currentUserUuid = user.id;
-    currentUserDjangoId = user.user_metadata?.django_user_id;
-
-    // شمارش اولیه
     await refreshBellBadge();
 
-    // کلیک روی زنگوله
     const btn = $('btnAlertBell');
     if (btn) btn.onclick = openAlertCenter;
 
-    // 🌟 Realtime: هر هشدار جدید → بج آپدیت
     if (alertCenterChannel) {
       await sb.removeChannel(alertCenterChannel);
     }
@@ -51,18 +43,16 @@ export async function initAlertCenter() {
 }
 
 // ═══════════════════════════════════════════════════════
-// شمارش هشدارهای خوانده‌نشده و آپدیت بج
+// شمارش و آپدیت بج
 // ═══════════════════════════════════════════════════════
 export async function refreshBellBadge() {
   try {
-    // شمارش حادثه‌های خوانده‌نشده (خودم نفرستاده باشم)
     const { count: incidentCount } = await sb
       .from('incident_alerts')
       .select('id', { count: 'exact', head: true })
       .eq('is_read', false)
       .neq('triggered_by', currentUserUuid);
 
-    // شمارش ارجاع‌های خوانده‌نشده
     const { count: referralCount } = await sb
       .from('visit_referral_alerts')
       .select('id', { count: 'exact', head: true })
@@ -86,7 +76,7 @@ export async function refreshBellBadge() {
 }
 
 // ═══════════════════════════════════════════════════════
-// باز کردن پنل تاریخچه
+// باز کردن پنل
 // ═══════════════════════════════════════════════════════
 async function openAlertCenter() {
   const existing = $('alertCenterModal');
@@ -101,7 +91,6 @@ async function openAlertCenter() {
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body" style="padding:0;">
-            <!-- تب‌ها -->
             <div class="alert-tabs">
               <button class="alert-tab active" data-tab="incident">
                 🚨 حادثه <span class="tab-badge" id="tabIncidentBadge">0</span>
@@ -110,8 +99,6 @@ async function openAlertCenter() {
                 📩 ارجاع <span class="tab-badge" id="tabReferralBadge">0</span>
               </button>
             </div>
-
-            <!-- محتوا -->
             <div id="alertCenterContent" style="min-height:300px;padding:12px;">
               <div class="text-center py-5"><div class="spinner-border spinner-border-sm text-primary"></div></div>
             </div>
@@ -128,7 +115,6 @@ async function openAlertCenter() {
   `;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-  // استایل‌های داخلی
   if (!document.getElementById('alertCenterStyle')) {
     const style = document.createElement('style');
     style.id = 'alertCenterStyle';
@@ -149,7 +135,7 @@ async function openAlertCenter() {
         cursor: pointer;
         border-bottom: 3px solid transparent;
         transition: all 0.2s;
-        position: relative;
+        font-family: inherit;
       }
       .alert-tab.active {
         color: #0d6efd;
@@ -167,7 +153,6 @@ async function openAlertCenter() {
         display: none;
       }
       .tab-badge.show { display: inline-block; }
-
       .alert-item {
         background: #fff;
         border-radius: 12px;
@@ -176,23 +161,19 @@ async function openAlertCenter() {
         border-right: 4px solid #cbd5e1;
         cursor: pointer;
         transition: all 0.15s;
-        position: relative;
       }
       .alert-item:hover { background: #f8fafc; }
       .alert-item.unread {
         border-right-color: #dc2626;
         background: #fef2f2;
       }
-      .alert-item.unread.referral { 
+      .alert-item.unread.referral {
         border-right-color: #0d6efd;
         background: #eff6ff;
       }
       .alert-item-title {
         font-weight: 700;
         font-size: 0.9rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
       }
       .alert-item-meta {
         font-size: 0.72rem;
@@ -209,7 +190,7 @@ async function openAlertCenter() {
         background: #dc2626;
         border-radius: 50%;
         display: inline-block;
-        margin-left: 6px;
+        margin-right: 6px;
         animation: pulseDot 1.5s infinite;
       }
       @keyframes pulseDot {
@@ -225,7 +206,6 @@ async function openAlertCenter() {
   modal.show();
   modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
 
-  // مدیریت تب‌ها
   let currentTab = 'incident';
   document.querySelectorAll('.alert-tab').forEach(tab => {
     tab.onclick = () => {
@@ -236,7 +216,6 @@ async function openAlertCenter() {
     };
   });
 
-  // دکمه خواندن همه
   $('btnMarkAllRead').onclick = async () => {
     try {
       if (currentTab === 'incident') {
@@ -262,9 +241,6 @@ async function openAlertCenter() {
   await loadTab(currentTab);
 }
 
-// ═══════════════════════════════════════════════════════
-// شمارش‌های داخل تب‌ها
-// ═══════════════════════════════════════════════════════
 async function refreshTabBadges() {
   const { count: ic } = await sb.from('incident_alerts')
     .select('id', { count: 'exact', head: true })
@@ -285,9 +261,6 @@ async function refreshTabBadges() {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// لود کردن محتوای تب
-// ═══════════════════════════════════════════════════════
 async function loadTab(tab) {
   const content = $('alertCenterContent');
   if (!content) return;
@@ -313,7 +286,7 @@ async function loadTab(tab) {
       content.innerHTML = data.map(a => `
         <div class="alert-item ${!a.is_read ? 'unread' : ''}" data-alert-id="${a.id}" data-alert-type="incident">
           <div class="alert-item-title">
-            <span>🚨 اعلام حادثه ${!a.is_read ? '<span class="unread-dot"></span>' : ''}</span>
+            🚨 اعلام حادثه ${!a.is_read ? '<span class="unread-dot"></span>' : ''}
           </div>
           <div class="alert-item-meta">
             توسط: <strong>${escapeHtml(a.triggered_name || 'کاربر')}</strong>
@@ -321,6 +294,11 @@ async function loadTab(tab) {
           ${a.patient_name ? `
             <div class="alert-item-meta">
               بیمار: <strong>${escapeHtml(a.patient_name)}</strong>
+            </div>
+          ` : ''}
+          ${a.location ? `
+            <div class="alert-item-meta">
+              📍 ${escapeHtml(a.location)}
             </div>
           ` : ''}
           <div class="alert-item-time">
@@ -348,7 +326,7 @@ async function loadTab(tab) {
       content.innerHTML = data.map(a => `
         <div class="alert-item ${!a.is_read ? 'unread referral' : ''}" data-alert-id="${a.id}" data-alert-type="referral" data-visit-id="${a.visit_id || ''}">
           <div class="alert-item-title">
-            <span>📩 ویزیت ارجاعی ${!a.is_read ? '<span class="unread-dot"></span>' : ''}</span>
+            📩 ویزیت ارجاعی ${!a.is_read ? '<span class="unread-dot"></span>' : ''}
           </div>
           <div class="alert-item-meta">
             از طرف: <strong>${escapeHtml(a.referred_by_name || 'کاربر')}</strong>
@@ -365,14 +343,12 @@ async function loadTab(tab) {
       `).join('');
     }
 
-    // کلیک روی آیتم‌ها
     content.querySelectorAll('.alert-item').forEach(el => {
       el.onclick = async () => {
         const id = parseInt(el.dataset.alertId);
         const type = el.dataset.alertType;
         const visitId = el.dataset.visitId;
 
-        // علامت‌گذاری خوانده‌شده
         if (type === 'incident') {
           await sb.from('incident_alerts').update({ is_read: true }).eq('id', id);
         } else {
@@ -382,17 +358,14 @@ async function loadTab(tab) {
         await refreshBellBadge();
         await refreshTabBadges();
 
-        // اگه ارجاع بود و visit_id داشت، برو به ویزیت
         if (type === 'referral' && visitId) {
-          const modalEl = $('alertCenterModal');
-          bootstrap.Modal.getInstance(modalEl)?.hide();
-          setTimeout(() => {
-            document.getElementById('alertCenterModal')?.remove();
-            // بستن هر صفحه‌ای و رفتن به ویزیت
+          bootstrap.Modal.getInstance($('alertCenterModal'))?.hide();
+          setTimeout(async () => {
+            $('alertCenterModal')?.remove();
             const { openVisits } = await import('./modules/visit/index.js');
-            state.view = 'detail';
+            const { openDetail } = await import('./modules/visit/detail.js');
             await openVisits();
-            setTimeout(() => openDetail(parseInt(visitId)), 100);
+            setTimeout(() => openDetail(parseInt(visitId)), 150);
           }, 300);
         }
       };
