@@ -3,6 +3,7 @@ import { sb } from './sb.js';
 import { $, toast, escapeHtml } from './utils.js';
 import { showScreen } from './ui.js';
 import { startSession, endSession } from './session.js';
+import { initIncidentAlertListener } from './incident-alert.js';
 
 export let currentUser = null;
 export let isAdmin = false;
@@ -33,12 +34,19 @@ export async function doLogin() {
   await loadAdminStatus();
 
   // 🌟 شروع Session
-  console.log('[AUTH] Calling startSession from doLogin');
   try {
     await startSession();
     console.log('[AUTH] startSession OK');
   } catch (e) {
     console.error('[AUTH] startSession FAILED:', e);
+  }
+
+  // 🌟 راه‌اندازی listener هشدار حادثه
+  try {
+    await initIncidentAlertListener();
+    console.log('[AUTH] incident listener OK');
+  } catch (e) {
+    console.error('[AUTH] incident listener FAILED:', e);
   }
 
   showScreen('Home');
@@ -58,13 +66,18 @@ export async function checkAuth() {
     $('userEmail').textContent = currentUser.email;
     await loadAdminStatus();
 
-    // 🌟 شروع Session
-    console.log('[AUTH] Calling startSession from checkAuth');
     try {
       await startSession();
       console.log('[AUTH] startSession OK (checkAuth)');
     } catch (e) {
       console.error('[AUTH] startSession FAILED (checkAuth):', e);
+    }
+
+    try {
+      await initIncidentAlertListener();
+      console.log('[AUTH] incident listener OK (checkAuth)');
+    } catch (e) {
+      console.error('[AUTH] incident listener FAILED (checkAuth):', e);
     }
 
     showScreen('Home');
