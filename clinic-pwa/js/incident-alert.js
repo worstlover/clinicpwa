@@ -1,6 +1,6 @@
 // js/incident-alert.js
 // ═══════════════════════════════════════════════════════
-// سیستم هشدار حادثه (Realtime + MP3/TTS + بنر بصری)
+// سیستم هشدار حادثه (Realtime + پیجر + MP3/TTS + بنر بصری)
 // ═══════════════════════════════════════════════════════
 import { sb } from './sb.js';
 
@@ -46,7 +46,10 @@ export async function initIncidentAlertListener() {
 
     console.log('[Alert] User role:', currentUserRole);
 
-    if (!ALLOWED_ROLES.includes(currentUserRole)) return;
+    if (!ALLOWED_ROLES.includes(currentUserRole)) {
+      console.log('[Alert] Role not allowed, no listener');
+      return;
+    }
 
     // 🌟 چک کن MP3 موجوده یا نه
     checkMp3Availability();
@@ -72,7 +75,7 @@ export async function initIncidentAlertListener() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🌟 چک کن فایل MP3 قابل دسترسی هست یا نه
+// چک کن فایل MP3 قابل دسترسی هست یا نه
 // ═══════════════════════════════════════════════════════
 async function checkMp3Availability() {
   try {
@@ -86,7 +89,7 @@ async function checkMp3Availability() {
 }
 
 // ═══════════════════════════════════════════════════════
-// ارسال هشدار
+// ارسال هشدار (از create.js)
 // ═══════════════════════════════════════════════════════
 export async function broadcastIncidentAlert({ patientName, patientId, visitId }) {
   try {
@@ -137,27 +140,92 @@ function handleNewAlert(alert) {
 }
 
 // ═══════════════════════════════════════════════════════
-// پخش هشدار
+// پخش هشدار (پیجر → صدا)
 // ═══════════════════════════════════════════════════════
 function playIncidentAlert(alert) {
-  if (isPlaying) return;
+  if (isPlaying) {
+    console.log('[Alert] Already playing');
+    return;
+  }
   isPlaying = true;
 
   try {
     // ۱. بنر بصری
     showIncidentBanner(alert);
 
-    // ۲. پخش صدا
-    if (mp3Available === true) {
-      playMp3Alert(alert);
-    } else {
-      // fallback به TTS
-      playTtsAlert(alert);
-    }
+    // ۲. صدای پیجر بیمارستان (دینگ دینگ دونگ)
+    playHospitalPager();
+
+    // ۳. بعد از پیجر (~۱.۵ ثانیه)، فایل صوتی پخش شه
+    setTimeout(() => {
+      if (mp3Available === true) {
+        playMp3Alert(alert);
+      } else {
+        playTtsAlert(alert);
+      }
+    }, 1500);
 
   } catch (e) {
     console.error('[Alert] play failed:', e);
     isPlaying = false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// 🔔 صدای پیجر بیمارستان (دینگ دینگ دونگ)
+// ═══════════════════════════════════════════════════════
+function playHospitalPager() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+
+    const t0 = ctx.currentTime;
+
+    // ─── تعریف یک نُت با صدای زنگی ───
+    const playBell = (startTime, freq, duration, volume = 0.5) => {
+      // صدای اصلی
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.type = 'sine';
+      osc1.frequency.value = freq;
+
+      // هارمونیک دوم (زنگی‌تر می‌کنه)
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.type = 'sine';
+      osc2.frequency.value = freq * 2.76;  // فرکانس زنگی
+
+      const harmVol = volume * 0.25;
+
+      // Envelope با دیکِی نمایی (شبیه زنگ)
+      gain1.gain.setValueAtTime(0, startTime);
+      gain1.gain.linearRampToValueAtTime(volume, startTime + 0.005);
+      gain1.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+      gain2.gain.setValueAtTime(0, startTime);
+      gain2.gain.linearRampToValueAtTime(harmVol, startTime + 0.005);
+      gain2.gain.exponentialRampToValueAtTime(0.001, startTime + duration * 0.6);
+
+      osc1.start(startTime);
+      osc1.stop(startTime + duration + 0.05);
+      osc2.start(startTime);
+      osc2.stop(startTime + duration + 0.05);
+    };
+
+    // ─── الگوی "دینگ دینگ دونگ" ───
+    // دینگ: A5 (~880 Hz)
+    // دونگ: E5 (~660 Hz) - پایین‌تر و طولانی‌تر
+
+    playBell(t0 + 0.00, 880, 0.20, 0.45);   // دینگ
+    playBell(t0 + 0.30, 880, 0.20, 0.45);   // دینگ
+    playBell(t0 + 0.60, 660, 0.55, 0.55);   // دونگ (پایین‌تر و طولانی‌تر)
+
+  } catch (e) {
+    console.warn('[Alert] pager failed:', e);
   }
 }
 
@@ -210,14 +278,12 @@ function playTtsAlert(alert) {
   const name = alert.triggered_name || 'کاربر';
   const text = `اعلام حادثه توسط ${name}`;
 
-  // صبر کن صداها لود بشن
   const trySpeak = () => {
     const voices = window.speechSynthesis.getVoices();
 
     // پیدا کردن بهترین صدای فارسی
     let faVoice = voices.find(v => v.lang === 'fa-IR');
     if (!faVoice) faVoice = voices.find(v => v.lang && v.lang.startsWith('fa'));
-    // اگه فارسی نبود، عربی یا پیش‌فرض
     if (!faVoice) faVoice = voices.find(v => v.lang && v.lang.startsWith('ar'));
 
     console.log('[Alert] Using voice:', faVoice?.name || 'default', faVoice?.lang);
@@ -231,7 +297,7 @@ function playTtsAlert(alert) {
       const utt = new SpeechSynthesisUtterance(text);
       if (faVoice) utt.voice = faVoice;
       utt.lang = 'fa-IR';
-      utt.rate = 0.85;    // کندتر و واضح‌تر
+      utt.rate = 0.85;
       utt.pitch = 1.05;
       utt.volume = 1.0;
 
@@ -245,8 +311,7 @@ function playTtsAlert(alert) {
         }
       };
 
-      utt.onerror = (e) => {
-        console.warn('[Alert] TTS error:', e);
+      utt.onerror = () => {
         isPlaying = false;
       };
 
@@ -256,13 +321,11 @@ function playTtsAlert(alert) {
     speak();
   };
 
-  // بعضی مرورگرها صداها رو async لود می‌کنن
   if (window.speechSynthesis.getVoices().length === 0) {
     window.speechSynthesis.onvoiceschanged = () => {
       window.speechSynthesis.onvoiceschanged = null;
       trySpeak();
     };
-    // fallback اگه رویداد نیومد
     setTimeout(trySpeak, 500);
   } else {
     trySpeak();
