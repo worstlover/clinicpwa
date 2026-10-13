@@ -1,11 +1,12 @@
 // js/modules/visit/create.js
 import { sb } from '../../sb.js';
-import { $, faNum, escapeHtml, jalaliToGregorian, todayJalali, toast, beep } from '../../utils.js';
+import { $, faNum, faToEn, escapeHtml, jalaliToGregorian, todayJalali, toast, beep } from '../../utils.js';
 import { state, saveFormState, resetFormData, loadRefs, calcGCS, calcBMI, INJURY_MAP } from './state.js';
 import { getMyDjangoId, getIncLabel } from './helpers.js';
 import { renderBodyMap } from './bodymap.js';
 import { logChange } from './changelog.js';
 import { renderList } from './list.js';
+
 export async function openCreate() {
   state.view = 'create';
   state.step = 1; state.maxStep = 1;
@@ -13,7 +14,12 @@ export async function openCreate() {
   state.isIncident = false; state.incidentType = 'none';
   state.selectedInjuries = []; state.items = [];
   resetFormData();
-  state.formData.date = `${todayJalali()} 12:00`;
+
+  // 🌟 تغییر: استفاده از ساعت فعلی به جای 12:00 ثابت
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  state.formData.date = `${todayJalali()} ${hh}:${mm}`;
 
   const c = $('visitContent');
   c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
@@ -49,6 +55,9 @@ function renderWizard() {
         <div class="card-body">
           <div id="vPatientBox" class="${state.patientId ? 'hidden' : ''}">
             <input type="text" class="form-control mb-2" id="vPatientSearch" placeholder="نام، کد ملی، پرسنلی..." autocomplete="off">
+            <button type="button" class="btn btn-outline-primary w-100 mb-3" id="vQuickAddPatient">
+              <i class="bi bi-person-plus-fill"></i> ثبت بیمار جدید
+            </button>
             <div id="vPatientResults" style="max-height:400px;overflow-y:auto;"></div>
           </div>
           <div id="vPatientSelected" class="${state.patientId ? '' : 'hidden'}">
@@ -311,6 +320,10 @@ function bindWizard() {
     });
   }
 
+  // 🌟 دکمه ثبت سریع بیمار جدید
+  const quickAddBtn = $('vQuickAddPatient');
+  if (quickAddBtn) quickAddBtn.onclick = openQuickPatientModal;
+
   const resultsBox = $('vPatientResults');
   if (resultsBox && !resultsBox.dataset.bound) {
     resultsBox.dataset.bound = '1';
@@ -376,40 +389,39 @@ function bindWizard() {
   });
 
   // Body Map - انتخاب و حذف
-document.querySelectorAll('.body-part').forEach(p => {
-  p.onclick = () => {
-    const key = p.dataset.part;
-    if (!key) return;
-    const loc = INJURY_MAP[key];
-    if (!loc) {
-      console.warn('ناحیه تعریف نشده:', key);
-      toast(`ناحیه "${key}" در دیتابیس تعریف نشده`, 'warning');
-      return;
-    }
-    saveFormState();
-    const idx = state.selectedInjuries.findIndex(x => x.id === loc.id);
-    if (idx >= 0) {
-      state.selectedInjuries.splice(idx, 1);
-    } else {
-      state.selectedInjuries.push(loc);
-    }
-    beep();
-    renderWizard();
-  };
-});
+  document.querySelectorAll('.body-part').forEach(p => {
+    p.onclick = () => {
+      const key = p.dataset.part;
+      if (!key) return;
+      const loc = INJURY_MAP[key];
+      if (!loc) {
+        console.warn('ناحیه تعریف نشده:', key);
+        toast(`ناحیه "${key}" در دیتابیس تعریف نشده`, 'warning');
+        return;
+      }
+      saveFormState();
+      const idx = state.selectedInjuries.findIndex(x => x.id === loc.id);
+      if (idx >= 0) {
+        state.selectedInjuries.splice(idx, 1);
+      } else {
+        state.selectedInjuries.push(loc);
+      }
+      beep();
+      renderWizard();
+    };
+  });
 
-// حذف از chips
-document.querySelectorAll('.remove-part').forEach(b => {
-  b.onclick = e => {
-    e.stopPropagation();
-    const id = parseInt(b.dataset.id);
-    state.selectedInjuries = state.selectedInjuries.filter(x => x.id !== id);
-    saveFormState();
-    renderWizard();
-  };
-});
+  // حذف از chips
+  document.querySelectorAll('.remove-part').forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();
+      const id = parseInt(b.dataset.id);
+      state.selectedInjuries = state.selectedInjuries.filter(x => x.id !== id);
+      saveFormState();
+      renderWizard();
+    };
+  });
 
-  
   // GCS
   const consCheck = $('consciousCheck');
   if (consCheck) {
@@ -585,6 +597,129 @@ document.querySelectorAll('.remove-part').forEach(b => {
 }
 
 // ═══════════════════════════════════════════════════════
+// 🌟 جدید: مودال ثبت سریع بیمار جدید
+// ═══════════════════════════════════════════════════════
+function openQuickPatientModal() {
+  const existing = $('quickPatientModal');
+  if (existing) existing.remove();
+
+  const modalHtml = `
+    <div class="modal fade" id="quickPatientModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">ثبت سریع بیمار جدید</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-2"><input type="text" id="qpFirstName" class="form-control" placeholder="نام *"></div>
+            <div class="mb-2"><input type="text" id="qpLastName" class="form-control" placeholder="نام خانوادگی *"></div>
+            <div class="mb-2"><input type="text" id="qpNationalCode" class="form-control" placeholder="کد ملی (۱۰ رقم)" inputmode="numeric" dir="ltr"></div>
+            <div class="mb-2"><input type="text" id="qpPassportNumber" class="form-control" placeholder="شماره پاسپورت" dir="ltr"></div>
+            <div class="mb-2"><input type="text" id="qpPersonnelCode" class="form-control" placeholder="کد پرسنلی" dir="ltr"></div>
+            <div class="mb-2"><input type="text" id="qpCompanyName" class="form-control" placeholder="نام شرکت"></div>
+            <div class="mb-2"><input type="text" id="qpDateOfBirth" class="form-control" placeholder="تاریخ تولد (مثال: 1370/01/15)" dir="ltr"></div>
+            <div id="qpError" class="text-danger small mt-2" style="min-height:18px;"></div>
+            <div class="alert alert-info small mt-2 mb-0">
+              ℹ️ کد ملی یا شماره پاسپورت الزامی است.
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+            <button type="button" class="btn btn-primary" id="btnSaveQuickPatient">ثبت بیمار</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  const modalEl = $('quickPatientModal');
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+
+  modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
+
+  $('btnSaveQuickPatient').onclick = async () => {
+    const firstName    = $('qpFirstName').value.trim();
+    const lastName     = $('qpLastName').value.trim();
+    const nationalCode = faToEn($('qpNationalCode').value.trim());
+    const passportNo   = $('qpPassportNumber').value.trim();
+    const personnelNo  = $('qpPersonnelCode').value.trim();
+    const companyName  = $('qpCompanyName').value.trim();
+    const dobInput     = faToEn($('qpDateOfBirth').value.trim());
+    const errEl        = $('qpError');
+    errEl.textContent  = '';
+
+    if (!firstName || !lastName) { errEl.textContent = '❌ نام و نام خانوادگی الزامی است.'; return; }
+
+    // 🌟 اعتبارسنجی اصلی: کد ملی یا پاسپورت
+    if (!nationalCode && !passportNo) {
+      errEl.textContent = '❌ کد ملی یا شماره پاسپورت الزامی است.';
+      return;
+    }
+
+    if (nationalCode) {
+      if (nationalCode.length !== 10 || !/^\d+$/.test(nationalCode)) {
+        errEl.textContent = '❌ کد ملی باید ۱۰ رقم عددی باشد.'; return;
+      }
+      const { data: dup } = await sb.from('core_patient').select('id').eq('national_code', nationalCode).limit(1);
+      if (dup?.length) { errEl.textContent = '❌ این کد ملی قبلاً ثبت شده است.'; return; }
+    }
+
+    if (personnelNo) {
+      const { data: dupP } = await sb.from('core_patient').select('id').eq('personnel_number', personnelNo).limit(1);
+      if (dupP?.length) { errEl.textContent = '❌ این کد پرسنلی قبلاً ثبت شده است.'; return; }
+    }
+
+    const btn = $('btnSaveQuickPatient');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ذخیره...';
+
+    try {
+      let companyId = null;
+      if (companyName) {
+        const { data: existC } = await sb.from('core_company').select('id').eq('name', companyName).limit(1);
+        if (existC?.length) companyId = existC[0].id;
+        else {
+          const { data: newC } = await sb.from('core_company').insert({ name: companyName }).select().single();
+          companyId = newC?.id;
+        }
+      }
+
+      const payload = {
+        first_name: firstName,
+        last_name: lastName,
+        national_code: nationalCode || null,
+        personnel_number: personnelNo || null,
+        company_id: companyId,
+      };
+
+      // پاسپورت (اگر ستون در Supabase وجود داشته باشد)
+      if (passportNo) payload.passport_number = passportNo;
+
+      if (dobInput) {
+        const g = jalaliToGregorian(dobInput);
+        if (g) payload.date_of_birth = g;
+      }
+
+      const { data: newPatient, error } = await sb.from('core_patient').insert(payload).select().single();
+      if (error) throw error;
+
+      const fullName = `${firstName} ${lastName}`;
+      toast(`✅ بیمار "${fullName}" ثبت شد`, 'success');
+      beep();
+      modal.hide();
+      pickPatient(newPatient.id, fullName);
+    } catch (e) {
+      console.error(e);
+      errEl.textContent = '❌ ' + (e.message || 'خطا در ذخیره بیمار');
+      btn.disabled = false;
+      btn.innerHTML = 'ثبت بیمار';
+    }
+  };
+}
+
+// ═══════════════════════════════════════════════════════
 // جستجوها
 // ═══════════════════════════════════════════════════════
 function filterReasons(q) {
@@ -615,13 +750,19 @@ function pickReason(id, name) {
 async function searchPatients(q) {
   const box = $('vPatientResults');
   if (!box) return;
+
+  // 🌟 تبدیل اعداد فارسی به انگلیسی برای جستجو
+  q = faToEn(q);
+
   if (!q || q.length < 2) { box.innerHTML = '<div class="text-center muted small py-2">حداقل ۲ حرف</div>'; return; }
   box.innerHTML = '<div class="text-center py-2"><div class="spinner-border spinner-border-sm"></div></div>';
+
   const { data } = await sb.from('core_patient')
     .select('id, first_name, last_name, national_code, personnel_number')
     .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,national_code.ilike.%${q}%,personnel_number.ilike.%${q}%`)
     .limit(20);
   if (!data?.length) { box.innerHTML = '<div class="text-center muted small py-2">یافت نشد</div>'; return; }
+
   box.innerHTML = data.map(p => {
     const name = `${p.first_name || ''} ${p.last_name || ''}`.trim();
     const meta = [p.national_code, p.personnel_number].filter(Boolean).join(' | ');
@@ -754,9 +895,15 @@ async function saveVisit() {
     const parts = fd.date.trim().split(' ');
     const greg = jalaliToGregorian(parts[0]);
     if (!greg) throw new Error('تاریخ نامعتبر');
-    const timeOnly = parts[1] || '12:00';
-    const [hh, mm] = timeOnly.split(':').map(Number);
-    const visitDate = new Date(`${greg}T${String(hh||12).padStart(2,'0')}:${String(mm||0).padStart(2,'0')}:00`);
+
+    // 🌟 اگر ساعت وارد نشده باشد، از ساعت فعلی استفاده کن
+    const now = new Date();
+    const defaultTime = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+    const timeOnly = parts[1] || defaultTime;
+    const [rawH, rawM] = timeOnly.split(':').map(Number);
+    const hh = Number.isFinite(rawH) ? rawH : now.getHours();
+    const mm = Number.isFinite(rawM) ? rawM : now.getMinutes();
+    const visitDate = new Date(`${greg}T${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:00`);
 
     let incidentLocId = null;
     if (state.isIncident) {
@@ -774,7 +921,7 @@ async function saveVisit() {
     if (fd.dispatchTime) {
       const [dh, dm] = fd.dispatchTime.split(':').map(Number);
       const d = new Date();
-      d.setHours(dh, dm, 0, 0);
+      d.setHours(dh || 0, dm || 0, 0, 0);
       dispatchTime = d.toISOString();
     }
 
