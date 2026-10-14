@@ -1,22 +1,19 @@
 // js/forms/engine.js
 // ═══════════════════════════════════════════════════════
-// موتور فرم‌ها: صفحه‌ی لیست فرم‌ها + فرم‌ساز + پیش‌نمایش + چاپ + ذخیره‌ی آرشیو
-// پشتیبانی از source: 'exam' | 'visit' | 'shift' | 'none'
+// موتور فرم‌ها + پشتیبانی از source: 'exam' | 'visit' | 'shift' | 'none'
 // ═══════════════════════════════════════════════════════
 import { sb } from '../sb.js';
 import { $, faNum, faToEn, escapeHtml, todayJalali, gregorianToJalali, toast, beep } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { FORMS, listForms, resolveProcessCode } from './registry.js';
+import { mountProcessBanner } from '../process/banner.js';
 import {
   savePatientExtra, saveVisitExtra, saveExamExtra,
   loadPatientExtra, loadExamExtra, loadVisitExtra
 } from '../modules/extra-data.js';
 
-// ═══════════════════════════════════════════════════════
-// state
-// ═══════════════════════════════════════════════════════
 let state = {
-  view: 'list',            // 'list' | 'picker-exam' | 'picker-visit' | 'form'
+  view: 'list',
   formCode: null,
   ctx: {},
   data: {},
@@ -24,9 +21,6 @@ let state = {
   dirty: false
 };
 
-// ═══════════════════════════════════════════════════════
-// نقطه‌ی ورود از منو
-// ═══════════════════════════════════════════════════════
 export function openForms() {
   showScreen('Forms');
   state.view = 'list';
@@ -37,9 +31,6 @@ export function openForms() {
   renderListScreen();
 }
 
-// ═══════════════════════════════════════════════════════
-// باز کردن مستقیم یک فرم با context (از detail.js یا occupational.js)
-// ═══════════════════════════════════════════════════════
 export async function openForm(code, ctx = {}) {
   const form = FORMS[code];
   if (!form) {
@@ -140,16 +131,13 @@ function renderListScreen() {
 }
 
 // ═══════════════════════════════════════════════════════
-// انتخاب منبع (exam / visit / shift / none)
+// Picker
 // ═══════════════════════════════════════════════════════
 async function openFormPicker(code) {
   const form = FORMS[code];
   if (!form) return;
 
-  if (form.source === 'none') {
-    return openForm(code, {});
-  }
-  if (form.source === 'shift') {
+  if (form.source === 'none' || form.source === 'shift') {
     return openForm(code, {});
   }
   if (form.source === 'exam') {
@@ -165,9 +153,6 @@ async function openFormPicker(code) {
   toast('منبع ناشناخته', 'warning');
 }
 
-// ═══════════════════════════════════════════════════════
-// Picker: انتخاب فرد + آخرین معاینه (source: exam)
-// ═══════════════════════════════════════════════════════
 async function renderExamPicker(code) {
   const c = $('formsContent');
   c.innerHTML = `
@@ -203,10 +188,7 @@ async function searchExams(q) {
   const box = $('formPickerResults');
   if (!box) return;
   q = faToEn(q);
-  if (!q || q.length < 2) {
-    box.innerHTML = 'حداقل ۲ حرف تایپ کنید';
-    return;
-  }
+  if (!q || q.length < 2) { box.innerHTML = 'حداقل ۲ حرف تایپ کنید'; return; }
   box.innerHTML = '<div class="spinner-border spinner-border-sm text-primary"></div>';
 
   try {
@@ -215,11 +197,7 @@ async function searchExams(q) {
       .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,national_code.ilike.%${q}%,personnel_number.ilike.%${q}%`)
       .limit(20);
     if (pErr) throw pErr;
-
-    if (!patients?.length) {
-      box.innerHTML = '<div class="muted small py-3">فردی یافت نشد</div>';
-      return;
-    }
+    if (!patients?.length) { box.innerHTML = '<div class="muted small py-3">فردی یافت نشد</div>'; return; }
 
     const ids = patients.map(p => p.id);
     const { data: exams } = await sb.from('lab_results_periodicexamination')
@@ -228,9 +206,7 @@ async function searchExams(q) {
       .order('exam_date', { ascending: false });
 
     const latestByPatient = {};
-    (exams || []).forEach(e => {
-      if (!latestByPatient[e.patient_id]) latestByPatient[e.patient_id] = e;
-    });
+    (exams || []).forEach(e => { if (!latestByPatient[e.patient_id]) latestByPatient[e.patient_id] = e; });
 
     box.innerHTML = patients.map(p => {
       const name = `${p.first_name || ''} ${p.last_name || ''}`.trim();
@@ -253,10 +229,7 @@ async function searchExams(q) {
       b.onclick = () => {
         const examId = b.dataset.pickExam;
         const patientId = parseInt(b.dataset.pickPatient);
-        if (!examId) {
-          toast('برای این فرد معاینه‌ای ثبت نشده', 'warning');
-          return;
-        }
+        if (!examId) { toast('برای این فرد معاینه‌ای ثبت نشده', 'warning'); return; }
         openForm(state.formCode, { examId: parseInt(examId), patientId });
       };
     });
@@ -266,9 +239,6 @@ async function searchExams(q) {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// Picker: انتخاب فرد + ویزیت (source: visit)
-// ═══════════════════════════════════════════════════════
 async function renderVisitPicker(code) {
   const c = $('formsContent');
   c.innerHTML = `
@@ -304,10 +274,7 @@ async function searchVisits(q) {
   const box = $('formVisitResults');
   if (!box) return;
   q = faToEn(q);
-  if (!q || q.length < 2) {
-    box.innerHTML = 'حداقل ۲ حرف تایپ کنید';
-    return;
-  }
+  if (!q || q.length < 2) { box.innerHTML = 'حداقل ۲ حرف تایپ کنید'; return; }
   box.innerHTML = '<div class="spinner-border spinner-border-sm text-primary"></div>';
 
   try {
@@ -316,11 +283,7 @@ async function searchVisits(q) {
       .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,national_code.ilike.%${q}%,personnel_number.ilike.%${q}%`)
       .limit(20);
     if (pErr) throw pErr;
-
-    if (!patients?.length) {
-      box.innerHTML = '<div class="muted small py-3">فردی یافت نشد</div>';
-      return;
-    }
+    if (!patients?.length) { box.innerHTML = '<div class="muted small py-3">فردی یافت نشد</div>'; return; }
 
     const ids = patients.map(p => p.id);
     const { data: visits } = await sb.from('visits_visit')
@@ -357,10 +320,7 @@ async function searchVisits(q) {
       </div>`;
     });
 
-    if (!html) {
-      box.innerHTML = '<div class="muted small py-3">ویزیتی یافت نشد</div>';
-      return;
-    }
+    if (!html) { box.innerHTML = '<div class="muted small py-3">ویزیتی یافت نشد</div>'; return; }
     box.innerHTML = html;
 
     box.querySelectorAll('[data-pick-visit]').forEach(b => {
@@ -378,7 +338,7 @@ async function searchVisits(q) {
 }
 
 // ═══════════════════════════════════════════════════════
-// صفحه‌ی فرم (ویرایش + پیش‌نمایش)
+// صفحه‌ی فرم
 // ═══════════════════════════════════════════════════════
 function renderFormScreen() {
   const form = FORMS[state.formCode];
@@ -394,7 +354,6 @@ function renderFormScreen() {
       </div>
       <div class="card-body">
         <div class="small muted mb-2" dir="ltr">${escapeHtml(form.code)}</div>
-
         ${editables.length ? `
           <div class="row g-2">
             ${editables.map(f => renderFieldInput(f)).join('')}
@@ -427,7 +386,6 @@ function renderFormScreen() {
     </div>
   `;
 
-  // بایند فیلدها
   editables.forEach(f => {
     const el = document.getElementById('fld_' + f.key);
     if (!el) return;
@@ -440,7 +398,6 @@ function renderFormScreen() {
     el.addEventListener('change', handler);
   });
 
-  // دکمه‌ها
   $('formPrintBtn').onclick = () => doPrint(true);
   $('formArchiveBtn').onclick = () => doArchive(false);
   $('formBackBtn').onclick = () => {
@@ -448,6 +405,15 @@ function renderFormScreen() {
     state.view = 'list';
     renderListScreen();
   };
+
+  // ⭐️ نوار زمینه
+  try {
+    const bannerHost = document.createElement('div');
+    bannerHost.id = 'formBannerMount';
+    const card = c.querySelector('.card');
+    if (card && card.parentNode) card.parentNode.insertBefore(bannerHost, card);
+    mountProcessBanner(bannerHost, 'form:' + state.formCode, state.ctx || {});
+  } catch (e) { console.warn('banner failed', e); }
 
   updatePreview();
   requestAnimationFrame(scalePreview);
@@ -545,19 +511,17 @@ async function doArchive(silent = false) {
     email = user?.email || null;
   } catch {}
 
-  // ⭐️ اگر فرم saveArchive سفارشی دارد (مثل ۳۸)، همان را صدا بزن
   if (typeof form.saveArchive === 'function') {
     try {
       await form.saveArchive(state.data, state.ctx);
       if (!silent) toast('✅ گزارش در سیستم ذخیره شد', 'success');
       beep();
     } catch (e) {
-      console.error('[form38] saveArchive failed:', e);
+      console.error('[form] saveArchive failed:', e);
       if (!silent) toast('ذخیره در سیستم ناموفق بود — فقط در آرشیو ذخیره می‌شود', 'warning');
     }
   }
 
-  // process_code
   let examExtra = null;
   if (state.ctx.examId) {
     try {
@@ -567,7 +531,6 @@ async function doArchive(silent = false) {
   }
   const processCode = resolveProcessCode(state.formCode, examExtra);
 
-  // ⭐️ persist به جداول کمکی
   const persistGroups = {};
   (form.fields || []).forEach(f => {
     if (!f.persist) return;
@@ -592,7 +555,6 @@ async function doArchive(silent = false) {
     console.warn('[form] persist failed:', e);
   }
 
-  // ⭐️ ذخیره در form_records
   try {
     const baseQuery = sb.from('form_records')
       .select('id, data')
