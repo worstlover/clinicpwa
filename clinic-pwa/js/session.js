@@ -1,16 +1,16 @@
 // js/session.js
 // ═══════════════════════════════════════════════════════
-// مدیریت Session کاربران (ورود/خروج/Heartbeat)
+// مدیریت Session کاربران (طراحی‌شده برای TWA)
 // ═══════════════════════════════════════════════════════
 import { sb } from './sb.js';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 
-const HEARTBEAT_MS = 60 * 1000;   // هر ۶۰ ثانیه
-const SESSION_KEY  = 'clinic_active_session_id';
-let   heartbeatTimer = null;
+const HEARTBEAT_MS = 60 * 1000;              // هر دقیقه
+const SESSION_TIMEOUT_HOURS = 12;            // اگه ۱۲ ساعت heartbeat نیاد، session مرده
+const SESSION_KEY = 'clinic_active_session_id';
+let heartbeatTimer = null;
 
 // ═══════════════════════════════════════════════════════
-// شروع Session - بعد از لاگین موفق صدا زده می‌شه
+// شروع Session
 // ═══════════════════════════════════════════════════════
 export async function startSession() {
   try {
@@ -20,15 +20,39 @@ export async function startSession() {
       return;
     }
 
-    // بستن session های قبلی این کاربر که logout نشدن
+    // 🌟 بستن session های قبلی این کاربر (که ۱۲ ساعت heartbeat نداشتن)
+    const cutoff = new Date(Date.now() - SESSION_TIMEOUT_HOURS * 60 * 60 * 1000).toISOString();
     await sb.from('user_sessions')
       .update({ logout_at: new Date().toISOString() })
       .eq('user_id', user.id)
-      .is('logout_at', null);
+      .is('logout_at', null)
+      .lt('last_seen', cutoff);
 
-    const fullName = user.user_metadata?.full_name
-                  || user.email
-                  || 'کاربر';
+    // 🌟 چک کن session فعال فعلی داریم یا نه (بعد از reload)
+    const existingId = localStorage.getItem(SESSION_KEY);
+    if (existingId) {
+      // چک کن هنوز توی DB معتبره
+      const { data: existing } = await sb.from('user_sessions')
+        .select('id, user_id, logout_at')
+        .eq('id', parseInt(existingId, 10))
+        .maybeSingle();
+
+      if (existing && existing.user_id === user.id && !existing.logout_at) {
+        // ✅ Session معتبره، فقط last_seen رو آپدیت کن
+        await sb.from('user_sessions')
+          .update({ last_seen: new Date().toISOString() })
+          .eq('id', existing.id);
+
+        startHeartbeat();
+        console.log('[Session] ✅ Resumed existing session:', existing.id);
+        return;
+      }
+      // اگه معتبر نبود، پاک کن
+      localStorage.removeItem(SESSION_KEY);
+    }
+
+    // 🌟 ساخت session جدید
+    const fullName = user.user_metadata?.full_name || user.email || 'کاربر';
 
     const { data, error } = await sb.from('user_sessions')
       .insert({
@@ -46,7 +70,7 @@ export async function startSession() {
 
     localStorage.setItem(SESSION_KEY, String(data.id));
     startHeartbeat();
-    console.log('[Session] ✅ Started session:', data.id, '→', fullName);
+    console.log('[Session] ✅ Started new session:', data.id, '→', fullName);
   } catch (e) {
     console.error('[Session] start error:', e);
   }
@@ -73,7 +97,7 @@ function startHeartbeat() {
 }
 
 // ═══════════════════════════════════════════════════════
-// پایان Session - در زمان logout صدا زده می‌شه
+// پایان Session - فقط از logout دکمه صدا زده می‌شه
 // ═══════════════════════════════════════════════════════
 export async function endSession() {
   const sessionId = localStorage.getItem(SESSION_KEY);
@@ -96,40 +120,41 @@ export async function endSession() {
 }
 
 // ═══════════════════════════════════════════════════════
-// راه‌اندازی listener ها - یک بار در main.js صدا بزن
+// 🌟 Lifecycle - فقط visibility (بدون beforeunload)
 // ═══════════════════════════════════════════════════════
 export function initSessionLifecycle() {
-  // هنگام بستن/رفرش تب → logout_at رو ست کن
-  window.addEventListener('beforeunload', () => {
+  // 🌟 حذف کامل beforeunload (مشکل‌ساز در TWA)
+
+  document.addEventListener('visibilitychange', () => {
     const sessionId = localStorage.getItem(SESSION_KEY);
     if (!sessionId) return;
 
-    try {
-      const url = `${SUPABASE_URL}/rest/v1/user_sessions?id=eq.${sessionId}`;
-      fetch(url, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Prefer': 'return=minimal',
-        },
-        body: JSON.stringify({ logout_at: new Date().toISOString() }),
-        keepalive: true,
-      }).catch(() => {});
-    } catch (e) { /* silent */ }
+    if (document.visibilityState === 'visible') {
+      // اپ برگشت → heartbeat آنی
+      sb.from('user_sessions')
+        .update({ last_seen: new Date().toISOString() })
+        .eq('id', parseInt(sessionId, 10))
+        .then(() => console.log('[Session] heartbeat on resume'));
+    }
+    // وقتی hidden می‌شه هیچ کاری نمی‌کنیم - اجازه بدیم session بمونه
   });
 
-  // وقتی تب دوباره visible شد، heartbeat آنی
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      const sessionId = localStorage.getItem(SESSION_KEY);
-      if (sessionId) {
-        sb.from('user_sessions')
-          .update({ last_seen: new Date().toISOString() })
-          .eq('id', parseInt(sessionId, 10))
-          .then(() => {});
-      }
+  // 🌟 پاک‌سازی session های مرده (هر ۳۰ دقیقه)
+  setInterval(async () => {
+    try {
+      const cutoff = new Date(Date.now() - SESSION_TIMEOUT_HOURS * 60 * 60 * 1000).toISOString();
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) return;
+
+      await sb.from('user_sessions')
+        .update({ logout_at: new Date().toISOString() })
+        .eq('user_id', user.id)
+        .is('logout_at', null)
+        .lt('last_seen', cutoff);
+
+      console.log('[Session] Cleaned up stale sessions');
+    } catch (e) {
+      console.warn('[Session] Cleanup failed:', e);
     }
-  });
+  }, 30 * 60 * 1000);
 }
