@@ -1,6 +1,6 @@
 // js/referral-alert.js
 // ═══════════════════════════════════════════════════════
-// سیستم هشدار ویزیت ارجاعی (Realtime + پیجر + MP3/TTS)
+// Import ها
 // ═══════════════════════════════════════════════════════
 import { sb } from './sb.js';
 
@@ -13,7 +13,77 @@ let lastAlertTime  = 0;
 let mp3Available   = null;
 
 // ═══════════════════════════════════════════════════════
-// راه‌اندازی listener (از auth.js بعد از لاگین صدا بزن)
+// 🌟 unlock Audio (مشترک با incident-alert)
+// ═══════════════════════════════════════════════════════
+let referralAudioUnlocked = false;
+
+function unlockReferralAudio() {
+  if (referralAudioUnlocked) return;
+  referralAudioUnlocked = true;
+
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.01);
+    console.log('[Referral] AudioContext unlocked');
+  } catch (e) {
+    console.warn('[Referral] AudioContext unlock failed:', e);
+  }
+
+  try {
+    const sampleRate = 8000;
+    const duration = 0.05;
+    const numSamples = Math.floor(sampleRate * duration);
+    const buffer = new ArrayBuffer(44 + numSamples * 2);
+    const view = new DataView(buffer);
+    
+    const writeStr = (offset, str) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+    
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + numSamples * 2, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, numSamples * 2, true);
+    
+    const blob = new Blob([buffer], { type: 'audio/wav' });
+    const url = URL.createObjectURL(blob);
+    const silent = new Audio(url);
+    silent.volume = 0.001;
+    silent.play().then(() => {
+      console.log('[Referral] HTML5 Audio unlocked');
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }).catch(e => {
+      console.warn('[Referral] HTML5 Audio unlock failed:', e);
+      URL.revokeObjectURL(url);
+    });
+  } catch (e) {
+    console.warn('[Referral] HTML5 Audio unlock error:', e);
+  }
+}
+
+document.addEventListener('pointerdown', unlockReferralAudio, { once: true });
+document.addEventListener('touchstart', unlockReferralAudio, { once: true });
+document.addEventListener('click', unlockReferralAudio, { once: true });
+
+// ═══════════════════════════════════════════════════════
+// راه‌اندازی listener
 // ═══════════════════════════════════════════════════════
 export async function initReferralAlertListener() {
   try {
@@ -23,13 +93,9 @@ export async function initReferralAlertListener() {
     currentUserUuid = user.id;
     console.log('[Referral] User uuid:', currentUserUuid);
 
-    // چک MP3
     checkMp3Availability();
-
-    // 🌟 چک هشدارهای خوانده‌نشده‌ی قبلی (از زمانی که آفلاین بوده)
     await checkPendingReferralAlerts();
 
-    // Realtime listener
     if (alertChannel) {
       await sb.removeChannel(alertChannel);
       alertChannel = null;
@@ -42,7 +108,7 @@ export async function initReferralAlertListener() {
           event: 'INSERT', 
           schema: 'public', 
           table: 'visit_referral_alerts',
-          filter: `target_user_uuid=eq.${currentUserUuid}`,   // فقط هشدارهای خودم
+          filter: `target_user_uuid=eq.${currentUserUuid}`,
         },
         (payload) => {
           console.log('[Referral] 📥 New alert:', payload.new);
@@ -59,20 +125,18 @@ export async function initReferralAlertListener() {
 }
 
 // ═══════════════════════════════════════════════════════
-// ارسال هشدار - از فایل refer_visit.js یا هرجایی که ارجاع انجام می‌شه صدا بزن
-// ورودی: djangoUserId (عدد) یا targetUuid (UUID)
+// ارسال هشدار
 // ═══════════════════════════════════════════════════════
 export async function broadcastVisitReferralAlert({ 
   visitId, 
   patientName, 
-  targetDjangoUserId = null,   // اگه فقط django id داری
-  targetUuid = null            // یا اگه uuid داری
+  targetDjangoUserId = null,
+  targetUuid = null
 }) {
   try {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
 
-    // 🌟 پیدا کردن UUID کاربر هدف از django id
     let finalTargetUuid = targetUuid;
 
     if (!finalTargetUuid && targetDjangoUserId) {
@@ -116,7 +180,7 @@ export async function broadcastVisitReferralAlert({
 }
 
 // ═══════════════════════════════════════════════════════
-// چک هشدارهای قبلی (وقتی کاربر تازه لاگین می‌کنه)
+// چک هشدارهای قبلی
 // ═══════════════════════════════════════════════════════
 async function checkPendingReferralAlerts() {
   try {
@@ -140,11 +204,9 @@ async function checkPendingReferralAlerts() {
 
     console.log(`[Referral] ${data.length} pending alert(s) found`);
 
-    // آخرین رو پخش کن (با کمی تاخیر بعد از لود)
     const latest = data[0];
     setTimeout(() => playReferralAlert(latest), 1500);
 
-    // همه رو read کن
     const ids = data.map(a => a.id);
     await sb.from('visit_referral_alerts')
       .update({ is_read: true })
@@ -172,13 +234,19 @@ function playReferralAlert(alert) {
   lastAlertTime = now;
   isPlaying = true;
 
+  // 🌟 اطمینان از unlock
+  if (!referralAudioUnlocked) {
+    console.log('[Referral] Audio not unlocked, unlocking now');
+    unlockReferralAudio();
+  }
+
   try {
     showReferralBanner(alert);
     playReferralPager();
 
     setTimeout(() => {
       if (mp3Available === true) {
-        playMp3Alert();
+        playMp3Alert(alert);
       } else {
         playTtsAlert(alert);
       }
@@ -191,7 +259,7 @@ function playReferralAlert(alert) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🔔 پیجر مخصوص ارجاع (دینگ... دینگ‌دونگ)
+// پیجر
 // ═══════════════════════════════════════════════════════
 function playReferralPager() {
   try {
@@ -231,9 +299,8 @@ function playReferralPager() {
       osc2.stop(startTime + duration + 0.05);
     };
 
-    // 🌟 الگوی متفاوت از حادثه: "دینگ... دونگ" (فقط دو نت، نرم‌تر)
-    playBell(t0 + 0.00, 988, 0.22, 0.4);   // B5 - تیز
-    playBell(t0 + 0.35, 740, 0.55, 0.5);   // F#5 - پایین‌تر و طولانی‌تر
+    playBell(t0 + 0.00, 988, 0.22, 0.4);
+    playBell(t0 + 0.35, 740, 0.55, 0.5);
 
   } catch (e) {
     console.warn('[Referral] pager failed:', e);
@@ -250,15 +317,18 @@ async function checkMp3Availability() {
     console.log('[Referral] MP3 available:', mp3Available);
   } catch (e) {
     mp3Available = false;
+    console.log('[Referral] MP3 not available, will use TTS');
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// پخش MP3
+// 🌟 پخش MP3 (اصلاح‌شده)
 // ═══════════════════════════════════════════════════════
-function playMp3Alert() {
+function playMp3Alert(alert) {
   const audio = new Audio(REFERRAL_MP3_PATH);
   audio.volume = 1.0;
+  audio.preload = 'auto';
+  audio.load();
 
   let count = 0;
   const MAX = 2;
@@ -266,20 +336,31 @@ function playMp3Alert() {
   const playNext = () => {
     if (count >= MAX) {
       isPlaying = false;
-      console.log('[Referral] ✅ MP3 finished');
+      console.log('[Referral] ✅ MP3 playback finished');
       return;
     }
     count++;
     audio.currentTime = 0;
-    audio.play().catch(err => {
-      console.warn('[Referral] MP3 play error:', err);
-      playTtsAlert({});
-    });
+    
+    const p = audio.play();
+    if (p !== undefined) {
+      p.then(() => {
+        console.log(`[Referral] 🔊 MP3 playing (${count}/${MAX})`);
+      }).catch(err => {
+        console.warn('[Referral] MP3 play failed:', err.name, '-', err.message);
+        playTtsAlert(alert || {});
+      });
+    }
   };
 
   audio.onended = () => {
     if (count < MAX) setTimeout(playNext, 500);
     else isPlaying = false;
+  };
+
+  audio.onerror = (e) => {
+    console.error('[Referral] MP3 load error:', e);
+    playTtsAlert(alert || {});
   };
 
   playNext();
@@ -294,7 +375,7 @@ function playTtsAlert(alert) {
     return;
   }
 
-  const name = alert.referred_by_name || 'کاربر';
+  const name = alert?.referred_by_name || 'کاربر';
   const text = `ویزیت جدید برای شما ارجاع شد. ارجاع از ${name}`;
 
   const trySpeak = () => {
@@ -342,7 +423,7 @@ function playTtsAlert(alert) {
 }
 
 // ═══════════════════════════════════════════════════════
-// بنر آبی/بنفش برای ارجاع
+// بنر آبی/بنفش
 // ═══════════════════════════════════════════════════════
 function showReferralBanner(alert) {
   document.querySelectorAll('.referral-alert-banner').forEach(el => el.remove());
@@ -445,20 +526,15 @@ function showReferralBanner(alert) {
     banner.remove();
   };
 
-  // لرزش ملایم‌تر از حادثه
   if (navigator.vibrate) {
     navigator.vibrate([200, 100, 200]);
   }
 
-  // خودکار بعد از ۱۵ ثانیه محو شود
   setTimeout(() => {
     if (banner.parentNode) banner.remove();
   }, 15000);
 }
 
-// ═══════════════════════════════════════════════════════
-// Helper
-// ═══════════════════════════════════════════════════════
 function escapeHtmlSafe(s) {
   return String(s ?? '').replace(/[&<>"']/g,
     c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
