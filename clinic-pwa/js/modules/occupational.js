@@ -2,12 +2,14 @@
 import { sb } from '../sb.js';
 import { $, faNum, escapeHtml, gregorianToJalali } from '../utils.js';
 import { showScreen } from '../ui.js';
+import { saveExamExtra, loadExamExtra } from './extra-data.js';
 
 let state = {
   view: 'list',
   patients: [],
   selectedPatient: null,
-  selectedExam: null
+  selectedExam: null,
+  examExtra: null
 };
 
 export function openOccupational() {
@@ -62,7 +64,6 @@ async function loadPatients(query = '') {
   list.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
 
   try {
-    // گرفتن همه معاینات + بیمار مرتبط
     const { data, error } = await sb
       .from('lab_results_periodicexamination')
       .select(`
@@ -85,7 +86,6 @@ async function loadPatients(query = '') {
       });
     }
 
-    // گروه‌بندی به تفکیک بیمار
     const patientMap = new Map();
     exams.forEach(e => {
       if (!e.patient) return;
@@ -281,7 +281,18 @@ async function openExam(examSummary) {
       sb.from('lab_results_sonographyresult').select('*').eq('periodic_exam_id', examId).maybeSingle()
     ]);
 
+    // ⭐️ بارگذاری exam_extra
+    let examExtra = null;
+    try {
+      const { data } = await loadExamExtra(examId);
+      examExtra = data || {};
+    } catch (e) {
+      console.warn('loadExamExtra failed', e);
+      examExtra = {};
+    }
+
     state.selectedExam = { exam, clinical, labs, details, optometry, audiometry, spirometry, ecg, sonography };
+    state.examExtra = examExtra;
     renderExam();
   } catch (e) {
     console.error(e);
@@ -292,8 +303,39 @@ async function openExam(examSummary) {
 function renderExam() {
   const s = state.selectedExam;
   const e = s.exam;
+  const exExtra = state.examExtra || {};
   const c = $('occContent');
   const jd = e.exam_date ? gregorianToJalali(e.exam_date) : '—';
+
+  // ⭐️ نگاشت تست‌ها به id برای نمایش مقدار راهنما
+  const LAB_HINT_MAP = {
+    CHO: { id: 1,  name: 'Cholesterol' },
+    TG:  { id: 2,  name: 'Triglycerides' },
+    SGOT:{ id: 8,  name: 'AST' },
+    SGPT:{ id: 9,  name: 'ALT' },
+    FBS: { id: 6,  name: 'FBS' },
+    ALK: null  // در lab_results_testtype وجود ندارد
+  };
+
+  // استخراج مقادیر آزمایش‌ها برای راهنما
+  const labValueByName = {};
+  (s.labs || []).forEach(l => {
+    const n = (l.test_type?.name || '').trim();
+    if (n) labValueByName[n] = l.result_value;
+  });
+
+  const getLabHint = (key) => {
+    const meta = LAB_HINT_MAP[key];
+    if (!meta) return '—';
+    // جستجوی نام تست به صورت جزئی
+    const found = Object.keys(labValueByName).find(n =>
+      n.toLowerCase().includes(meta.name.toLowerCase())
+    );
+    return found ? labValueByName[found] : '—';
+  };
+
+  const flaggedArr = Array.isArray(exExtra.flagged_tests) ? exExtra.flagged_tests : [];
+  const recsArr = Array.isArray(exExtra.recommendations) ? exExtra.recommendations : [];
 
   let html = `
     <div class="card">
@@ -309,6 +351,105 @@ function renderExam() {
           <span class="muted">تاریخ پذیرش</span>
           <span>${gregorianToJalali(e.admission_date)}</span>
         </div>` : ''}
+      </div>
+    </div>
+  `;
+
+  // ⭐️ کارت جدید: اطلاعات تکمیلی برای فرم‌ها
+  html += `
+    <div class="card" style="border:2px solid #0ea5e9;">
+      <div class="card-head" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;">
+        <i class="bi bi-clipboard2-plus"></i> اطلاعات تکمیلی برای فرم‌ها
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-12 col-md-6">
+            <label class="form-label small">نوع معاینه</label>
+            <select class="form-select" id="examKind">
+              <option value="">—</option>
+              <option value="pre_employment" ${exExtra.exam_kind === 'pre_employment' ? 'selected' : ''}>بدو استخدام</option>
+              <option value="periodic" ${exExtra.exam_kind === 'periodic' ? 'selected' : ''}>دوره‌ای</option>
+              <option value="return_to_work" ${exExtra.exam_kind === 'return_to_work' ? 'selected' : ''}>بازگشت به کار</option>
+              <option value="job_change" ${exExtra.exam_kind === 'job_change' ? 'selected' : ''}>جابجایی شغلی</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label small">نتیجه معاینه</label>
+            <select class="form-select" id="healthStatus">
+              <option value="">—</option>
+              <option value="full" ${exExtra.health_status === 'full' ? 'selected' : ''}>صحت و سلامت کامل</option>
+              <option value="relative" ${exExtra.health_status === 'relative' ? 'selected' : ''}>سلامت نسبی</option>
+              <option value="conditional" ${exExtra.health_status === 'conditional' ? 'selected' : ''}>مشروط</option>
+            </select>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label small mb-2">شرح معاینات (چک‌باکس)</label>
+            <div class="row g-2">
+              ${['CHO','TG','SGOT','SGPT','ALK','FBS'].map(k => `
+                <div class="col-6 col-md-4">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" value="${k}" id="ft_${k}" ${flaggedArr.includes(k) ? 'checked' : ''}>
+                    <label class="form-check-label small" for="ft_${k}">
+                      ${k}
+                      <small class="text-muted">(مقدار ثبت‌شده: ${escapeHtml(String(getLabHint(k)))} )</small>
+                    </label>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label small">سایر موارد</label>
+            <input type="text" class="form-control" id="otherFindings" value="${escapeHtml(exExtra.other_findings || '')}">
+          </div>
+
+          <div class="col-12">
+            <label class="form-label small mb-2">توصیه پزشک (چک‌باکس)</label>
+            <div class="row g-2">
+              <div class="col-6 col-md-4">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="low_fat" id="rec_low_fat" ${recsArr.includes('low_fat') ? 'checked' : ''}>
+                  <label class="form-check-label small" for="rec_low_fat">کاهش مصرف غذاهای چرب</label>
+                </div>
+              </div>
+              <div class="col-6 col-md-4">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="daily_exercise" id="rec_daily_exercise" ${recsArr.includes('daily_exercise') ? 'checked' : ''}>
+                  <label class="form-check-label small" for="rec_daily_exercise">انجام ورزش روزانه</label>
+                </div>
+              </div>
+              <div class="col-6 col-md-4">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="weight_loss" id="rec_weight_loss" ${recsArr.includes('weight_loss') ? 'checked' : ''}>
+                  <label class="form-check-label small" for="rec_weight_loss">کاهش وزن</label>
+                </div>
+              </div>
+              <div class="col-6 col-md-4">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="healthy_diet" id="rec_healthy_diet" ${recsArr.includes('healthy_diet') ? 'checked' : ''}>
+                  <label class="form-check-label small" for="rec_healthy_diet">استفاده از تغذیه سالم</label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label small">سایر توصیه‌ها</label>
+            <input type="text" class="form-control" id="otherRecommendation" value="${escapeHtml(exExtra.other_recommendation || '')}">
+          </div>
+
+          <div class="col-12">
+            <div class="alert alert-light small mb-2" style="border:1px dashed #cbd5e1;">
+              <strong>نظریه ثبت‌شده در معاینه:</strong>
+              ${escapeHtml(e.final_opinion_text || '—')}
+            </div>
+            <button class="btn btn-primary w-100" id="saveExamExtraBtn">
+              <i class="bi bi-save"></i> ذخیره اطلاعات تکمیلی
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -334,7 +475,6 @@ function renderExam() {
     `;
   }
 
-  // ۲. نتایج آزمایشگاه
   if (s.labs && s.labs.length) {
     html += `
       <div class="card">
@@ -353,7 +493,6 @@ function renderExam() {
     `;
   }
 
-  // ۳. بینایی‌سنجی
   if (s.optometry) {
     const o = s.optometry;
     const lines = [];
@@ -384,7 +523,6 @@ function renderExam() {
     }
   }
 
-  // ۴. شنوایی‌سنجی
   if (s.audiometry) {
     const a = s.audiometry;
     html += `
@@ -412,7 +550,6 @@ function renderExam() {
     `;
   }
 
-  // ۵. اسپیرومتری
   if (s.spirometry && (s.spirometry.result || s.spirometry.result_other)) {
     html += `
       <div class="card">
@@ -426,7 +563,6 @@ function renderExam() {
     `;
   }
 
-  // ۶. نوار قلب
   if (s.ecg && s.ecg.diagnoses) {
     html += `
       <div class="card">
@@ -440,7 +576,6 @@ function renderExam() {
     `;
   }
 
-  // ۷. سونوگرافی
   if (s.sonography && s.sonography.result) {
     html += `
       <div class="card">
@@ -454,7 +589,6 @@ function renderExam() {
     `;
   }
 
-  // ۸. جزئیات معاینه اعضا
   if (s.details && s.details.length) {
     html += `
       <div class="card">
@@ -475,7 +609,6 @@ function renderExam() {
     `;
   }
 
-  // ۹. نظریه نهایی
   if (e.final_opinion_text || e.final_opinion_conditions) {
     const opinion = e.final_opinion_text || '';
     let statusCls = 'gray';
@@ -520,4 +653,49 @@ function renderExam() {
     state.view = 'patient';
     renderPatient();
   };
+
+  // ⭐️ بایند دکمه‌ی ذخیره‌ی اطلاعات تکمیلی
+  const saveBtn = $('saveExamExtraBtn');
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      const flagged = [];
+      if ($('ft_CHO')?.checked) flagged.push('CHO');
+      if ($('ft_TG')?.checked) flagged.push('TG');
+      if ($('ft_SGOT')?.checked) flagged.push('SGOT');
+      if ($('ft_SGPT')?.checked) flagged.push('SGPT');
+      if ($('ft_ALK')?.checked) flagged.push('ALK');
+      if ($('ft_FBS')?.checked) flagged.push('FBS');
+
+      const recs = [];
+      if ($('rec_low_fat')?.checked) recs.push('low_fat');
+      if ($('rec_daily_exercise')?.checked) recs.push('daily_exercise');
+      if ($('rec_weight_loss')?.checked) recs.push('weight_loss');
+      if ($('rec_healthy_diet')?.checked) recs.push('healthy_diet');
+
+      const payload = {
+        exam_kind: $('examKind')?.value || undefined,
+        health_status: $('healthStatus')?.value || undefined,
+        flagged_tests: flagged,
+        recommendations: recs,
+        other_findings: $('otherFindings')?.value?.trim() || undefined,
+        other_recommendation: $('otherRecommendation')?.value?.trim() || undefined
+      };
+
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ذخیره...';
+
+      try {
+        const { error } = await saveExamExtra(s.id, payload);
+        if (error) throw error;
+        toast('✅ اطلاعات تکمیلی ذخیره شد', 'success');
+        state.examExtra = { ...state.examExtra, ...payload };
+      } catch (err) {
+        console.error('saveExamExtra failed', err);
+        toast('ذخیره ناموفق بود', 'danger');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-save"></i> ذخیره اطلاعات تکمیلی';
+      }
+    };
+  }
 }
