@@ -1,5 +1,6 @@
 // service-worker.js
-const CACHE = 'clinic-drugs-v14';
+const CACHE = 'clinic-drugs-v15';
+const OFFLINE_PAGE = './offline.html';
 
 const ASSETS = [
   './',
@@ -8,7 +9,6 @@ const ASSETS = [
   './styles/main.css',
   './icons/icon-192.png',
   './icons/icon-512.png',
-
   './js/app.js',
   './js/auth.js',
   './js/config.js',
@@ -24,7 +24,6 @@ const ASSETS = [
   './js/scanner.js',
   './js/ui.js',
   './js/utils.js',
-
   './js/modules/extra-data.js',
   './js/modules/receive.js',
   './js/modules/report.js',
@@ -34,7 +33,6 @@ const ASSETS = [
   './js/modules/occupational.js',
   './js/modules/profile.js',
   './js/modules/settings.js',
-
   './js/forms/registry.js',
   './js/forms/engine.js',
   './js/forms/print.css',
@@ -47,13 +45,11 @@ const ASSETS = [
   './js/forms/templates/form48.js',
   './js/forms/templates/form49.js',
   './js/forms/templates/form50.js',
-
   './js/process/processes.js',
   './js/process/guide.js',
   './js/process/banner.js',
   './js/process/sample.js',
   './js/process/process.css',
-
   './js/modules/visit/index.js',
   './js/modules/visit/state.js',
   './js/modules/visit/helpers.js',
@@ -64,12 +60,6 @@ const ASSETS = [
   './js/modules/visit/detail.js',
   './js/modules/visit/edit.js',
   './js/modules/visit/actions.js',
-
-  './lib/firebase/firebase-app.js',
-  './lib/firebase/firebase-messaging.js',
-  './lib/firebase/firebase-app-compat.js',
-  './lib/firebase/firebase-messaging-compat.js',
-
   './lib/bootstrap.rtl.min.css',
   './lib/bootstrap-icons.min.css',
   './lib/vazirmatn.css',
@@ -77,7 +67,6 @@ const ASSETS = [
   './lib/supabase.js',
   './lib/html5-qrcode.js',
   './lib/jalaali.js',
-
   './lib/fonts/bootstrap-icons.woff2',
   './lib/fonts/bootstrap-icons.woff',
   './lib/webfonts/Vazirmatn-Regular.woff2',
@@ -87,30 +76,18 @@ const ASSETS = [
 ];
 
 // ═══════════════════════════════════════════════════════
-// نصب — با گزارش دقیق فایل‌های ناموجود
+// نصب
 // ═══════════════════════════════════════════════════════
 self.addEventListener('install', e => {
+  self.skipWaiting();
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
-    const failed = [];
     for (const u of ASSETS) {
       try {
-        const res = await fetch(u, { cache: 'no-store' });
-        if (res.ok) {
-          await c.put(u, res);
-        } else {
-          failed.push(`${u} → HTTP ${res.status}`);
-        }
-      } catch (err) {
-        failed.push(`${u} → ${err.message}`);
-      }
+        const res = await fetch(u, { cache: 'no-cache' });
+        if (res && res.ok) await c.put(u, res);
+      } catch {}
     }
-    if (failed.length) {
-      console.warn(`⚠️ ${failed.length} فایل کش نشد:\n` + failed.join('\n'));
-    } else {
-      console.log(`✅ ${ASSETS.length} فایل کش شد`);
-    }
-    await self.skipWaiting();
   })());
 });
 
@@ -126,101 +103,54 @@ self.addEventListener('activate', e => {
 });
 
 // ═══════════════════════════════════════════════════════
-// helper: timeout
-// ═══════════════════════════════════════════════════════
-const withTimeout = (p, ms) =>
-  Promise.race([
-    p,
-    new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))
-  ]);
-
-// ═══════════════════════════════════════════════════════
-// fetch — با fallback امن (هیچوقت Response.error نمی‌دهد)
+// fetch — ساده و امن
 // ═══════════════════════════════════════════════════════
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
-
-  // خارج از دامنه
   if (url.origin !== location.origin) return;
 
-  // Firebase SDK محلی
-  if (url.pathname.includes('/lib/firebase/')) {
-    e.respondWith(
-      caches.match(req).then(hit => hit || fetch(req).catch(() => makeErrorResponse('Firebase SDK آفلاین است')))
-    );
-    return;
-  }
-
-  // صفحات
+  // Pages: network-first، فقط برای navigation
   if (req.mode === 'navigate') {
     e.respondWith((async () => {
       try {
-        const res = await withTimeout(fetch(req), 4000);
-        if (res && res.ok && !res.redirected) {
-          const clone = res.clone();
-          caches.open(CACHE).then(c => c.put('./', clone)).catch(() => {});
-        }
-        return res;
-      } catch (err) {
-        return (await caches.match('./'))
-            || (await caches.match('./offline.html'))
-            || makeErrorResponse('آفلاین هستید');
+        return await fetch(req);
+      } catch {
+        const cached = await caches.match('./')
+                    || await caches.match('./index.html')
+                    || await caches.match(OFFLINE_PAGE);
+        if (cached) return cached;
+        return new Response('<h1>آفلاین</h1>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
       }
     })());
     return;
   }
 
-  // کد و CSS برنامه
-  if (!url.pathname.startsWith('/lib/')) {
-    e.respondWith((async () => {
-      try {
-        const res = await withTimeout(fetch(req), 4000);
-        // ⭐️ حتی اگر res.ok نبود، همان را برگردان تا مرورگر 404 واقعی نشان دهد
-        if (res && res.ok) {
-          const clone = res.clone();
-          caches.open(CACHE).then(c => c.put(req, clone)).catch(() => {});
-        }
-        return res;
-      } catch (err) {
-        const cached = await caches.match(req);
-        if (cached) return cached;
-        return makeErrorResponse('فایل یافت نشد: ' + url.pathname);
+  // بقیه فایل‌ها (JS/CSS/تصویر/فونت): network-first با cache fallback
+  e.respondWith((async () => {
+    try {
+      const res = await fetch(req);
+      if (res && res.ok) {
+        const clone = res.clone();
+        caches.open(CACHE).then(c => c.put(req, clone)).catch(() => {});
       }
-    })());
-    return;
-  }
-
-  // کتابخانه‌ها
-  e.respondWith(
-    caches.match(req).then(hit => {
-      if (hit) return hit;
-      return fetch(req).then(res => {
-        if (res && res.ok) {
-          const clone = res.clone();
-          caches.open(CACHE).then(c => c.put(req, clone)).catch(() => {});
-        }
-        return res;
-      }).catch(async () => {
-        const cached = await caches.match(req);
-        if (cached) return cached;
-        return makeErrorResponse('فایل کتابخانه یافت نشد');
+      return res;
+    } catch {
+      const cached = await caches.match(req);
+      if (cached) return cached;
+      // هیچوقت Response.error() برنگردان
+      return new Response('/* offline: ' + url.pathname + ' */', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
       });
-    })
-  );
+    }
+  })());
 });
-
-// ⭐️ پاسخ جایگزین به‌جای Response.error()
-function makeErrorResponse(message) {
-  const body = `/* ${message} */`;
-  return new Response(body, {
-    status: 200,
-    statusText: 'SW Fallback',
-    headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-  });
-}
 
 // پیام از کلاینت
 self.addEventListener('message', e => {
