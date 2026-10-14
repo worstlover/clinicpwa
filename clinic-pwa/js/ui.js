@@ -12,6 +12,7 @@ export function showScreen(screenName) {
     'Profile':      'screenProfile',
     'Occupational': 'screenOccupational',
     'Forms':        'screenForms',
+    'Guide':        'screenGuide',
   };
 
   const targetId = screens[screenName];
@@ -49,6 +50,7 @@ export function showScreen(screenName) {
     'Profile':      'پروفایل',
     'Occupational': 'طب کار',
     'Forms':        'فرم‌ها',
+    'Guide':        'راهنمای فرآیندها',
   };
   if (headerTitle) headerTitle.textContent = titles[screenName] || 'کلینیک';
 
