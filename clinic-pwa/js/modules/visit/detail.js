@@ -9,6 +9,8 @@ import {
 } from './helpers.js';
 import { loadChangeLog } from './changelog.js';
 import { renderList } from './list.js';
+import { openForm } from '../forms/engine.js';
+import { loadVisitExtra } from '../extra-data.js';
 
 export async function openDetail(visitId) {
   state.view = 'detail';
@@ -38,14 +40,15 @@ export async function openDetail(visitId) {
       return;
     }
 
-    const [items, injuries, log] = await Promise.all([
+    const [items, injuries, log, extraRes] = await Promise.all([
       sb.from('visits_visititem')
         .select('drug_id, quantity, notes, drug:drugs_drug(id, name)')
         .eq('visit_id', visitId),
       sb.from('visits_visit_injury_locations')
         .select('injurylocation_id, loc:visits_injurylocation(id, name, svg_key)')
         .eq('visit_id', visitId),
-      loadChangeLog(visitId)
+      loadChangeLog(visitId),
+      loadVisitExtra(visitId).catch(() => ({ data: null }))
     ]);
 
     let itemsWithStock = items.data || [];
@@ -71,7 +74,13 @@ export async function openDetail(visitId) {
       });
     }
 
-    state.visit = { ...v, items: itemsWithStock, injuries: injuriesFull, changeLog: log };
+    state.visit = {
+      ...v,
+      items: itemsWithStock,
+      injuries: injuriesFull,
+      changeLog: log,
+      extra: extraRes?.data || {}
+    };
     renderDetail();
   } catch (e) {
     console.error(e);
@@ -87,6 +96,10 @@ function renderDetail() {
   const jd = gregorianToJalali(v.visit_date);
   const timeStr = getTimeStr(v.visit_date);
   const isInc = v.is_incident && v.incident_type !== 'none';
+  const extra = v.extra || {};
+  const isAdmitted = !!extra.is_admitted;
+  const isDispatch = Number(v.treatment_result_id) === 4;
+  const isReferral = Number(v.treatment_result_id) === 6;
 
   const isAssignee = v.assigned_to_id === getMyDjangoId();
   const isDoctor = v.doctor_id === getMyDjangoId();
@@ -160,6 +173,10 @@ function renderDetail() {
           <span class="muted">نتیجه درمان</span>
           <span>${escapeHtml(v.result?.name || '—')}</span>
         </div>
+        ${isAdmitted ? `<div class="row-item d-flex justify-content-between">
+          <span class="muted">بستری موقت</span>
+          <span class="badge-soft warning"><i class="bi bi-hospital"></i> بله</span>
+        </div>` : ''}
       </div>
     </div>
   `;
@@ -188,7 +205,7 @@ function renderDetail() {
       </div>`;
   }
 
-  const hasVitals = v.height_cm || v.weight_kg || v.blood_pressure || v.heart_rate || v.temperature || v.blood_sugar || v.spo2;
+  const hasVitals = v.height_cm || v.weight_kg || v.blood_pressure || v.heart_rate || v.temperature || v.blood_sugar || v.spo2 || extra.rr;
   if (hasVitals) {
     html += `
       <div class="card">
@@ -199,6 +216,7 @@ function renderDetail() {
             ${v.weight_kg ? cellBadge('وزن', faNum(v.weight_kg), 'primary') : ''}
             ${v.blood_pressure ? cellBadge('فشار', escapeHtml(v.blood_pressure), 'warning') : ''}
             ${v.heart_rate ? cellBadge('نبض', faNum(v.heart_rate), 'warning') : ''}
+            ${extra.rr ? cellBadge('RR', faNum(extra.rr), 'warning') : ''}
             ${v.temperature ? cellBadge('دما', faNum(v.temperature), 'danger') : ''}
             ${v.blood_sugar ? cellBadge('قند', faNum(v.blood_sugar), 'danger') : ''}
             ${v.spo2 ? cellBadge('SpO2', faNum(v.spo2) + '%', 'warning') : ''}
@@ -236,9 +254,9 @@ function renderDetail() {
     </div>`;
   }
 
-  if (v.dispatch_time || v.dispatch_destination) {
+  if (v.dispatch_time || v.dispatch_destination || extra.companion_name || extra.transport_type) {
     html += `<div class="card">
-      <div class="card-head warning"><i class="bi bi-truck"></i> اعزام</div>
+      <div class="card-head warning"><i class="bi bi-truck"></i> اعزام / ارجاع</div>
       <div class="card-body">
         ${v.dispatch_time ? `<div class="row-item d-flex justify-content-between">
           <span class="muted">ساعت</span>
@@ -247,6 +265,20 @@ function renderDetail() {
         ${v.dispatch_destination ? `<div class="row-item d-flex justify-content-between">
           <span class="muted">مقصد</span>
           <span>${escapeHtml(v.dispatch_destination)}</span>
+        </div>` : ''}
+        ${extra.transport_type ? `<div class="row-item d-flex justify-content-between">
+          <span class="muted">نحوه</span>
+          <span>${escapeHtml({
+            ambulance: 'آمبولانس',
+            agency: 'آژانس',
+            personal: 'وسیله شخصی',
+            transport: 'ترانسپورت',
+            other: 'سایر'
+          }[extra.transport_type] || extra.transport_type)}</span>
+        </div>` : ''}
+        ${extra.companion_needed ? `<div class="row-item">
+          <div class="muted small mb-1">همراه:</div>
+          <div>${escapeHtml(extra.companion_name || '—')} ${extra.companion_phone ? `— <span dir="ltr">${escapeHtml(extra.companion_phone)}</span>` : ''}</div>
         </div>` : ''}
       </div>
     </div>`;
@@ -284,7 +316,7 @@ function renderDetail() {
     </div>`;
   }
 
-  // لاگ
+  // ─── لاگ تغییرات ───
   if (v.changeLog && v.changeLog.length) {
     html += `<div class="card">
       <div class="card-head" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);">
@@ -330,7 +362,33 @@ function renderDetail() {
     </div>`;
   }
 
-  // دکمه‌ها
+  // ⭐️ کارت فرم‌های مرتبط
+  html += `<div class="card" style="border:2px solid #6366f1;">
+    <div class="card-head" style="background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;">
+      <i class="bi bi-file-earmark-text"></i> فرم‌های مرتبط با این ویزیت
+    </div>
+    <div class="card-body">
+      <div class="d-grid gap-2">
+        ${v.status === 'completed' ? `<button type="button" class="btn btn-outline-primary" data-form-open="BR-FR-HS-34-00">
+          <i class="bi bi-file-earmark-medical"></i> فرم بستری موقت مراجعه کننده
+        </button>` : ''}
+        ${isInc ? `<button type="button" class="btn btn-outline-danger" data-form-open="BR-FR-HS-36-00">
+          <i class="bi bi-exclamation-triangle"></i> فرم گزارش حوادث ناشی از کار
+        </button>` : ''}
+        ${(isDispatch || isReferral) ? `<button type="button" class="btn btn-outline-warning" data-form-open="BR-FR-HS-37-00">
+          <i class="bi bi-truck"></i> فرم اعزام / ارجاع به مرکز درمانی
+        </button>` : ''}
+        <button type="button" class="btn btn-outline-secondary" data-form-open="BR-FR-HS-38-00">
+          <i class="bi bi-calendar-check"></i> فرم گزارش شیفت بهداری
+        </button>
+        <button type="button" class="btn btn-outline-secondary" data-form-open="BR-FR-HS-39-00">
+          <i class="bi bi-trash3"></i> فرم تحویل Safety box
+        </button>
+      </div>
+    </div>
+  </div>`;
+
+  // ─── دکمه‌ها ───
   html += `<div class="d-grid gap-2 mb-5">`;
 
   if (v.status !== 'completed') {
@@ -385,6 +443,7 @@ function renderDetail() {
 
   c.innerHTML = html;
 
+  // ─── بایندها ───
   const editBtn = $('vEditBtn');
   if (editBtn) editBtn.onclick = async () => {
     const { openEditModal } = await import('./edit.js');
@@ -402,6 +461,21 @@ function renderDetail() {
     const { completeVisit } = await import('./actions.js');
     completeVisit(v.id);
   };
+
+  // ⭐️ بایند فرم‌ها
+  document.querySelectorAll('[data-form-open]').forEach(b => {
+    b.onclick = () => {
+      try {
+        const code = b.dataset.formOpen;
+        openForm(code, {
+          visitId: v.id,
+          patientId: v.patient_id
+        });
+      } catch (err) {
+        console.error('openForm failed', err);
+      }
+    };
+  });
 
   const backBtn = $('vBackBtn');
   if (backBtn) backBtn.onclick = () => { state.view = 'list'; renderList(); };
