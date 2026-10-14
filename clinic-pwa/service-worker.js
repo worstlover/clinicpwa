@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE = 'clinic-drugs-v10';   // ⭐️ نسخه جدید برای SW جدید
+const CACHE = 'clinic-drugs-v11';
 
 const ASSETS = [
   './',
@@ -27,7 +27,7 @@ const ASSETS = [
   './js/utils.js',
 
   // ═══ ماژول‌های ساده ═══
-  './js/modules/extra-data.js',           // ⭐️ جدید
+  './js/modules/extra-data.js',
   './js/modules/receive.js',
   './js/modules/report.js',
   './js/modules/dispense.js',
@@ -36,6 +36,14 @@ const ASSETS = [
   './js/modules/occupational.js',
   './js/modules/profile.js',
   './js/modules/settings.js',
+
+  // ═══ فرم‌ها ═══
+  './js/forms/registry.js',
+  './js/forms/engine.js',
+  './js/forms/print.css',
+  './js/forms/templates/form48.js',
+  './js/forms/templates/form49.js',
+  './js/forms/templates/form50.js',
 
   // ═══ ماژول ویزیت ═══
   './js/modules/visit/index.js',
@@ -121,10 +129,10 @@ self.addEventListener('fetch', e => {
 
   const url = new URL(req.url);
 
-  // ⭐ درخواست‌های خارج از دامنه (Supabase, FCM): مستقیم از شبکه
+  // درخواست‌های خارج از دامنه: مستقیم از شبکه
   if (url.origin !== location.origin) return;
 
-  // ⭐ درخواست‌های Firebase SDK محلی: از cache اول
+  // Firebase SDK محلی: از cache اول
   if (url.pathname.includes('/lib/firebase/')) {
     e.respondWith(
       caches.match(req).then(hit => hit || fetch(req))
@@ -132,7 +140,7 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // ─── صفحات: network-first با مهلت ۴ ثانیه ───
+  // صفحات: network-first با مهلت ۴ ثانیه
   if (req.mode === 'navigate') {
     e.respondWith((async () => {
       try {
@@ -151,7 +159,7 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // ─── کد برنامه: network-first ───
+  // کد برنامه: network-first
   if (!url.pathname.startsWith('/lib/')) {
     e.respondWith((async () => {
       try {
@@ -168,7 +176,7 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // ─── کتابخانه‌ها: cache-first ───
+  // کتابخانه‌ها: cache-first
   e.respondWith(
     caches.match(req).then(hit => {
       if (hit) return hit;
