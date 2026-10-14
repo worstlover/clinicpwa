@@ -1,5 +1,78 @@
 // js/incident-alert.js
 // ═══════════════════════════════════════════════════════
+// 🌟 unlock کامل Audio (هم AudioContext هم HTML5 Audio)
+// ═══════════════════════════════════════════════════════
+let audioUnlocked = false;
+
+function unlockAllAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+
+  // ۱. unlock AudioContext (برای آژیر)
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.01);
+    console.log('[Alert] AudioContext unlocked');
+  } catch (e) {
+    console.warn('[Alert] AudioContext unlock failed:', e);
+  }
+
+  // ۲. 🌟 unlock HTML5 Audio (برای MP3/TTS)
+  try {
+    // ساخت یه WAV بی‌صدا
+    const sampleRate = 8000;
+    const duration = 0.05;
+    const numSamples = Math.floor(sampleRate * duration);
+    const buffer = new ArrayBuffer(44 + numSamples * 2);
+    const view = new DataView(buffer);
+    
+    const writeStr = (offset, str) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+    
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + numSamples * 2, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, numSamples * 2, true);
+    
+    const blob = new Blob([buffer], { type: 'audio/wav' });
+    const url = URL.createObjectURL(blob);
+    const silent = new Audio(url);
+    silent.volume = 0.001;
+    silent.play().then(() => {
+      console.log('[Alert] HTML5 Audio unlocked');
+      URL.revokeObjectURL(url);
+    }).catch(e => {
+      console.warn('[Alert] HTML5 Audio unlock failed:', e);
+      URL.revokeObjectURL(url);
+    });
+  } catch (e) {
+    console.warn('[Alert] HTML5 Audio unlock error:', e);
+  }
+}
+
+// اولین interaction کاربر
+document.addEventListener('pointerdown', unlockAllAudio, { once: true });
+document.addEventListener('touchstart', unlockAllAudio, { once: true });
+document.addEventListener('click', unlockAllAudio, { once: true });
+// ═══════════════════════════════════════════════════════
 // سیستم هشدار حادثه (Realtime + آژیر طولانی + MP3/TTS + بنر)
 // ═══════════════════════════════════════════════════════
 import { sb } from './sb.js';
