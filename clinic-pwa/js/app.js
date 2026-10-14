@@ -1,3 +1,4 @@
+// js/app.js
 import { $ } from './utils.js';
 import { showScreen } from './ui.js';
 import { doLogin, doLogout, checkAuth } from './auth.js';
@@ -10,12 +11,10 @@ import { openReport } from './modules/report.js';
 import { openProfile } from './modules/profile.js';
 import { openOccupational } from './modules/occupational.js';
 import { openVisits } from './modules/visit/index.js';
-import { initSessionLifecycle } from './session.js';
 
 initQtyModal();
 initSearchModal();
 initScannerButtons();
-initSessionLifecycle();
 
 // لاگین
 $('btnLogin').onclick = doLogin;
@@ -39,12 +38,15 @@ if (userEmailEl) {
   userEmailEl.onclick = () => openProfile();
 }
 
-// ناوبری - بدون تحویل دارو
+// ═══════════════════════════════════════════════════════
+// ناوبری
+// ═══════════════════════════════════════════════════════
 document.querySelectorAll('[data-nav]').forEach(el => {
   el.addEventListener('click', e => {
     e.preventDefault();
     const n = el.dataset.nav;
     if (n === 'home') showScreen('Home');
+    else if (n === 'pharmacy') showScreen('Pharmacy');       // 🌟 جدید
     else if (n === 'visits') openVisits();
     else if (n === 'inventory') openInventory();
     else if (n === 'receive') openReceive();
