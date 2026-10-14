@@ -1,8 +1,7 @@
 // js/sb.js
-import { createClient } from './lib/supabase.js';
+import { createClient } from '../lib/supabase.js';
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 
-// 🌟 فعال‌سازی storage persistence (جلوگیری از پاک شدن توکن توسط مرورگر)
 if (navigator.storage && navigator.storage.persist) {
   navigator.storage.persist().then(granted => {
     console.log('[Storage] persist:', granted ? 'granted' : 'denied');
@@ -13,7 +12,7 @@ export const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: {
     storage: window.localStorage,
     storageKey: 'clinic-auth-token',
-    autoRefreshToken: true,     // 🌟 فقط خود Supabase مدیریت می‌کنه
+    autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
     flowType: 'pkce',
@@ -24,7 +23,6 @@ export const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
   db: { schema: 'public' },
 });
 
-// 🌟 فقط لاگ - بدون دستکاری refresh/fetch
 sb.auth.onAuthStateChange((event, session) => {
   const ts = new Date().toISOString();
   console.log(`[AUTH ${ts}] Event: ${event}`, session?.user?.email || '');
