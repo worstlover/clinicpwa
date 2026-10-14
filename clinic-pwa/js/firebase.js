@@ -12,7 +12,7 @@ const firebaseConfig = {
 };
 
 // 🌟 VAPID Key - این رو از Firebase Console بگیر
-export const VAPID_KEY = 'PASTE_VAPID_KEY_HERE';
+export const VAPID_KEY = 'BJv_QoXImDpAqUq__0I6PsPxEZ3xUVXXC2tDH_fQcjrMI4FTVEKxI6voDplW0WFi4qIJm1wgqJRO0SPFTNMTn7I';
 
 export const firebaseApp = initializeApp(firebaseConfig);
 
