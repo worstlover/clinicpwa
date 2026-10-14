@@ -7,30 +7,39 @@ import { initIncidentAlertListener } from './incident-alert.js';
 import { initReferralAlertListener } from './referral-alert.js';
 import { initAlertCenter } from './alert-center.js';
 import { initQuickIncidentButton } from './quick-incident.js';
-import { initFCM } from './fcm.js';                       // 🌟 باقی می‌مونه ولی صدا زده نمی‌شه در init
+import { initFCM } from './fcm.js';                            // 🌟 جدید
 import { openSettings } from './modules/settings.js';
 
 export let currentUser = null;
 export let isAdmin = false;
 
+// ═══════════════════════════════════════════════════════
+// راه‌اندازی همه listener ها (مشترک)
+// ═══════════════════════════════════════════════════════
 async function initAllListeners() {
   try { await startSession(); } catch (e) { console.error('[AUTH] session:', e); }
   try { await initIncidentAlertListener(); } catch (e) { console.error('[AUTH] incident:', e); }
   try { await initReferralAlertListener(); } catch (e) { console.error('[AUTH] referral:', e); }
   try { await initAlertCenter(); } catch (e) { console.error('[AUTH] alertCenter:', e); }
   try { initQuickIncidentButton(); } catch (e) { console.error('[AUTH] quickIncident:', e); }
-
+  
   // 🌟 initFCM فقط اگه permission قبلاً داده شده باشه کار می‌کنه
-  // (اگه نداده، بی‌صدا رد می‌شه)
   try { await initFCM(); } catch (e) { console.error('[AUTH] fcm:', e); }
 }
 
 export async function doLogin() {
+  console.log('[AUTH] doLogin called');
   let email = $('loginEmail').value.trim();
   const pass = $('loginPass').value;
 
-  if (!email || !pass) { toast('نام کاربری و رمز را وارد کنید', 'warning'); return; }
-  if (!email.includes('@')) email = email + '@clinic.local';
+  if (!email || !pass) {
+    toast('نام کاربری و رمز را وارد کنید', 'warning');
+    return;
+  }
+
+  if (!email.includes('@')) {
+    email = email + '@clinic.local';
+  }
 
   $('loginMsg').innerHTML = '<div class="alert alert-info py-2 small">در حال ورود...</div>';
   const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
@@ -47,11 +56,12 @@ export async function doLogin() {
   bindSettingsButton();
   showScreen('Home');
 
-  // 🌟 جدید: چک کن اگه permission default هست، بنر دعوت نشون بده
+  // 🌟 چک کردن نیاز به بنر درخواست اجازه نوتیفیکیشن
   setTimeout(() => maybeShowPermissionBanner(), 800);
 }
 
 export async function checkAuth() {
+  console.log('[AUTH] checkAuth called');
   const { data: { session } } = await sb.auth.getSession();
   if (session?.user) {
     currentUser = session.user;
@@ -67,6 +77,9 @@ export async function checkAuth() {
   }
 }
 
+// ═══════════════════════════════════════════════════════
+// بایند دکمه تنظیمات
+// ═══════════════════════════════════════════════════════
 function bindSettingsButton() {
   const btn = $('btnSettings');
   if (btn) {
@@ -78,18 +91,16 @@ function bindSettingsButton() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🌟 جدید: بنر دعوت به فعال‌سازی نوتیفیکیشن
+// بنر درخواست اجازه نوتیفیکیشن (فقط اگه کاربر قبلاً نداده باشه)
 // ═══════════════════════════════════════════════════════
 async function maybeShowPermissionBanner() {
-  // اگه permission قبلاً داده یا رد شده، نشون نده
   if (typeof Notification === 'undefined') return;
   if (Notification.permission !== 'default') return;
 
-  // اگه کاربر قبلاً دیسکیس کرده، نشون نده (تا ۳ روز)
+  // اگه کاربر قبلاً بست، تا ۳ روز نشون نده
   const dismissed = localStorage.getItem('fcm_banner_dismissed_until');
   if (dismissed && Date.now() < parseInt(dismissed)) return;
 
-  // حذف بنر قبلی
   document.querySelectorAll('.fcm-permission-banner').forEach(el => el.remove());
 
   const banner = document.createElement('div');
@@ -131,9 +142,7 @@ async function maybeShowPermissionBanner() {
         to   { transform: translateY(0); opacity: 1; }
       }
       .fcm-banner-content {
-        display: flex;
-        align-items: center;
-        gap: 12px;
+        display: flex; align-items: center; gap: 12px;
       }
       .fcm-banner-icon {
         font-size: 2rem;
@@ -147,64 +156,41 @@ async function maybeShowPermissionBanner() {
       }
       .fcm-banner-body { flex: 1; }
       .fcm-banner-title {
-        font-weight: 800;
-        font-size: 0.95rem;
-        margin-bottom: 2px;
+        font-weight: 800; font-size: 0.95rem; margin-bottom: 2px;
       }
       .fcm-banner-text {
-        font-size: 0.75rem;
-        opacity: 0.9;
-        line-height: 1.4;
+        font-size: 0.75rem; opacity: 0.9; line-height: 1.4;
       }
       .fcm-banner-actions {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        flex-shrink: 0;
+        display: flex; align-items: center; gap: 6px; flex-shrink: 0;
       }
       .fcm-banner-enable {
-        background: #fff;
-        color: #0d6efd;
-        border: none;
-        padding: 8px 14px;
-        border-radius: 10px;
-        font-weight: 700;
-        font-size: 0.8rem;
-        cursor: pointer;
-        font-family: inherit;
-        white-space: nowrap;
+        background: #fff; color: #0d6efd; border: none;
+        padding: 8px 14px; border-radius: 10px;
+        font-weight: 700; font-size: 0.8rem;
+        cursor: pointer; font-family: inherit; white-space: nowrap;
       }
       .fcm-banner-enable:active { transform: scale(0.96); }
       .fcm-banner-close {
-        background: rgba(255,255,255,0.2);
-        color: #fff;
-        border: none;
-        width: 32px; height: 32px;
-        border-radius: 50%;
-        font-size: 1rem;
-        font-weight: 700;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        background: rgba(255,255,255,0.2); color: #fff;
+        border: none; width: 32px; height: 32px;
+        border-radius: 50%; font-size: 1rem; font-weight: 700;
+        cursor: pointer; display: flex; align-items: center; justify-content: center;
       }
       .fcm-banner-close:active { background: rgba(255,255,255,0.35); }
     `;
     document.head.appendChild(style);
   }
 
-  // 🌟 دکمه فعال‌سازی - از تابع جدید استفاده می‌کنه
   $('fcmBannerEnable').onclick = async () => {
     const { requestPermissionAndInit } = await import('./fcm.js');
     const token = await requestPermissionAndInit();
     if (token) {
       banner.remove();
-      // اگه توکن گرفت، بنر رو حذف کن
       toast('✅ هشدارها فعال شد', 'success');
     }
   };
 
-  // دکمه بعداً - ۳ روز مخفی
   $('fcmBannerClose').onclick = () => {
     const until = Date.now() + 3 * 24 * 60 * 60 * 1000;
     localStorage.setItem('fcm_banner_dismissed_until', String(until));
@@ -220,7 +206,10 @@ export async function loadAdminStatus() {
 
 export async function doLogout() {
   if (!confirm('از حساب خارج می‌شوید؟')) return;
-  try { await endSession(); } catch (e) {}
+
+  console.log('[AUTH] doLogout - ending session');
+  try { await endSession(); } catch (e) { console.error('[AUTH] endSession:', e); }
+
   await sb.auth.signOut();
   location.reload();
 }
