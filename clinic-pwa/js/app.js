@@ -11,6 +11,7 @@ import { openReport } from './modules/report.js';
 import { openProfile } from './modules/profile.js';
 import { openOccupational } from './modules/occupational.js';
 import { openVisits } from './modules/visit/index.js';
+import { openForms } from './forms/engine.js';
 
 initQtyModal();
 initSearchModal();
@@ -46,7 +47,7 @@ document.querySelectorAll('[data-nav]').forEach(el => {
     e.preventDefault();
     const n = el.dataset.nav;
     if (n === 'home') showScreen('Home');
-    else if (n === 'pharmacy') showScreen('Pharmacy');       // 🌟 جدید
+    else if (n === 'pharmacy') showScreen('Pharmacy');
     else if (n === 'visits') openVisits();
     else if (n === 'inventory') openInventory();
     else if (n === 'receive') openReceive();
@@ -54,6 +55,7 @@ document.querySelectorAll('[data-nav]').forEach(el => {
     else if (n === 'report') openReport();
     else if (n === 'profile') openProfile();
     else if (n === 'occupational') openOccupational();
+    else if (n === 'forms') openForms();
   });
 });
 
