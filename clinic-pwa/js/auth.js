@@ -7,14 +7,18 @@ import { initIncidentAlertListener } from './incident-alert.js';
 import { initReferralAlertListener } from './referral-alert.js';
 import { initAlertCenter } from './alert-center.js';
 import { initQuickIncidentButton } from './quick-incident.js';
-import { initFCM } from './fcm.js';                            // 🌟 جدید
+import { initFCM } from './fcm.js';
 import { openSettings } from './modules/settings.js';
 
 export let currentUser = null;
 export let isAdmin = false;
 
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
+const WEAK_NET_TIMEOUT_MS = 8000;
+
 // ═══════════════════════════════════════════════════════
-// راه‌اندازی همه listener ها (مشترک)
+// راه‌اندازی listener ها
 // ═══════════════════════════════════════════════════════
 async function initAllListeners() {
   try { await startSession(); } catch (e) { console.error('[AUTH] session:', e); }
@@ -22,11 +26,115 @@ async function initAllListeners() {
   try { await initReferralAlertListener(); } catch (e) { console.error('[AUTH] referral:', e); }
   try { await initAlertCenter(); } catch (e) { console.error('[AUTH] alertCenter:', e); }
   try { initQuickIncidentButton(); } catch (e) { console.error('[AUTH] quickIncident:', e); }
-  
-  // 🌟 initFCM فقط اگه permission قبلاً داده شده باشه کار می‌کنه
   try { await initFCM(); } catch (e) { console.error('[AUTH] fcm:', e); }
 }
 
+// ═══════════════════════════════════════════════════════
+// تشخیص خطای قطعی
+// ═══════════════════════════════════════════════════════
+function isDefinitiveAuthError(err) {
+  const msg = (err?.message || String(err)).toLowerCase();
+  return msg.includes('invalid_grant') ||
+         msg.includes('refresh_token_not_found') ||
+         msg.includes('invalid_token') ||
+         msg.includes('user_not_found') ||
+         msg.includes('jwt');
+}
+
+// ═══════════════════════════════════════════════════════
+// checkAuth - با retry و نمایش اتصال ضعیف
+// ═══════════════════════════════════════════════════════
+export async function checkAuth() {
+  console.log('[AUTH] checkAuth called');
+
+  let lastError = null;
+  let session = null;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await sb.auth.getSession();
+      if (res.error) throw res.error;
+      session = res.data?.session;
+      lastError = null;
+      break;  // موفق
+    } catch (e) {
+      lastError = e;
+      console.warn(`[AUTH] getSession attempt ${attempt} failed:`, e.message);
+      
+      // اگه خطای قطعی بود، معطل نکن
+      if (isDefinitiveAuthError(e)) break;
+      
+      // در غیر این صورت صبر کن
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // تصمیم‌گیری
+  // ═══════════════════════════════════════════════════════
+
+  // حالت ۱: session معتبر داری
+  if (session?.user) {
+    currentUser = session.user;
+    $('userEmail').textContent = currentUser.email;
+    await loadAdminStatus();
+    await initAllListeners();
+    bindSettingsButton();
+    showScreen('Home');
+    setTimeout(() => maybeShowPermissionBanner(), 800);
+    return;
+  }
+
+  // حالت ۲: خطای قطعی (توکن منقضی شده)
+  if (lastError && isDefinitiveAuthError(lastError)) {
+    console.warn('[AUTH] Definitive error - going to Login');
+    localStorage.removeItem('clinic-auth-token');
+    showScreen('Login');
+    return;
+  }
+
+  // حالت ۳: خطای شبکه ولی توکن هست → اتصال ضعیف
+  const hasToken = localStorage.getItem('clinic-auth-token');
+  if (lastError && hasToken) {
+    console.warn('[AUTH] Network error with token present → weak net screen');
+    setupWeakNetScreen();
+    showScreen('WeakNet');
+    return;
+  }
+
+  // حالت ۴: بدون توکن
+  showScreen('Login');
+}
+
+// ═══════════════════════════════════════════════════════
+// صفحه اتصال ضعیف
+// ═══════════════════════════════════════════════════════
+function setupWeakNetScreen() {
+  const retryBtn = $('btnWeakNetRetry');
+  const logoutBtn = $('btnWeakNetLogout');
+  
+  if (retryBtn) {
+    retryBtn.onclick = () => {
+      showScreen('Loading');
+      setTimeout(() => checkAuth(), 100);
+    };
+  }
+  
+  if (logoutBtn) {
+    logoutBtn.onclick = async () => {
+      if (!confirm('از حساب خارج می‌شوید؟')) return;
+      localStorage.removeItem('clinic-auth-token');
+      await sb.auth.signOut();
+      location.reload();
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// لاگین
+// ═══════════════════════════════════════════════════════
 export async function doLogin() {
   console.log('[AUTH] doLogin called');
   let email = $('loginEmail').value.trim();
@@ -43,10 +151,12 @@ export async function doLogin() {
 
   $('loginMsg').innerHTML = '<div class="alert alert-info py-2 small">در حال ورود...</div>';
   const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+  
   if (error) {
     $('loginMsg').innerHTML = `<div class="alert alert-danger py-2 small">${escapeHtml(error.message)}</div>`;
     return;
   }
+  
   $('loginMsg').innerHTML = '';
   currentUser = data.user;
   $('userEmail').textContent = currentUser.email;
@@ -55,26 +165,7 @@ export async function doLogin() {
   await initAllListeners();
   bindSettingsButton();
   showScreen('Home');
-
-  // 🌟 چک کردن نیاز به بنر درخواست اجازه نوتیفیکیشن
   setTimeout(() => maybeShowPermissionBanner(), 800);
-}
-
-export async function checkAuth() {
-  console.log('[AUTH] checkAuth called');
-  const { data: { session } } = await sb.auth.getSession();
-  if (session?.user) {
-    currentUser = session.user;
-    $('userEmail').textContent = currentUser.email;
-    await loadAdminStatus();
-    await initAllListeners();
-    bindSettingsButton();
-    showScreen('Home');
-
-    setTimeout(() => maybeShowPermissionBanner(), 800);
-  } else {
-    showScreen('Login');
-  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -91,13 +182,14 @@ function bindSettingsButton() {
 }
 
 // ═══════════════════════════════════════════════════════
-// بنر درخواست اجازه نوتیفیکیشن (فقط اگه کاربر قبلاً نداده باشه)
+// بنر درخواست اجازه (فقط وقتی permission === 'default')
 // ═══════════════════════════════════════════════════════
 async function maybeShowPermissionBanner() {
   if (typeof Notification === 'undefined') return;
+  
+  // 🌟 فقط اگه default باشه نشون بده
   if (Notification.permission !== 'default') return;
 
-  // اگه کاربر قبلاً بست، تا ۳ روز نشون نده
   const dismissed = localStorage.getItem('fcm_banner_dismissed_until');
   if (dismissed && Date.now() < parseInt(dismissed)) return;
 
@@ -120,20 +212,14 @@ async function maybeShowPermissionBanner() {
   `;
   document.body.appendChild(banner);
 
-  // استایل
   if (!document.getElementById('fcmBannerStyle')) {
     const style = document.createElement('style');
     style.id = 'fcmBannerStyle';
     style.textContent = `
       .fcm-permission-banner {
-        position: fixed;
-        top: 70px;
-        left: 12px; right: 12px;
-        z-index: 9998;
+        position: fixed; top: 70px; left: 12px; right: 12px; z-index: 9998;
         background: linear-gradient(135deg, #0d6efd, #4c1d95);
-        color: #fff;
-        padding: 14px;
-        border-radius: 14px;
+        color: #fff; padding: 14px; border-radius: 14px;
         box-shadow: 0 8px 24px rgba(13, 110, 253, 0.4);
         animation: fcmBannerSlide 0.4s ease-out;
       }
@@ -141,13 +227,8 @@ async function maybeShowPermissionBanner() {
         from { transform: translateY(-20px); opacity: 0; }
         to   { transform: translateY(0); opacity: 1; }
       }
-      .fcm-banner-content {
-        display: flex; align-items: center; gap: 12px;
-      }
-      .fcm-banner-icon {
-        font-size: 2rem;
-        animation: fcmBellRing 2s infinite;
-      }
+      .fcm-banner-content { display: flex; align-items: center; gap: 12px; }
+      .fcm-banner-icon { font-size: 2rem; animation: fcmBellRing 2s infinite; }
       @keyframes fcmBellRing {
         0%, 100% { transform: rotate(0); }
         10%, 30% { transform: rotate(-15deg); }
@@ -155,15 +236,9 @@ async function maybeShowPermissionBanner() {
         50% { transform: rotate(0); }
       }
       .fcm-banner-body { flex: 1; }
-      .fcm-banner-title {
-        font-weight: 800; font-size: 0.95rem; margin-bottom: 2px;
-      }
-      .fcm-banner-text {
-        font-size: 0.75rem; opacity: 0.9; line-height: 1.4;
-      }
-      .fcm-banner-actions {
-        display: flex; align-items: center; gap: 6px; flex-shrink: 0;
-      }
+      .fcm-banner-title { font-weight: 800; font-size: 0.95rem; margin-bottom: 2px; }
+      .fcm-banner-text { font-size: 0.75rem; opacity: 0.9; line-height: 1.4; }
+      .fcm-banner-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
       .fcm-banner-enable {
         background: #fff; color: #0d6efd; border: none;
         padding: 8px 14px; border-radius: 10px;
@@ -173,9 +248,9 @@ async function maybeShowPermissionBanner() {
       .fcm-banner-enable:active { transform: scale(0.96); }
       .fcm-banner-close {
         background: rgba(255,255,255,0.2); color: #fff;
-        border: none; width: 32px; height: 32px;
-        border-radius: 50%; font-size: 1rem; font-weight: 700;
-        cursor: pointer; display: flex; align-items: center; justify-content: center;
+        border: none; width: 32px; height: 32px; border-radius: 50%;
+        font-size: 1rem; font-weight: 700; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
       }
       .fcm-banner-close:active { background: rgba(255,255,255,0.35); }
     `;
@@ -206,10 +281,7 @@ export async function loadAdminStatus() {
 
 export async function doLogout() {
   if (!confirm('از حساب خارج می‌شوید؟')) return;
-
-  console.log('[AUTH] doLogout - ending session');
-  try { await endSession(); } catch (e) { console.error('[AUTH] endSession:', e); }
-
+  try { await endSession(); } catch (e) {}
   await sb.auth.signOut();
   location.reload();
 }
