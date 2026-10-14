@@ -1,6 +1,21 @@
 // js/incident-alert.js
 // ═══════════════════════════════════════════════════════
-// 🌟 unlock کامل Audio (هم AudioContext هم HTML5 Audio)
+// Import ها - باید در بالای فایل باشن
+// ═══════════════════════════════════════════════════════
+import { sb } from './sb.js';
+
+const ALLOWED_ROLES = ['Nurse', 'doctor', 'safety', 'Supervisor'];
+const ALERT_MP3_PATH = './sounds/incident-alert1.mp3';
+
+let currentUserRole = null;
+let currentUserUuid = null;
+let alertChannel = null;
+let isPlaying = false;
+let lastAlertTime = 0;
+let mp3Available = null;
+
+// ═══════════════════════════════════════════════════════
+// 🌟 unlock کامل Audio (باید قبل از هر تابع دیگه اجرا بشه)
 // ═══════════════════════════════════════════════════════
 let audioUnlocked = false;
 
@@ -25,9 +40,8 @@ function unlockAllAudio() {
     console.warn('[Alert] AudioContext unlock failed:', e);
   }
 
-  // ۲. 🌟 unlock HTML5 Audio (برای MP3/TTS)
+  // ۲. unlock HTML5 Audio (برای MP3)
   try {
-    // ساخت یه WAV بی‌صدا
     const sampleRate = 8000;
     const duration = 0.05;
     const numSamples = Math.floor(sampleRate * duration);
@@ -58,7 +72,7 @@ function unlockAllAudio() {
     silent.volume = 0.001;
     silent.play().then(() => {
       console.log('[Alert] HTML5 Audio unlocked');
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     }).catch(e => {
       console.warn('[Alert] HTML5 Audio unlock failed:', e);
       URL.revokeObjectURL(url);
@@ -68,24 +82,10 @@ function unlockAllAudio() {
   }
 }
 
-// اولین interaction کاربر
+// اولین interaction کاربر (باید بلافاصله ثبت بشه)
 document.addEventListener('pointerdown', unlockAllAudio, { once: true });
 document.addEventListener('touchstart', unlockAllAudio, { once: true });
 document.addEventListener('click', unlockAllAudio, { once: true });
-// ═══════════════════════════════════════════════════════
-// سیستم هشدار حادثه (Realtime + آژیر طولانی + MP3/TTS + بنر)
-// ═══════════════════════════════════════════════════════
-import { sb } from './sb.js';
-
-const ALLOWED_ROLES = ['Nurse', 'doctor', 'safety', 'Supervisor'];
-const ALERT_MP3_PATH = './sounds/incident-alert1.mp3';
-
-let currentUserRole = null;
-let currentUserUuid = null;
-let alertChannel = null;
-let isPlaying = false;
-let lastAlertTime = 0;
-let mp3Available = null;
 
 // ═══════════════════════════════════════════════════════
 // راه‌اندازی listener
@@ -151,11 +151,12 @@ async function checkMp3Availability() {
     console.log('[Alert] MP3 available:', mp3Available);
   } catch (e) {
     mp3Available = false;
+    console.log('[Alert] MP3 not available, will use TTS');
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// ارسال هشدار (از create.js یا quick-incident.js)
+// ارسال هشدار
 // ═══════════════════════════════════════════════════════
 export async function broadcastIncidentAlert({ patientName, patientId, visitId, location }) {
   try {
@@ -170,7 +171,7 @@ export async function broadcastIncidentAlert({ patientName, patientId, visitId, 
       patient_id:     patientId || null,
       patient_name:   patientName || null,
       visit_id:       visitId || null,
-      location:       location || null,      // 🌟 جدید
+      location:       location || null,
     });
 
     if (error) {
@@ -203,11 +204,17 @@ function handleNewAlert(alert) {
   }
   lastAlertTime = now;
 
+  // 🌟 اطمینان از unlock شدن Audio قبل از پخش
+  if (!audioUnlocked) {
+    console.log('[Alert] Audio not unlocked yet, unlocking now...');
+    unlockAllAudio();
+  }
+
   playIncidentAlert(alert);
 }
 
 // ═══════════════════════════════════════════════════════
-// پخش هشدار (آژیر → صدا)
+// پخش هشدار
 // ═══════════════════════════════════════════════════════
 function playIncidentAlert(alert) {
   if (isPlaying) {
@@ -218,9 +225,8 @@ function playIncidentAlert(alert) {
 
   try {
     showIncidentBanner(alert);
-    playLongAlarm();   // 🌟 آژیر طولانی
+    playLongAlarm();
 
-    // 🌟 بعد از آژیر (~۴.۵ ثانیه)، فایل صوتی
     setTimeout(() => {
       if (mp3Available === true) {
         playMp3Alert(alert);
@@ -236,7 +242,7 @@ function playIncidentAlert(alert) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🚨 آژیر طولانی (حدود ۴.۵ ثانیه) - شبیه آمبولانس
+// 🚨 آژیر طولانی
 // ═══════════════════════════════════════════════════════
 function playLongAlarm() {
   try {
@@ -244,13 +250,12 @@ function playLongAlarm() {
     if (ctx.state === 'suspended') ctx.resume();
 
     const t0 = ctx.currentTime;
-    const cycles = 6;              // 🌟 ۶ سیکل بالا-پایین
-    const cycleDur = 0.75;         // هر سیکل ۰.۷۵ ثانیه → کل: ۴.۵ ثانیه
+    const cycles = 6;
+    const cycleDur = 0.75;
 
-    // ─── لایه ۱: Sweep اصلی (آژیر آمبولانس) ───
+    // لایه ۱: Sweep اصلی
     for (let i = 0; i < cycles; i++) {
       const start = t0 + i * cycleDur;
-
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
@@ -270,7 +275,7 @@ function playLongAlarm() {
       osc.stop(start + cycleDur + 0.02);
     }
 
-    // ─── لایه ۲: هارمونیک مربع (نافذتر) ───
+    // لایه ۲: هارمونیک
     const osc2 = ctx.createOscillator();
     const gain2 = ctx.createGain();
     osc2.connect(gain2);
@@ -288,7 +293,7 @@ function playLongAlarm() {
     osc2.start(t0);
     osc2.stop(t0 + cycles * cycleDur + 0.02);
 
-    // ─── لایه ۳: نویز سفید (واقعی‌تر) ───
+    // لایه ۳: نویز سفید
     const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
     const noiseData = noiseBuffer.getChannelData(0);
     for (let i = 0; i < noiseData.length; i++) {
@@ -317,11 +322,13 @@ function playLongAlarm() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🎙️ پخش MP3 (دو بار)
+// 🎙️ پخش MP3 (اصلاح‌شده با preload و لاگ دقیق)
 // ═══════════════════════════════════════════════════════
 function playMp3Alert(alert) {
   const audio = new Audio(ALERT_MP3_PATH);
   audio.volume = 1.0;
+  audio.preload = 'auto';
+  audio.load();
 
   let playCount = 0;
   const MAX = 2;
@@ -329,15 +336,22 @@ function playMp3Alert(alert) {
   const playNext = () => {
     if (playCount >= MAX) {
       isPlaying = false;
-      console.log('[Alert] ✅ MP3 finished');
+      console.log('[Alert] ✅ MP3 playback finished');
       return;
     }
     playCount++;
     audio.currentTime = 0;
-    audio.play().catch(err => {
-      console.warn('[Alert] MP3 play error:', err);
-      playTtsAlert(alert);
-    });
+    
+    const p = audio.play();
+    if (p !== undefined) {
+      p.then(() => {
+        console.log(`[Alert] 🔊 MP3 playing (${playCount}/${MAX})`);
+      }).catch(err => {
+        console.warn('[Alert] MP3 play failed:', err.name, '-', err.message);
+        // fallback به TTS
+        playTtsAlert(alert);
+      });
+    }
   };
 
   audio.onended = () => {
@@ -345,11 +359,16 @@ function playMp3Alert(alert) {
     else isPlaying = false;
   };
 
+  audio.onerror = (e) => {
+    console.error('[Alert] MP3 load error:', e);
+    playTtsAlert(alert);
+  };
+
   playNext();
 }
 
 // ═══════════════════════════════════════════════════════
-// 🎙️ TTS با ذکر محل
+// 🎙️ TTS
 // ═══════════════════════════════════════════════════════
 function playTtsAlert(alert) {
   if (!('speechSynthesis' in window)) {
@@ -405,7 +424,7 @@ function playTtsAlert(alert) {
 }
 
 // ═══════════════════════════════════════════════════════
-// بنر قرمز با نمایش محل
+// بنر قرمز
 // ═══════════════════════════════════════════════════════
 function showIncidentBanner(alert) {
   document.querySelectorAll('.incident-alert-banner').forEach(el => el.remove());
