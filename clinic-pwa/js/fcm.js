@@ -1,39 +1,42 @@
 // js/fcm.js
+// ═══════════════════════════════════════════════════════
+// مدیریت FCM (گرفتن توکن، ذخیره، دریافت پیام)
+// ═══════════════════════════════════════════════════════
 import { sb } from './sb.js';
 import { getMessagingInstance, VAPID_KEY } from './firebase.js';
-import { getToken, onMessage } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging.js';
+import { getToken, onMessage } from '../lib/firebase/firebase-messaging.js';
 import { toast } from './utils.js';
 
 let currentToken = null;
 let messageUnsubscribe = null;
 
 // ═══════════════════════════════════════════════════════
-// 🌟 initFCM: فقط توکن می‌گیره اگه permission قبلاً داده شده
-// (اگه permission نداده، هیچ درخواستی نمی‌کنه — بی‌صدا رد می‌شه)
+// initFCM: فقط اگه کاربر قبلاً اجازه داده باشه توکن می‌گیره
+// (بی‌صدا اجرا می‌شه - اگه اجازه نداده، هیچ کاری نمی‌کنه)
 // ═══════════════════════════════════════════════════════
 export async function initFCM() {
   try {
     if (!('Notification' in window) || !('serviceWorker' in navigator)) {
-      console.warn('[FCM] Not supported');
+      console.warn('[FCM] پشتیبانی نمی‌شود');
       return null;
     }
 
-    // 🌟 اگه permission داده نشده یا رد شده، هیچ کاری نکن
+    // اگه اجازه نوتیفیکیشن داده نشده، بی‌صدا رد شو
     if (Notification.permission !== 'granted') {
-      console.log('[FCM] Permission not granted yet, skipping auto-init');
+      console.log('[FCM] اجازه داده نشده - بی‌صدا رد می‌شود');
       return null;
     }
 
     return await _doInitFCM();
   } catch (e) {
-    console.error('[FCM] initFCM failed:', e);
+    console.error('[FCM] خطا در initFCM:', e);
     return null;
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// 🌟 requestPermissionAndInit: از کلیک کاربر صدا زده می‌شه
-// این تابع permission می‌گیره + توکن رو ذخیره می‌کنه
+// requestPermissionAndInit: از داخل کلیک کاربر صدا زده می‌شه
+// اجازه می‌گیره + توکن رو ذخیره می‌کنه
 // ═══════════════════════════════════════════════════════
 export async function requestPermissionAndInit() {
   try {
@@ -47,7 +50,7 @@ export async function requestPermissionAndInit() {
       return null;
     }
 
-    // 🌟 درخواست اجازه (فقط در پاسخ به کلیک کاربر مجازه)
+    // 🌟 درخواست اجازه (باید در پاسخ به کلیک کاربر باشه)
     const permission = await Notification.requestPermission();
 
     if (permission !== 'granted') {
@@ -59,22 +62,22 @@ export async function requestPermissionAndInit() {
     return await _doInitFCM();
 
   } catch (e) {
-    console.error('[FCM] requestPermission failed:', e);
+    console.error('[FCM] خطا در درخواست اجازه:', e);
     return null;
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// کار مشترک: گرفتن توکن + ذخیره
+// کار مشترک: گرفتن توکن + ذخیره در Supabase
 // ═══════════════════════════════════════════════════════
 async function _doInitFCM() {
   // چک VAPID
   if (!VAPID_KEY || VAPID_KEY === 'PASTE_VAPID_KEY_HERE') {
-    console.error('[FCM] VAPID_KEY not set in firebase.js!');
+    console.error('[FCM] VAPID_KEY تنظیم نشده!');
     return null;
   }
 
-  // ثبت service worker
+  // ثبت Service Worker
   const swRegistration = await navigator.serviceWorker.register(
     './firebase-messaging-sw.js',
     { scope: './' }
@@ -89,12 +92,12 @@ async function _doInitFCM() {
   });
 
   if (!token) {
-    console.warn('[FCM] No token received');
+    console.warn('[FCM] توکن دریافت نشد');
     return null;
   }
 
   currentToken = token;
-  console.log('[FCM] ✅ Token obtained:', token.substring(0, 25) + '...');
+  console.log('[FCM] ✅ توکن دریافت شد:', token.substring(0, 25) + '...');
 
   await saveTokenToSupabase(token);
   setupForegroundListener(messaging);
@@ -103,31 +106,35 @@ async function _doInitFCM() {
 }
 
 // ═══════════════════════════════════════════════════════
-// ذخیره توکن در Supabase
+// 🌟 ذخیره توکن (جایگزینی: توکن‌های قبلی حذف می‌شن)
 // ═══════════════════════════════════════════════════════
 async function saveTokenToSupabase(token) {
   try {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
 
+    // 🌟 قدم ۱: حذف تمام توکن‌های قدیمی این کاربر
+    // (تا فقط دستگاه فعلی هشدار بگیره)
+    await sb.from('fcm_tokens').delete().eq('user_id', user.id);
+
+    // 🌟 قدم ۲: درج توکن جدید
     const { error } = await sb
       .from('fcm_tokens')
-      .upsert({
+      .insert({
         user_id: user.id,
         token: token,
         platform: 'web',
         browser: navigator.userAgent.substring(0, 100),
         last_seen: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'token' });
+      });
 
     if (error) {
-      console.error('[FCM] Save token failed:', error);
+      console.error('[FCM] خطا در ذخیره توکن:', error);
     } else {
-      console.log('[FCM] ✅ Token saved to Supabase');
+      console.log('[FCM] ✅ توکن ذخیره شد (توکن‌های قبلی حذف شدن)');
     }
   } catch (e) {
-    console.error('[FCM] saveToken error:', e);
+    console.error('[FCM] خطا در saveToken:', e);
   }
 }
 
@@ -138,7 +145,7 @@ async function setupForegroundListener(messaging) {
   if (messageUnsubscribe) messageUnsubscribe();
 
   messageUnsubscribe = onMessage(messaging, (payload) => {
-    console.log('[FCM] 📩 Foreground message:', payload);
+    console.log('[FCM] 📩 پیام foreground:', payload);
     window.dispatchEvent(new CustomEvent('fcm-message', {
       detail: payload.data || {}
     }));
@@ -152,9 +159,9 @@ export async function removeFCMToken() {
   if (!currentToken) return;
   try {
     await sb.from('fcm_tokens').delete().eq('token', currentToken);
-    console.log('[FCM] Token removed');
+    console.log('[FCM] توکن حذف شد');
   } catch (e) {
-    console.error('[FCM] Remove token failed:', e);
+    console.error('[FCM] خطا در حذف توکن:', e);
   }
 }
 
