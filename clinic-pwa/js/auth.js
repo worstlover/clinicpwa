@@ -5,43 +5,21 @@ import { showScreen } from './ui.js';
 import { startSession, endSession } from './session.js';
 import { initIncidentAlertListener } from './incident-alert.js';
 import { initReferralAlertListener } from './referral-alert.js';
-import { initAlertCenter } from './alert-center.js';        // 🌟 جدید
-import { initQuickIncidentButton } from './quick-incident.js'; // 🌟 جدید
+import { initAlertCenter } from './alert-center.js';
+import { initQuickIncidentButton } from './quick-incident.js';
+import { initFCM } from './fcm.js';                        // 🌟 جدید
+import { openSettings } from './modules/settings.js';      // 🌟 جدید
 
 export let currentUser = null;
 export let isAdmin = false;
 
-// 🌟 راه‌اندازی همه listener ها (مشترک بین doLogin و checkAuth)
 async function initAllListeners() {
-  // Session
-  try {
-    await startSession();
-    console.log('[AUTH] startSession OK');
-  } catch (e) { console.error('[AUTH] startSession FAILED:', e); }
-
-  // Incident Alert
-  try {
-    await initIncidentAlertListener();
-    console.log('[AUTH] incident listener OK');
-  } catch (e) { console.error('[AUTH] incident listener FAILED:', e); }
-
-  // Referral Alert
-  try {
-    await initReferralAlertListener();
-    console.log('[AUTH] referral listener OK');
-  } catch (e) { console.error('[AUTH] referral listener FAILED:', e); }
-
-  // Alert Center (زنگوله)
-  try {
-    await initAlertCenter();
-    console.log('[AUTH] alert center OK');
-  } catch (e) { console.error('[AUTH] alert center FAILED:', e); }
-
-  // Quick Incident Button
-  try {
-    initQuickIncidentButton();
-    console.log('[AUTH] quick incident OK');
-  } catch (e) { console.error('[AUTH] quick incident FAILED:', e); }
+  try { await startSession(); } catch (e) { console.error('[AUTH] session:', e); }
+  try { await initIncidentAlertListener(); } catch (e) { console.error('[AUTH] incident:', e); }
+  try { await initReferralAlertListener(); } catch (e) { console.error('[AUTH] referral:', e); }
+  try { await initAlertCenter(); } catch (e) { console.error('[AUTH] alertCenter:', e); }
+  try { initQuickIncidentButton(); } catch (e) { console.error('[AUTH] quickIncident:', e); }
+  try { await initFCM(); } catch (e) { console.error('[AUTH] fcm:', e); }   // 🌟
 }
 
 export async function doLogin() {
@@ -49,14 +27,8 @@ export async function doLogin() {
   let email = $('loginEmail').value.trim();
   const pass = $('loginPass').value;
 
-  if (!email || !pass) {
-    toast('نام کاربری و رمز را وارد کنید', 'warning');
-    return;
-  }
-
-  if (!email.includes('@')) {
-    email = email + '@clinic.local';
-  }
+  if (!email || !pass) { toast('نام کاربری و رمز را وارد کنید', 'warning'); return; }
+  if (!email.includes('@')) email = email + '@clinic.local';
 
   $('loginMsg').innerHTML = '<div class="alert alert-info py-2 small">در حال ورود...</div>';
   const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
@@ -70,7 +42,33 @@ export async function doLogin() {
   await loadAdminStatus();
 
   await initAllListeners();
+  bindSettingsButton();     // 🌟
   showScreen('Home');
+}
+
+export async function checkAuth() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.user) {
+    currentUser = session.user;
+    $('userEmail').textContent = currentUser.email;
+    await loadAdminStatus();
+    await initAllListeners();
+    bindSettingsButton();   // 🌟
+    showScreen('Home');
+  } else {
+    showScreen('Login');
+  }
+}
+
+// 🌟 بایند کردن دکمه تنظیمات
+function bindSettingsButton() {
+  const btn = $('btnSettings');
+  if (btn) {
+    btn.onclick = () => {
+      showScreen('Profile');
+      setTimeout(() => openSettings(), 100);
+    };
+  }
 }
 
 export async function loadAdminStatus() {
@@ -79,34 +77,11 @@ export async function loadAdminStatus() {
   isAdmin = !!data;
 }
 
-export async function checkAuth() {
-  console.log('[AUTH] checkAuth called');
-  const { data: { session } } = await sb.auth.getSession();
-  if (session?.user) {
-    currentUser = session.user;
-    $('userEmail').textContent = currentUser.email;
-    await loadAdminStatus();
-    await initAllListeners();
-    showScreen('Home');
-  } else {
-    showScreen('Login');
-  }
-}
-
 export async function doLogout() {
   if (!confirm('از حساب خارج می‌شوید؟')) return;
-
-  console.log('[AUTH] doLogout - ending session');
-  try {
-    await endSession();
-  } catch (e) {
-    console.error('[AUTH] endSession FAILED:', e);
-  }
-
+  try { await endSession(); } catch (e) {}
   await sb.auth.signOut();
   location.reload();
 }
 
-export function updateCurrentUser(user) {
-  currentUser = user;
-}
+export function updateCurrentUser(user) { currentUser = user; }
