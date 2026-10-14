@@ -1,6 +1,9 @@
 // js/firebase.js
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js';
-import { getMessaging, isSupported } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging.js';
+// ═══════════════════════════════════════════════════════
+// تنظیمات Firebase (نسخه محلی)
+// ═══════════════════════════════════════════════════════
+import { initializeApp } from '../lib/firebase/firebase-app.js';
+import { getMessaging, isSupported } from '../lib/firebase/firebase-messaging.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCKyUDeX2BYBz8sE64R44xpC1NgLy94obs",
@@ -11,7 +14,7 @@ const firebaseConfig = {
   appId: "1:162768973465:web:af9c9f092531290a83d208"
 };
 
-// 🌟 VAPID Key - این رو از Firebase Console بگیر
+// 🌟 VAPID Key از Firebase Console → Project Settings → Cloud Messaging → Web Push certificates
 export const VAPID_KEY = 'BJv_QoXImDpAqUq__0I6PsPxEZ3xUVXXC2tDH_fQcjrMI4FTVEKxI6voDplW0WFi4qIJm1wgqJRO0SPFTNMTn7I';
 
 export const firebaseApp = initializeApp(firebaseConfig);
@@ -24,13 +27,13 @@ export async function getMessagingInstance() {
   try {
     const supported = await isSupported();
     if (!supported) {
-      console.warn('[FCM] Not supported on this browser');
+      console.warn('[FCM] این مرورگر پشتیبانی نمی‌شود');
       return null;
     }
     messagingInstance = getMessaging(firebaseApp);
     return messagingInstance;
   } catch (e) {
-    console.warn('[FCM] Init failed:', e);
+    console.warn('[FCM] خطا در راه‌اندازی:', e);
     return null;
   }
 }
