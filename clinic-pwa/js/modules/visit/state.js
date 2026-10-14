@@ -29,7 +29,16 @@ export const state = {
     date: '', gcsE: '', gcsV: '', gcsM: '',
     hr: '', spo2: '', bp: '', temp: '', height: '', weight: '', sugar: '',
     treatmentId: '', ecg: '', notes: '',
-    dispatchTime: '', dispatchDest: ''
+    dispatchTime: '', dispatchDest: '',
+    // ⭐️ فیلدهای جدید (extra-data)
+    symptomTime: '',
+    incidentTime: '',
+    rr: '',
+    vAdmitted: false,
+    vTransportType: '',
+    vCompanionNeeded: false,
+    vCompanionName: '',
+    vCompanionPhone: ''
   }
 };
 
@@ -47,12 +56,25 @@ export function saveFormState() {
     'vHR': 'hr', 'vSpo2': 'spo2', 'vBP': 'bp',
     'vTemp': 'temp', 'vHeight': 'height', 'vWeight': 'weight', 'vSugar': 'sugar',
     'vTreatment': 'treatmentId', 'vECG': 'ecg', 'vNotes': 'notes',
-    'vDispatchTime': 'dispatchTime', 'vDispatchDest': 'dispatchDest'
+    'vDispatchTime': 'dispatchTime', 'vDispatchDest': 'dispatchDest',
+    // ⭐️ جدید
+    'vSymptomTime': 'symptomTime',
+    'vIncidentTime': 'incidentTime',
+    'vRR': 'rr',
+    'vTransportType': 'vTransportType',
+    'vCompanionName': 'vCompanionName',
+    'vCompanionPhone': 'vCompanionPhone'
   };
   Object.entries(map).forEach(([id, key]) => {
     const el = $(id);
     if (el) fd[key] = el.value;
   });
+
+  // چک‌باکس‌ها
+  const chkAdmitted = $('vAdmitted');
+  if (chkAdmitted) fd.vAdmitted = chkAdmitted.checked;
+  const chkComp = $('vCompanionNeeded');
+  if (chkComp) fd.vCompanionNeeded = chkComp.checked;
 }
 
 export function resetFormData() {
@@ -60,7 +82,10 @@ export function resetFormData() {
     reasonId: null, reasonText: '', incidentLocation: '', incidentDesc: '',
     date: '', gcsE: '', gcsV: '', gcsM: '', hr: '', spo2: '', bp: '',
     temp: '', height: '', weight: '', sugar: '', treatmentId: '',
-    ecg: '', notes: '', dispatchTime: '', dispatchDest: ''
+    ecg: '', notes: '', dispatchTime: '', dispatchDest: '',
+    symptomTime: '', incidentTime: '', rr: '',
+    vAdmitted: false, vTransportType: '',
+    vCompanionNeeded: false, vCompanionName: '', vCompanionPhone: ''
   };
 }
 
@@ -105,7 +130,6 @@ export async function loadRefs() {
   });
 }
 
-// این تابع فقط برای جلوگیری از circular import است
 function _getIcon(form) {
   if (!form) return '💊';
   const f = String(form).toLowerCase();
@@ -117,9 +141,6 @@ function _getIcon(form) {
   return '💊';
 }
 
-// ═══════════════════════════════════════════════════════
-// GCS / BMI
-// ═══════════════════════════════════════════════════════
 export function calcGCS() {
   const e = parseInt($('vGcsE')?.value) || 0;
   const v = parseInt($('vGcsV')?.value) || 0;
