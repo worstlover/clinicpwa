@@ -6,11 +6,12 @@ import { getMyDjangoId, getIncLabel } from './helpers.js';
 import { renderBodyMap } from './bodymap.js';
 import { logChange } from './changelog.js';
 import { renderList } from './list.js';
-// 🌟 هشدار حادثه - جدید
 import { broadcastIncidentAlert } from '../../incident-alert.js';
+// ⭐️ جدید
+import { saveVisitExtra, loadPatientExtra, savePatientExtra, timeToIso } from '../extra-data.js';
 
 // ═══════════════════════════════════════════════════════
-// 🌟 تشخیص دارو از لوازم مصرفی (form === 'other')
+// تشخیص دارو از لوازم مصرفی (form === 'other')
 // ═══════════════════════════════════════════════════════
 const isConsumableDrug = (drug) => {
   const f = (drug?.form || '').toString().toLowerCase();
@@ -23,10 +24,9 @@ export async function openCreate() {
   state.patientId = null; state.patientName = '';
   state.isIncident = false; state.incidentType = 'none';
   state.selectedInjuries = []; state.items = [];
-  state.alertBroadcasted = false; // 🌟 هشدار حادثه - ریست فلگ
+  state.alertBroadcasted = false;
   resetFormData();
 
-  // 🌟 ساعت فعلی به جای 12:00 ثابت
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, '0');
   const mm = String(now.getMinutes()).padStart(2, '0');
@@ -81,6 +81,11 @@ function renderWizard() {
               <div style="flex:1;"><div style="font-weight:700;">${escapeHtml(state.patientName || '—')}</div></div>
               <button style="background:none;border:none;color:#dc3545;font-size:1.2rem;font-weight:700;" id="vPatientClear">✕</button>
             </div>
+            <div id="vPatientWorkUnitWrap" class="mt-3 hidden">
+              <label class="form-label small">واحد کاری (اختیاری)</label>
+              <input type="text" class="form-control" id="vPatientWorkUnit" placeholder="مثال: خط تولید ۲" list="workUnitList">
+              <datalist id="workUnitList"></datalist>
+            </div>
           </div>
         </div>
       </div>
@@ -104,6 +109,12 @@ function renderWizard() {
                 <button style="background:none;border:none;color:#dc3545;font-size:1.2rem;font-weight:700;" id="vReasonClear">✕</button>
               </div>
             </div>
+          </div>
+
+          <!-- ⭐️ جدید: ساعت شروع علائم -->
+          <div class="mb-3">
+            <label class="form-label small">ساعت شروع علائم (اختیاری)</label>
+            <input type="time" class="form-control" id="vSymptomTime" value="${fd.symptomTime || ''}">
           </div>
 
           <h6 class="mb-3" style="font-weight:700;">آیا مورد حادثه است؟</h6>
@@ -156,6 +167,11 @@ function renderWizard() {
             <label class="form-label">شرح حادثه</label>
             <textarea class="form-control" id="vIncidentDesc" rows="2">${escapeHtml(fd.incidentDesc || '')}</textarea>
           </div>
+          <!-- ⭐️ جدید: ساعت وقوع حادثه -->
+          <div class="mb-3">
+            <label class="form-label small">ساعت وقوع حادثه (اختیاری)</label>
+            <input type="time" class="form-control" id="vIncidentTime" value="${fd.incidentTime || ''}">
+          </div>
           <label class="form-label d-block mb-2">محل‌های مصدومیت:</label>
           ${renderBodyMap(state.selectedInjuries)}
           <div class="selected-parts-list" id="vInjuryList">
@@ -205,6 +221,9 @@ function renderWizard() {
               <input type="number" class="form-control text-center" id="vHR" value="${escapeHtml(fd.hr)}" inputmode="numeric"></div>
             <div class="col-6 col-md-3"><label class="form-label small">SpO2 %</label>
               <input type="number" class="form-control text-center" id="vSpo2" value="${escapeHtml(fd.spo2)}" inputmode="numeric"></div>
+            <!-- ⭐️ جدید: RR کنار SpO2 -->
+            <div class="col-6 col-md-3"><label class="form-label small">تنفس (RR) (اختیاری)</label>
+              <input type="text" inputmode="numeric" class="form-control text-center" id="vRR" value="${escapeHtml(fd.rr || '')}"></div>
             <div class="col-6 col-md-3"><label class="form-label small">فشار خون</label>
               <input type="text" class="form-control text-center" id="vBP" value="${escapeHtml(fd.bp)}" placeholder="120/80" dir="ltr"></div>
             <div class="col-6 col-md-3"><label class="form-label small">دما °C</label>
@@ -274,17 +293,52 @@ function renderWizard() {
               ${state.treatments.map(t => `<option value="${t.id}" ${fd.treatmentId == t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
             </select>
           </div>
-          <div id="vDispatchSection" class="${fd.treatmentId && isDispatch(fd.treatmentId) ? '' : 'hidden'}">
+
+          <!-- ⭐️ جدید: بستری موقت -->
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="vAdmitted" ${fd.vAdmitted ? 'checked' : ''}>
+              <label class="form-check-label small" for="vAdmitted">بستری موقت</label>
+            </div>
+          </div>
+
+          <div id="vDispatchSection" class="${fd.treatmentId && (isDispatch(fd.treatmentId) || isReferral(fd.treatmentId)) ? '' : 'hidden'}">
             <div class="card" style="background:#fff7ed;border:2px solid #fed7aa;">
               <div class="card-body">
                 <h6 style="color:#92400e;font-weight:700;margin-bottom:12px;">
-                  <i class="bi bi-truck"></i> اطلاعات اعزام
+                  <i class="bi bi-truck"></i> اطلاعات اعزام / ارجاع
                 </h6>
                 <div class="row g-2">
-                  <div class="col-6"><label class="form-label small">ساعت اعزام</label>
+                  <div class="col-6"><label class="form-label small">ساعت اعزام/ارجاع</label>
                     <input type="time" class="form-control" id="vDispatchTime" value="${escapeHtml(fd.dispatchTime || '')}"></div>
-                  <div class="col-6"><label class="form-label small">مقصد اعزام</label>
+                  <div class="col-6"><label class="form-label small">مقصد</label>
                     <input type="text" class="form-control" id="vDispatchDest" value="${escapeHtml(fd.dispatchDest || '')}" placeholder="نام بیمارستان"></div>
+                </div>
+
+                <!-- ⭐️ جدید: نحوه ارجاع (فقط برای ارجاع) -->
+                <div id="vTransportTypeWrap" class="mt-3 ${fd.treatmentId && isReferral(fd.treatmentId) ? '' : 'hidden'}">
+                  <label class="form-label small">نحوه ارجاع (اختیاری)</label>
+                  <select class="form-select" id="vTransportType">
+                    <option value="">— انتخاب —</option>
+                    <option value="agency" ${fd.vTransportType === 'agency' ? 'selected' : ''}>آژانس</option>
+                    <option value="personal" ${fd.vTransportType === 'personal' ? 'selected' : ''}>وسیله شخصی</option>
+                    <option value="transport" ${fd.vTransportType === 'transport' ? 'selected' : ''}>ترانسپورت</option>
+                    <option value="other" ${fd.vTransportType === 'other' ? 'selected' : ''}>سایر</option>
+                  </select>
+                </div>
+
+                <!-- ⭐️ جدید: اطلاعات همراه -->
+                <div id="vCompanionWrap" class="mt-3">
+                  <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="vCompanionNeeded" ${fd.vCompanionNeeded ? 'checked' : ''}>
+                    <label class="form-check-label small" for="vCompanionNeeded">نیاز به همراه</label>
+                  </div>
+                  <div class="row g-2">
+                    <div class="col-6"><label class="form-label small">نام همراه (اختیاری)</label>
+                      <input type="text" class="form-control" id="vCompanionName" value="${escapeHtml(fd.vCompanionName || '')}"></div>
+                    <div class="col-6"><label class="form-label small">تلفن همراه (اختیاری)</label>
+                      <input type="text" class="form-control" id="vCompanionPhone" value="${escapeHtml(fd.vCompanionPhone || '')}"></div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -332,6 +386,13 @@ function isDispatch(treatmentId) {
   return t?.name?.includes('اعزام');
 }
 
+// ⭐️ جدید
+function isReferral(treatmentId) {
+  if (!treatmentId) return false;
+  const t = state.treatments.find(x => String(x.id) === String(treatmentId));
+  return t?.name?.includes('ارجاع به بیمارستان');
+}
+
 function bindWizard() {
   document.querySelectorAll('.wizard-step').forEach(el => {
     el.onclick = () => {
@@ -344,7 +405,6 @@ function bindWizard() {
     };
   });
 
-  // جستجوی بیمار
   const pSearch = $('vPatientSearch');
   if (pSearch) {
     let t;
@@ -354,7 +414,6 @@ function bindWizard() {
     });
   }
 
-  // 🌟 دکمه ثبت سریع بیمار
   const quickAddBtn = $('vQuickAddPatient');
   if (quickAddBtn) quickAddBtn.onclick = openQuickPatientModal;
 
@@ -377,7 +436,22 @@ function bindWizard() {
   const pClear = $('vPatientClear');
   if (pClear) pClear.onclick = () => { state.patientId = null; state.patientName = ''; renderWizard(); };
 
-  // جستجوی علت
+  // ⭐️ واحد کاری بیمار (بعد از انتخاب بیمار)
+  const pWorkUnit = $('vPatientWorkUnit');
+  if (pWorkUnit) {
+    pWorkUnit.addEventListener('blur', async () => {
+      const val = pWorkUnit.value.trim();
+      if (!val || !state.patientId) return;
+      try {
+        await savePatientExtra(state.patientId, { work_unit: val });
+        toast('واحد کاری ذخیره شد', 'success');
+      } catch (e) {
+        console.warn('savePatientExtra failed', e);
+        toast('ذخیره واحد کاری ناموفق بود', 'warning');
+      }
+    });
+  }
+
   const reasonSearch = $('vReasonSearch');
   if (reasonSearch) {
     if (reasonSearch.value.trim().length >= 2 && !state.formData.reasonId) filterReasons(reasonSearch.value.trim());
@@ -408,7 +482,6 @@ function bindWizard() {
     renderWizard();
   };
 
-  // 🌟 هشدار حادثه - کارت حادثه با broadcast
   document.querySelectorAll('.incident-card').forEach(card => {
     card.onclick = async () => {
       saveFormState();
@@ -418,9 +491,8 @@ function bindWizard() {
 
       if (!yes) {
         state.incidentType = 'none';
-        state.alertBroadcasted = false; // اگه بعداً دوباره yes زد، هشدار بفرسته
+        state.alertBroadcasted = false;
       } else if (!wasIncident && !state.alertBroadcasted) {
-        // 🌟 فقط بار اول که حادثه انتخاب شد، هشدار بفرست
         state.alertBroadcasted = true;
         try {
           await broadcastIncidentAlert({
@@ -445,7 +517,6 @@ function bindWizard() {
     };
   });
 
-  // Body Map
   document.querySelectorAll('.body-part').forEach(p => {
     p.onclick = () => {
       const key = p.dataset.part;
@@ -474,7 +545,6 @@ function bindWizard() {
     };
   });
 
-  // GCS
   const consCheck = $('consciousCheck');
   if (consCheck) {
     const fd = state.formData;
@@ -494,7 +564,6 @@ function bindWizard() {
     const el = $(id); if (el) el.onchange = () => { calcGCS(); saveFormState(); };
   });
 
-  // Vitals
   const vitCheck = $('vitalsCheck');
   if (vitCheck) vitCheck.onchange = () => {
     $('vitalsToggle')?.classList.toggle('active', vitCheck.checked);
@@ -512,8 +581,14 @@ function bindWizard() {
   ['vHeight','vWeight'].forEach(id => {
     const el = $(id); if (el) el.oninput = () => { calcBMI(); saveFormState(); };
   });
-  ['vHR','vSpo2','vBP','vTemp','vSugar'].forEach(id => {
+  ['vHR','vSpo2','vBP','vTemp','vSugar','vRR'].forEach(id => {
     const el = $(id); if (el) el.addEventListener('input', saveFormState);
+  });
+  ['vSymptomTime','vIncidentTime','vCompanionName','vCompanionPhone'].forEach(id => {
+    const el = $(id); if (el) el.addEventListener('input', saveFormState);
+  });
+  ['vAdmitted','vCompanionNeeded'].forEach(id => {
+    const el = $(id); if (el) el.addEventListener('change', saveFormState);
   });
 
   const dateEl = $('vDate'); if (dateEl) dateEl.addEventListener('input', saveFormState);
@@ -525,7 +600,6 @@ function bindWizard() {
   renderItems();
   renderConsumables();
 
-  // Edit mode (فقط برای داروها)
   const toggleEdit = $('toggleEditDrugs');
   if (toggleEdit) toggleEdit.onclick = () => {
     state.editDrugMode = !state.editDrugMode;
@@ -556,7 +630,6 @@ function bindWizard() {
     } catch (e) { toast('خطا: ' + e.message, 'danger'); }
   };
 
-  // کلیک روی quick items
   ['quickDrugsList', 'quickConsumablesList'].forEach(boxId => {
     const qdList = $(boxId);
     if (qdList && !qdList.dataset.bound) {
@@ -577,7 +650,6 @@ function bindWizard() {
     }
   });
 
-  // Add buttons
   const addBtn = $('vAddDrug'); 
   if (addBtn) addBtn.onclick = () => openItemSearchModal(false);
   const addConsBtn = $('vAddConsumable'); 
@@ -585,7 +657,6 @@ function bindWizard() {
   const fabAdd = $('vFabAdd'); 
   if (fabAdd) fabAdd.onclick = () => openItemSearchModal(state.step === 6);
 
-  // Items drug list
   const itemsList = $('vItemsList');
   if (itemsList && !itemsList.dataset.bound) {
     itemsList.dataset.bound = '1';
@@ -606,7 +677,6 @@ function bindWizard() {
     });
   }
 
-  // Items consumable list
   const consList = $('vConsumablesList');
   if (consList && !consList.dataset.bound) {
     consList.dataset.bound = '1';
@@ -627,30 +697,65 @@ function bindWizard() {
     });
   }
 
-  // Treatment
+  // ⭐️ Treatment with isReferral support
   const treatmentSel = $('vTreatment');
   if (treatmentSel) treatmentSel.onchange = e => {
     state.formData.treatmentId = e.target.value;
-    const dispatch = $('vDispatchSection');
-    if (isDispatch(e.target.value)) {
-      dispatch?.classList.remove('hidden');
+    const dispatch = isDispatch(e.target.value);
+    const referral = isReferral(e.target.value);
+    const dispatchSection = $('vDispatchSection');
+    const transportWrap = $('vTransportTypeWrap');
+    const companionWrap = $('vCompanionWrap');
+
+    if (dispatch || referral) {
+      dispatchSection?.classList.remove('hidden');
       const dt = $('vDispatchTime');
       if (dt && !dt.value) {
         const now = new Date();
         dt.value = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
         state.formData.dispatchTime = dt.value;
       }
-    } else dispatch?.classList.add('hidden');
+    } else {
+      dispatchSection?.classList.add('hidden');
+    }
+
+    if (transportWrap) {
+      transportWrap.classList.toggle('hidden', !referral);
+    }
+
+    if (companionWrap) {
+      companionWrap.classList.toggle('hidden', !(dispatch || referral));
+    }
+
+    if (dispatch) {
+      state.formData.vTransportType = 'ambulance';
+    } else if (!referral) {
+      state.formData.vTransportType = '';
+    }
+
+    saveFormState();
   };
 
   const dtEl = $('vDispatchTime'); if (dtEl) dtEl.addEventListener('input', saveFormState);
   const ddEl = $('vDispatchDest'); if (ddEl) ddEl.addEventListener('input', saveFormState);
+  const ttEl = $('vTransportType'); if (ttEl) ttEl.addEventListener('change', saveFormState);
   const ecgEl = $('vECG'); if (ecgEl) ecgEl.addEventListener('input', saveFormState);
   const notesEl = $('vNotes'); if (notesEl) notesEl.addEventListener('input', saveFormState);
 
   calcGCS(); calcBMI();
 
-  // ناوبری
+  // ⭐️ در اولین بارگذاری: بخش‌ها را بر اساس treatmentId فعلی به‌روز کن
+  if (fd.treatmentId) {
+    const dispatch = isDispatch(fd.treatmentId);
+    const referral = isReferral(fd.treatmentId);
+    const dispatchSection = $('vDispatchSection');
+    const transportWrap = $('vTransportTypeWrap');
+    const companionWrap = $('vCompanionWrap');
+    if (dispatchSection) dispatchSection.classList.toggle('hidden', !(dispatch || referral));
+    if (transportWrap) transportWrap.classList.toggle('hidden', !referral);
+    if (companionWrap) companionWrap.classList.toggle('hidden', !(dispatch || referral));
+  }
+
   const btnPrev = $('btnPrev');
   if (btnPrev) btnPrev.onclick = () => {
     if (state.step > 1) {
@@ -681,7 +786,7 @@ function bindWizard() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🌟 مودال ثبت سریع بیمار (با جنسیت)
+// مودال ثبت سریع بیمار (+ واحد کاری + محل تولد)
 // ═══════════════════════════════════════════════════════
 function openQuickPatientModal() {
   const existing = $('quickPatientModal');
@@ -722,6 +827,10 @@ function openQuickPatientModal() {
             <div class="mb-2"><input type="text" id="qpPersonnelCode" class="form-control" placeholder="کد پرسنلی" dir="ltr"></div>
             <div class="mb-2"><input type="text" id="qpCompanyName" class="form-control" placeholder="نام شرکت"></div>
             <div class="mb-2"><input type="text" id="qpDateOfBirth" class="form-control" placeholder="تاریخ تولد (مثال: 1370/01/15)" dir="ltr"></div>
+            <!-- ⭐️ جدید -->
+            <div class="mb-2"><input type="text" id="qpWorkUnit" class="form-control" placeholder="واحد کاری (اختیاری)" list="workUnitListModal"></div>
+            <div class="mb-2"><input type="text" id="qpBirthPlace" class="form-control" placeholder="محل تولد (اختیاری)"></div>
+            <datalist id="workUnitListModal"></datalist>
             <div id="qpError" class="text-danger small mt-2" style="min-height:18px;"></div>
             <div class="alert alert-info small mt-2 mb-0">
               ℹ️ فیلدهای ستاره‌دار الزامی هستند.
@@ -742,18 +851,13 @@ function openQuickPatientModal() {
     style.id = 'genderCardStyle';
     style.textContent = `
       .gender-card {
-        padding: 12px 8px;
-        text-align: center;
-        border: 2px solid #e2e8f0;
-        border-radius: 12px;
-        background: #fff;
-        cursor: pointer;
-        transition: all 0.15s;
+        padding: 12px 8px; text-align: center;
+        border: 2px solid #e2e8f0; border-radius: 12px;
+        background: #fff; cursor: pointer; transition: all 0.15s;
       }
       .gender-card:active { transform: scale(0.97); }
       .gender-card.selected {
-        border-color: #0d6efd;
-        background: #e0eaff;
+        border-color: #0d6efd; background: #e0eaff;
         box-shadow: 0 4px 12px rgba(13,110,253,0.2);
       }
     `;
@@ -791,6 +895,8 @@ function openQuickPatientModal() {
     const personnelNo  = $('qpPersonnelCode').value.trim();
     const companyName  = $('qpCompanyName').value.trim();
     const dobInput     = faToEn($('qpDateOfBirth').value.trim());
+    const workUnit     = $('qpWorkUnit').value.trim();
+    const birthPlace   = $('qpBirthPlace').value.trim();
     errEl.textContent  = '';
 
     if (!firstName || !lastName) { errEl.textContent = '❌ نام و نام خانوادگی الزامی است.'; return; }
@@ -845,6 +951,19 @@ function openQuickPatientModal() {
       const { data: newPatient, error } = await sb.from('core_patient').insert(payload).select().single();
       if (error) throw error;
 
+      // ⭐️ ذخیره واحد کاری و محل تولد در patient_extra
+      if (workUnit || birthPlace) {
+        try {
+          await savePatientExtra(newPatient.id, {
+            work_unit: workUnit || undefined,
+            birth_place: birthPlace || undefined
+          });
+        } catch (e) {
+          console.warn('savePatientExtra failed', e);
+          toast('اطلاعات تکمیلی بیمار ذخیره نشد', 'warning');
+        }
+      }
+
       const fullName = `${firstName} ${lastName}`;
       toast(`✅ بیمار "${fullName}" ثبت شد`, 'success');
       beep();
@@ -864,7 +983,7 @@ function openQuickPatientModal() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🌟 مودال تکمیل کد ملی برای بیماران قدیمی
+// مودال تکمیل کد ملی
 // ═══════════════════════════════════════════════════════
 function openNationalCodeFixModal(patient) {
   const existing = $('fixNationalCodeModal');
@@ -1041,10 +1160,30 @@ function pickPatient(id, name, nationalCode, passportNumber) {
   renderWizard();
   setTimeout(() => toast(`بیمار "${name}" انتخاب شد`, 'success'), 100);
   beep();
+
+  // ⭐️ بررسی واحد کاری موجود
+  loadPatientExtra(id).then(({ data: pe }) => {
+    const wrap = $('vPatientWorkUnitWrap');
+    const input = $('vPatientWorkUnit');
+    if (!wrap || !input) return;
+    if (!pe?.work_unit) {
+      wrap.classList.remove('hidden');
+      // پر کردن datalist با واحدهای موجود (اختیاری)
+      sb.from('patient_extra').select('work_unit').not('work_unit', 'is', null).limit(200).then(({ data }) => {
+        const dl = $('workUnitList');
+        if (!dl || !data) return;
+        const unique = [...new Set(data.map(r => r.work_unit).filter(Boolean))];
+        dl.innerHTML = unique.map(u => `<option value="${escapeHtml(u)}">`).join('');
+      });
+    } else {
+      input.value = pe.work_unit;
+      wrap.classList.remove('hidden');
+    }
+  }).catch(() => {});
 }
 
 // ═══════════════════════════════════════════════════════
-// Quick Lists (Drug / Consumable)
+// Quick Lists
 // ═══════════════════════════════════════════════════════
 function renderQuickList(boxId, filterFn, type) {
   const box = $(boxId);
@@ -1104,9 +1243,6 @@ function addQuickItem(id, name, type = 'drug') {
   beep();
 }
 
-// ═══════════════════════════════════════════════════════
-// 🌟 مودال جستجو (مشترک دارو / لوازم مصرفی)
-// ═══════════════════════════════════════════════════════
 async function openItemSearchModal(isConsumable) {
   const modalId = 'itemSearchModal';
   const existing = $(modalId);
@@ -1362,6 +1498,49 @@ async function saveVisit() {
     }
 
     await logChange(visit.id, 'create', [], 'ایجاد ویزیت');
+
+    // ⭐️ ذخیره اطلاعات تکمیلی ویزیت (visit_extra)
+    try {
+      const vRR = $('vRR')?.value?.trim();
+      const vSymptomTime = $('vSymptomTime')?.value;
+      const vIncidentTime = $('vIncidentTime')?.value;
+      const vAdmitted = $('vAdmitted')?.checked || false;
+      const vTransportTypeEl = $('vTransportType');
+      const vTransportType = vTransportTypeEl?.value || '';
+      const vCompanionNeeded = $('vCompanionNeeded')?.checked || false;
+      const vCompanionName = $('vCompanionName')?.value?.trim();
+      const vCompanionPhone = $('vCompanionPhone')?.value?.trim();
+
+      const treatmentId = fd.treatmentId;
+      const dispatch = isDispatch(treatmentId);
+      const referral = isReferral(treatmentId);
+
+      const extra = {
+        rr: vRR ? Number(vRR) : undefined,
+        symptom_onset_at: vSymptomTime ? timeToIso(vSymptomTime, visitDate) : undefined,
+        incident_at: vIncidentTime ? timeToIso(vIncidentTime, visitDate) : undefined,
+        is_admitted: vAdmitted || undefined,
+        transport_type: dispatch ? 'ambulance' : (referral ? vTransportType : undefined),
+        companion_needed: vCompanionNeeded || undefined,
+        companion_name: vCompanionName || undefined,
+        companion_phone: vCompanionPhone || undefined
+      };
+
+      const hasExtra = Object.values(extra).some(
+        (v) => v !== undefined && v !== false && v !== ''
+      );
+
+      if (hasExtra) {
+        try {
+          await saveVisitExtra(visit.id, extra);
+        } catch (e) {
+          console.warn('visit_extra save failed', e);
+          toast('اطلاعات تکمیلی ذخیره نشد', 'warning');
+        }
+      }
+    } catch (extraErr) {
+      console.warn('extra error', extraErr);
+    }
 
     toast('✅ ویزیت ثبت شد', 'success');
     beep();
