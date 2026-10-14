@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE = 'clinic-drugs-v9';   // ⭐️ نسخه رو بالا بردم که SW جدید نصب بشه
+const CACHE = 'clinic-drugs-v10';   // ⭐️ نسخه جدید برای SW جدید
 
 const ASSETS = [
   './',
@@ -27,6 +27,7 @@ const ASSETS = [
   './js/utils.js',
 
   // ═══ ماژول‌های ساده ═══
+  './js/modules/extra-data.js',           // ⭐️ جدید
   './js/modules/receive.js',
   './js/modules/report.js',
   './js/modules/dispense.js',
@@ -123,7 +124,7 @@ self.addEventListener('fetch', e => {
   // ⭐ درخواست‌های خارج از دامنه (Supabase, FCM): مستقیم از شبکه
   if (url.origin !== location.origin) return;
 
-  // ⭐ درخواست‌های Firebase SDK محلی: از cache اول (مهم برای offline)
+  // ⭐ درخواست‌های Firebase SDK محلی: از cache اول
   if (url.pathname.includes('/lib/firebase/')) {
     e.respondWith(
       caches.match(req).then(hit => hit || fetch(req))
