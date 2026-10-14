@@ -18,6 +18,20 @@
 <link href="lib/bootstrap-icons.min.css" rel="stylesheet">
 <link href="styles/main.css" rel="stylesheet">
 
+<!-- ═══════════════════════════════════════════════════════
+     🌟 Import Map برای Firebase
+     این بلاک باید حتماً قبل از هر type="module" باشه
+     تا firebase-messaging.js بتونه firebase-app.js محلی رو پیدا کنه
+     ═══════════════════════════════════════════════════════ -->
+<script type="importmap">
+{
+  "imports": {
+    "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js": "./lib/firebase/firebase-app.js",
+    "https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging.js": "./lib/firebase/firebase-messaging.js"
+  }
+}
+</script>
+
 <style>
   .screen { display: none !important; }
   .screen.active { display: block !important; }
@@ -88,7 +102,6 @@
       <i class="bi bi-heart-pulse-fill"></i> بخش بالینی
     </div>
     <div class="row g-3">
-      <!-- ویزیت -->
       <div class="col-6">
         <button class="menu-card" data-nav="visits">
           <div class="icon-bg" style="background:#fce7f3;color:#db2777;">
@@ -99,7 +112,6 @@
         </button>
       </div>
 
-      <!-- طب کار -->
       <div class="col-6">
         <button class="menu-card" data-nav="occupational">
           <div class="icon-bg" style="background:#cffafe;color:#0891b2;">
@@ -116,7 +128,6 @@
       <i class="bi bi-capsule"></i> مدیریت دارو
     </div>
     <div class="row g-3">
-      <!-- داروخانه (زیرمنو) -->
       <div class="col-12">
         <button class="menu-card menu-card-wide" data-nav="pharmacy">
           <div class="icon-bg" style="background:#d1fae5;color:#059669;">
@@ -134,7 +145,6 @@
       <i class="bi bi-three-dots"></i> سایر
     </div>
     <div class="row g-3">
-      <!-- گزارش‌ها -->
       <div class="col-6">
         <button class="menu-card" data-nav="report">
           <div class="icon-bg info"><i class="bi bi-graph-up"></i></div>
@@ -143,7 +153,6 @@
         </button>
       </div>
 
-      <!-- پروفایل -->
       <div class="col-6">
         <button class="menu-card" data-nav="profile">
           <div class="icon-bg" style="background:#e0e7ff;color:#4f46e5;">
@@ -171,7 +180,6 @@
 <div id="screenPharmacy" class="screen">
   <div class="menu-grid">
     <div class="row g-3">
-      <!-- انبارگردانی -->
       <div class="col-6">
         <button class="menu-card" data-nav="inventory">
           <div class="icon-bg primary"><i class="bi bi-clipboard-check"></i></div>
@@ -180,7 +188,6 @@
         </button>
       </div>
 
-      <!-- دریافت دارو -->
       <div class="col-6">
         <button class="menu-card" data-nav="receive">
           <div class="icon-bg warning"><i class="bi bi-truck"></i></div>
@@ -189,7 +196,6 @@
         </button>
       </div>
 
-      <!-- خروج منقضی -->
       <div class="col-6">
         <button class="menu-card" data-nav="disposal">
           <div class="icon-bg" style="background:#fee2e2;color:#dc3545;">
@@ -200,7 +206,6 @@
         </button>
       </div>
 
-      <!-- گزارش‌های دارو (اختیاری) -->
       <div class="col-6">
         <button class="menu-card" data-nav="report">
           <div class="icon-bg info"><i class="bi bi-graph-up"></i></div>
