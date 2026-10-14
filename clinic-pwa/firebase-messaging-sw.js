@@ -1,9 +1,9 @@
 // firebase-messaging-sw.js
 // ═══════════════════════════════════════════════════════
-// Service Worker برای Firebase Cloud Messaging
+// Service Worker برای Firebase Cloud Messaging (نسخه محلی)
 // ═══════════════════════════════════════════════════════
-importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js');
+importScripts('./lib/firebase/firebase-app-compat.js');
+importScripts('./lib/firebase/firebase-messaging-compat.js');
 
 firebase.initializeApp({
   apiKey: "AIzaSyCKyUDeX2BYBz8sE64R44xpC1NgLy94obs",
@@ -20,15 +20,13 @@ const messaging = firebase.messaging();
 // دریافت Push در پس‌زمینه
 // ═══════════════════════════════════════════════════════
 messaging.onBackgroundMessage((payload) => {
-  console.log('[SW] 📩 Background message:', payload);
+  console.log('[SW] 📩 پیام پس‌زمینه:', payload);
 
   const data = payload.data || {};
   const type = data.type || 'incident';
 
   let title = '🚨 اعلام حادثه';
   let body = 'لطفاً فوراً بررسی کنید';
-  let icon = './icons/icon-192.png';
-  let badge = './icons/icon-192.png';
 
   if (type === 'incident') {
     title = '🚨 اعلام حادثه';
@@ -44,11 +42,11 @@ messaging.onBackgroundMessage((payload) => {
 
   const options = {
     body: body,
-    icon: icon,
-    badge: badge,
+    icon: './icons/icon-192.png',
+    badge: './icons/icon-192.png',
     tag: type + '_' + (data.id || Date.now()),
     renotify: true,
-    requireInteraction: true,   // ⭐ تا کاربر نخونه محو نشه
+    requireInteraction: true,
     vibrate: [500, 200, 500, 200, 500],
     data: data,
     actions: [
@@ -69,22 +67,15 @@ self.addEventListener('notificationclick', (event) => {
   const data = event.notification.data || {};
   const type = data.type || 'incident';
 
-  // باز کردن اپ
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // اگه اپ بازه، focus کن
       for (const client of clientList) {
         if ('focus' in client) {
           client.focus();
-          // پست پیام به اپ
-          client.postMessage({
-            type: 'FCM_CLICK',
-            data: data
-          });
+          client.postMessage({ type: 'FCM_CLICK', data: data });
           return;
         }
       }
-      // اگه بسته‌ست، باز کن
       if (clients.openWindow) {
         return clients.openWindow('./?fcm_type=' + type + '&fcm_id=' + (data.id || ''));
       }
