@@ -1,6 +1,6 @@
-// firebase-messaging-sw.js
+// firebase-messaging-sw.js (در ریشه پروژه)
 // ═══════════════════════════════════════════════════════
-// Service Worker برای Firebase Cloud Messaging (نسخه محلی)
+// Service Worker اختصاصی FCM
 // ═══════════════════════════════════════════════════════
 importScripts('./lib/firebase/firebase-app-compat.js');
 importScripts('./lib/firebase/firebase-messaging-compat.js');
@@ -16,11 +16,8 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// ═══════════════════════════════════════════════════════
-// دریافت Push در پس‌زمینه
-// ═══════════════════════════════════════════════════════
 messaging.onBackgroundMessage((payload) => {
-  console.log('[SW] 📩 پیام پس‌زمینه:', payload);
+  console.log('[SW-FCM] 📩 پیام پس‌زمینه:', payload);
 
   const data = payload.data || {};
   const type = data.type || 'incident';
@@ -40,7 +37,7 @@ messaging.onBackgroundMessage((payload) => {
       : 'ویزیت جدید برای شما';
   }
 
-  const options = {
+  return self.registration.showNotification(title, {
     body: body,
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
@@ -53,17 +50,11 @@ messaging.onBackgroundMessage((payload) => {
       { action: 'open', title: 'مشاهده' },
       { action: 'close', title: 'بستن' }
     ]
-  };
-
-  return self.registration.showNotification(title, options);
+  });
 });
 
-// ═══════════════════════════════════════════════════════
-// کلیک روی نوتیف
-// ═══════════════════════════════════════════════════════
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
   const data = event.notification.data || {};
   const type = data.type || 'incident';
 
