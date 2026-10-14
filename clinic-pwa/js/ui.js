@@ -1,10 +1,9 @@
 // js/ui.js
 export function showScreen(screenName) {
-  // 🌟 مپ اسکرین‌ها - screenPharmacy اضافه شد
   const screens = {
     'Login':        'screenLogin',
     'Home':         'screenHome',
-    'Pharmacy':     'screenPharmacy',       // 🌟 جدید
+    'Pharmacy':     'screenPharmacy',
     'Visit':        'screenVisit',
     'Inventory':    'screenInventory',
     'Receive':      'screenReceive',
@@ -12,6 +11,7 @@ export function showScreen(screenName) {
     'Report':       'screenReport',
     'Profile':      'screenProfile',
     'Occupational': 'screenOccupational',
+    'Forms':        'screenForms',
   };
 
   const targetId = screens[screenName];
@@ -20,14 +20,11 @@ export function showScreen(screenName) {
     return;
   }
 
-  // مخفی کردن همه اسکرین‌ها
   document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
 
-  // نمایش صفحه هدف
   const target = document.getElementById(targetId);
   if (target) target.classList.add('active');
 
-  // هدر
   const appHeader = document.getElementById('appHeader');
   const bottomNav = document.getElementById('bottomNav');
   const btnBack = document.getElementById('btnBack');
@@ -41,10 +38,9 @@ export function showScreen(screenName) {
     if (bottomNav) bottomNav.classList.remove('hidden');
   }
 
-  // عنوان هدر
   const titles = {
     'Home':         'کلینیک',
-    'Pharmacy':     'داروخانه',      // 🌟 جدید
+    'Pharmacy':     'داروخانه',
     'Visit':        'ویزیت‌ها',
     'Inventory':    'انبارگردانی',
     'Receive':      'دریافت دارو',
@@ -52,10 +48,10 @@ export function showScreen(screenName) {
     'Report':       'گزارش‌ها',
     'Profile':      'پروفایل',
     'Occupational': 'طب کار',
+    'Forms':        'فرم‌ها',
   };
   if (headerTitle) headerTitle.textContent = titles[screenName] || 'کلینیک';
 
-  // دکمه بازگشت
   if (btnBack) {
     if (screenName === 'Home' || screenName === 'Login') {
       btnBack.classList.add('hidden');
@@ -64,7 +60,6 @@ export function showScreen(screenName) {
     }
   }
 
-  // هایلایت نوار پایین
   document.querySelectorAll('.bottom-nav a').forEach(a => {
     a.classList.remove('active');
     if (a.dataset.nav === screenName.toLowerCase()) {
