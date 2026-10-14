@@ -11,6 +11,7 @@ import { loadChangeLog } from './changelog.js';
 import { renderList } from './list.js';
 import { openForm } from '../forms/engine.js';
 import { loadVisitExtra } from '../extra-data.js';
+import { mountProcessBanner } from '../process/banner.js';
 
 export async function openDetail(visitId) {
   state.view = 'detail';
@@ -316,7 +317,6 @@ function renderDetail() {
     </div>`;
   }
 
-  // ─── لاگ تغییرات ───
   if (v.changeLog && v.changeLog.length) {
     html += `<div class="card">
       <div class="card-head" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);">
@@ -388,7 +388,6 @@ function renderDetail() {
     </div>
   </div>`;
 
-  // ─── دکمه‌ها ───
   html += `<div class="d-grid gap-2 mb-5">`;
 
   if (v.status !== 'completed') {
@@ -441,9 +440,21 @@ function renderDetail() {
     <i class="bi bi-arrow-right"></i> بازگشت
   </button></div>`;
 
-  c.innerHTML = html;
+  c.innerHTML = `<div id="visitBannerMount"></div>` + html;
 
-  // ─── بایندها ───
+  // ⭐️ نوار زمینه
+  try {
+    mountProcessBanner($('visitBannerMount'), 'visit-detail', {
+      isIncident: isInc,
+      isAdmitted,
+      isDispatch,
+      isReferral,
+      visitId: v.id,
+      patientId: v.patient_id,
+      examId: null
+    });
+  } catch (e) { console.warn('banner failed', e); }
+
   const editBtn = $('vEditBtn');
   if (editBtn) editBtn.onclick = async () => {
     const { openEditModal } = await import('./edit.js');
