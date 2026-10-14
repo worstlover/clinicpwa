@@ -6,12 +6,24 @@ import { canEditClinical, canEditIncident, isIncidentOnlyMode, getTimeStr, getIn
 import { renderEditBodyMap } from './bodymap.js';
 import { logChange } from './changelog.js';
 import { openDetail } from './detail.js';
+// ⭐️ جدید
+import { loadVisitExtra, saveVisitExtra, timeToIso } from '../extra-data.js';
 
 export async function openEditModal(visit) {
   const existing = document.getElementById('visitEditModal');
   if (existing) existing.remove();
 
   await loadRefs();
+
+  // ⭐️ بارگذاری اطلاعات تکمیلی ویزیت
+  let visitExtra = null;
+  try {
+    const { data } = await loadVisitExtra(visit.id);
+    visitExtra = data || {};
+  } catch (e) {
+    console.warn('loadVisitExtra failed', e);
+    visitExtra = {};
+  }
 
   const incidentOnly = isIncidentOnlyMode(visit);
   const canClinical = canEditClinical(visit);
@@ -57,6 +69,13 @@ export async function openEditModal(visit) {
       </div>
     `).join('');
   };
+
+  // ⭐️ شناسایی نوع نتیجه (اعزام/ارجاع)
+  const currentTreatmentId = visit.treatment_result_id;
+  const currentTreatment = state.treatments.find(t => String(t.id) === String(currentTreatmentId));
+  const currentTreatmentName = currentTreatment?.name || '';
+  const isCurrentDispatch = currentTreatmentName.includes('اعزام');
+  const isCurrentReferral = currentTreatmentName.includes('ارجاع به بیمارستان');
 
   const modalHtml = `
     <div class="modal fade" id="visitEditModal" tabindex="-1" data-bs-backdrop="static">
@@ -116,6 +135,12 @@ export async function openEditModal(visit) {
                 <label class="form-label small">شرح حادثه / گزارش</label>
                 <textarea class="form-control ${disClass}" id="editIncDesc" rows="3" ${disAttr}>${escapeHtml(visit.incident_description || '')}</textarea>
               </div>
+              <!-- ⭐️ جدید: ساعت وقوع حادثه -->
+              <div class="mb-3">
+                <label class="form-label small">ساعت وقوع حادثه (اختیاری)</label>
+                <input type="time" class="form-control ${disClass}" id="editIncidentTime"
+                  value="${visitExtra?.incident_at ? new Date(visitExtra.incident_at).toTimeString().slice(0,5) : ''}" ${disAttr}>
+              </div>
               <div class="mb-2">
                 <label class="form-label small">نواحی مصدومیت</label>
                 <div id="editBodyMapContainer">${renderEditBodyMap(editInjuries, canIncident)}</div>
@@ -144,6 +169,13 @@ export async function openEditModal(visit) {
                   ${state.treatments.map(t => `<option value="${t.id}" ${visit.treatment_result_id == t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
                 </select>
               </div>
+
+              <!-- ⭐️ جدید: ساعت شروع علائم -->
+              <div class="mb-0 mt-3">
+                <label class="form-label small">ساعت شروع علائم (اختیاری)</label>
+                <input type="time" class="form-control ${disClass}" id="editSymptomTime"
+                  value="${visitExtra?.symptom_onset_at ? new Date(visitExtra.symptom_onset_at).toTimeString().slice(0,5) : ''}" ${disAttr}>
+              </div>
             </div>
 
             <div class="mb-3 ${canClinical ? '' : 'section-disabled'}" style="background:#f8fafc;border-radius:12px;padding:16px;">
@@ -155,6 +187,9 @@ export async function openEditModal(visit) {
                   <input type="number" class="form-control ${disClass}" id="editHR" value="${visit.heart_rate || ''}" ${disAttr}></div>
                 <div class="col-6 col-md-4"><label class="form-label small">SpO2 %</label>
                   <input type="number" class="form-control ${disClass}" id="editSpo2" value="${visit.spo2 || ''}" ${disAttr}></div>
+                <!-- ⭐️ جدید: RR -->
+                <div class="col-6 col-md-4"><label class="form-label small">تنفس (RR) (اختیاری)</label>
+                  <input type="text" inputmode="numeric" class="form-control ${disClass}" id="editRR" value="${visitExtra?.rr ?? ''}" ${disAttr}></div>
                 <div class="col-6 col-md-4"><label class="form-label small">دما °C</label>
                   <input type="number" step="0.1" class="form-control ${disClass}" id="editTemp" value="${visit.temperature || ''}" ${disAttr}></div>
                 <div class="col-6 col-md-4"><label class="form-label small">قند خون</label>
@@ -181,15 +216,58 @@ export async function openEditModal(visit) {
               </div>
             </div>
 
-            <div class="mb-3 ${canClinical ? '' : 'section-disabled'}" style="background:#f8fafc;border-radius:12px;padding:16px;">
-              <h6 class="mb-3" style="font-weight:700;"><i class="bi bi-truck"></i> اعزام</h6>
+            <!-- ⭐️ جدید: بستری موقت + اعزام/ارجاع + همراه -->
+            <div class="mb-3 ${canClinical ? '' : 'section-disabled'}" style="background:#fff7ed;border:2px solid #fed7aa;border-radius:12px;padding:16px;">
+              <h6 class="mb-3" style="color:#92400e;font-weight:700;">
+                <i class="bi bi-truck"></i> اعزام / ارجاع / بستری
+              </h6>
+
+              <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="editAdmitted" ${visitExtra?.is_admitted ? 'checked' : ''} ${disAttr}>
+                <label class="form-check-label small" for="editAdmitted">بستری موقت</label>
+              </div>
+
               <div class="row g-2">
-                <div class="col-6"><label class="form-label small">ساعت اعزام</label>
+                <div class="col-6">
+                  <label class="form-label small">ساعت اعزام/ارجاع</label>
                   <input type="time" class="form-control ${disClass}" id="editDispatchTime"
-                    value="${visit.dispatch_time ? new Date(visit.dispatch_time).toTimeString().slice(0,5) : ''}" ${disAttr}></div>
-                <div class="col-6"><label class="form-label small">مقصد اعزام</label>
+                    value="${visit.dispatch_time ? new Date(visit.dispatch_time).toTimeString().slice(0,5) : ''}" ${disAttr}>
+                </div>
+                <div class="col-6">
+                  <label class="form-label small">مقصد</label>
                   <input type="text" class="form-control ${disClass}" id="editDispatchDest"
-                    value="${escapeHtml(visit.dispatch_destination || '')}" ${disAttr}></div>
+                    value="${escapeHtml(visit.dispatch_destination || '')}" ${disAttr}>
+                </div>
+              </div>
+
+              <div id="editTransportWrap" class="mt-3 ${isCurrentReferral ? '' : 'hidden'}">
+                <label class="form-label small">نحوه ارجاع (اختیاری)</label>
+                <select class="form-select ${disClass}" id="editTransportType" ${disAttr}>
+                  <option value="">— انتخاب —</option>
+                  <option value="agency" ${visitExtra?.transport_type === 'agency' ? 'selected' : ''}>آژانس</option>
+                  <option value="personal" ${visitExtra?.transport_type === 'personal' ? 'selected' : ''}>وسیله شخصی</option>
+                  <option value="transport" ${visitExtra?.transport_type === 'transport' ? 'selected' : ''}>ترانسپورت</option>
+                  <option value="other" ${visitExtra?.transport_type === 'other' ? 'selected' : ''}>سایر</option>
+                </select>
+              </div>
+
+              <div id="editCompanionWrap" class="mt-3 ${(isCurrentDispatch || isCurrentReferral) ? '' : 'hidden'}">
+                <div class="form-check mb-2">
+                  <input class="form-check-input" type="checkbox" id="editCompanionNeeded" ${visitExtra?.companion_needed ? 'checked' : ''} ${disAttr}>
+                  <label class="form-check-label small" for="editCompanionNeeded">نیاز به همراه</label>
+                </div>
+                <div class="row g-2">
+                  <div class="col-6">
+                    <label class="form-label small">نام همراه (اختیاری)</label>
+                    <input type="text" class="form-control ${disClass}" id="editCompanionName"
+                      value="${escapeHtml(visitExtra?.companion_name || '')}" ${disAttr}>
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label small">تلفن همراه (اختیاری)</label>
+                    <input type="text" class="form-control ${disClass}" id="editCompanionPhone"
+                      value="${escapeHtml(visitExtra?.companion_phone || '')}" ${disAttr}>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -226,7 +304,6 @@ export async function openEditModal(visit) {
   const modal = new bootstrap.Modal(modalEl);
   modal.show();
 
-  // تغییر نوع مراجعه
   modalEl.querySelectorAll('[data-edit-incident]').forEach(btn => {
     btn.onclick = () => {
       if (!canIncident) return;
@@ -242,26 +319,20 @@ export async function openEditModal(visit) {
     };
   });
 
-  // ⭐ Body Map در ویرایش
   const rebindEditBodyMap = () => {
     if (!canIncident) return;
-
     modalEl.querySelectorAll('[data-edit-part]').forEach(p => {
       p.onclick = () => {
         const key = p.dataset.editPart;
         if (!key) return;
         const loc = INJURY_MAP[key];
         if (!loc) {
-          console.warn('ناحیه تعریف نشده:', key);
           toast(`ناحیه "${key}" در دیتابیس تعریف نشده`, 'warning');
           return;
         }
         const idx = editInjuries.findIndex(x => x.id === loc.id);
-        if (idx >= 0) {
-          editInjuries.splice(idx, 1);
-        } else {
-          editInjuries.push({ id: loc.id, name: loc.name, svg_key: key });
-        }
+        if (idx >= 0) editInjuries.splice(idx, 1);
+        else editInjuries.push({ id: loc.id, name: loc.name, svg_key: key });
         beep();
         document.getElementById('editBodyMapContainer').innerHTML = renderEditBodyMap(editInjuries, canIncident);
         rebindEditBodyMap();
@@ -280,7 +351,6 @@ export async function openEditModal(visit) {
   };
   rebindEditBodyMap();
 
-  // Items
   const rebindEditItems = () => {
     document.getElementById('editItemsList').innerHTML = renderEditItems();
     if (!canClinical) return;
@@ -322,12 +392,27 @@ export async function openEditModal(visit) {
         rebindEditItems();
       });
     };
+
+    // ⭐️ تغییر نتیجه‌ی درمان → نمایش/مخفی کردن بخش ارجاع/همراه
+    const editTreatmentEl = document.getElementById('editTreatment');
+    if (editTreatmentEl) {
+      editTreatmentEl.addEventListener('change', () => {
+        const selName = editTreatmentEl.options[editTreatmentEl.selectedIndex]?.text || '';
+        const dispatch = selName.includes('اعزام');
+        const referral = selName.includes('ارجاع به بیمارستان');
+        const transportWrap = document.getElementById('editTransportWrap');
+        const companionWrap = document.getElementById('editCompanionWrap');
+        if (transportWrap) transportWrap.classList.toggle('hidden', !referral);
+        if (companionWrap) companionWrap.classList.toggle('hidden', !(dispatch || referral));
+      });
+    }
   }
 
   document.getElementById('editSaveBtn').onclick = async () => {
     await saveEdit(visit, modal, {
       incidentOnly, canClinical, canIncident,
-      editInjuries, editItems, editIsIncident, editIncidentType
+      editInjuries, editItems, editIsIncident, editIncidentType,
+      visitExtra
     });
   };
 
@@ -340,7 +425,7 @@ export async function openEditModal(visit) {
 // ذخیره
 // ═══════════════════════════════════════════════════════
 async function saveEdit(visit, modal, ctx) {
-  const { incidentOnly, canClinical, canIncident, editInjuries, editItems, editIsIncident, editIncidentType } = ctx;
+  const { incidentOnly, canClinical, canIncident, editInjuries, editItems, editIsIncident, editIncidentType, visitExtra } = ctx;
 
   const getVal = id => document.getElementById(id)?.value?.trim() || null;
   const getNum = id => {
@@ -487,7 +572,6 @@ async function saveEdit(visit, modal, ctx) {
       }
     });
 
-    // اعزام
     const dtStr = getVal('editDispatchTime');
     if (dtStr) {
       const [dh, dm] = dtStr.split(':').map(Number);
@@ -550,6 +634,102 @@ async function saveEdit(visit, modal, ctx) {
     });
   }
 
+  // ⭐️ محاسبه‌ی extra و بررسی تغییر
+  let extraChanged = false;
+  const newExtra = {};
+
+  if (!incidentOnly && canClinical) {
+    const newRR = getVal('editRR');
+    const newSymptomTime = getVal('editSymptomTime');
+    const newAdmitted = document.getElementById('editAdmitted')?.checked || false;
+    const newTransport = getVal('editTransportType');
+    const newCompanionNeeded = document.getElementById('editCompanionNeeded')?.checked || false;
+    const newCompanionName = getVal('editCompanionName');
+    const newCompanionPhone = getVal('editCompanionPhone');
+
+    const oldRR = visitExtra?.rr ?? null;
+    const oldSymptom = visitExtra?.symptom_onset_at || null;
+    const oldAdmitted = visitExtra?.is_admitted || false;
+    const oldTransport = visitExtra?.transport_type || '';
+    const oldCompNeeded = visitExtra?.companion_needed || false;
+    const oldCompName = visitExtra?.companion_name || '';
+    const oldCompPhone = visitExtra?.companion_phone || '';
+
+    if (newRR !== null && Number(newRR) !== Number(oldRR)) {
+      newExtra.rr = Number(newRR);
+      extraChanged = true;
+      changes.push({ field: 'rr', label: 'RR', old: oldRR ?? '—', new: newRR });
+    } else if (newRR === null && oldRR !== null) {
+      newExtra.rr = null;
+      extraChanged = true;
+      changes.push({ field: 'rr', label: 'RR', old: oldRR, new: '—' });
+    }
+
+    if (newSymptomTime) {
+      const newSymptomIso = timeToIso(newSymptomTime, new Date(visit.visit_date));
+      if (newSymptomIso !== oldSymptom) {
+        newExtra.symptom_onset_at = newSymptomIso;
+        extraChanged = true;
+        changes.push({ field: 'symptom_onset_at', label: 'ساعت شروع علائم', old: oldSymptom ? '—' : '—', new: newSymptomTime });
+      }
+    } else if (oldSymptom) {
+      newExtra.symptom_onset_at = null;
+      extraChanged = true;
+      changes.push({ field: 'symptom_onset_at', label: 'ساعت شروع علائم', old: 'ثبت‌شده', new: '—' });
+    }
+
+    if (newAdmitted !== oldAdmitted) {
+      newExtra.is_admitted = newAdmitted;
+      extraChanged = true;
+      changes.push({ field: 'is_admitted', label: 'بستری موقت', old: oldAdmitted ? 'بله' : 'خیر', new: newAdmitted ? 'بله' : 'خیر' });
+    }
+
+    if (newTransport && newTransport !== oldTransport) {
+      newExtra.transport_type = newTransport;
+      extraChanged = true;
+      changes.push({ field: 'transport_type', label: 'نحوه ارجاع', old: oldTransport || '—', new: newTransport });
+    } else if (!newTransport && oldTransport && oldTransport !== 'ambulance') {
+      newExtra.transport_type = null;
+      extraChanged = true;
+      changes.push({ field: 'transport_type', label: 'نحوه ارجاع', old: oldTransport, new: '—' });
+    }
+
+    if (newCompanionNeeded !== oldCompNeeded) {
+      newExtra.companion_needed = newCompanionNeeded;
+      extraChanged = true;
+      changes.push({ field: 'companion_needed', label: 'نیاز به همراه', old: oldCompNeeded ? 'بله' : 'خیر', new: newCompanionNeeded ? 'بله' : 'خیر' });
+    }
+    if (newCompanionName !== oldCompName) {
+      newExtra.companion_name = newCompanionName || null;
+      extraChanged = true;
+      changes.push({ field: 'companion_name', label: 'نام همراه', old: oldCompName || '—', new: newCompanionName || '—' });
+    }
+    if (newCompanionPhone !== oldCompPhone) {
+      newExtra.companion_phone = newCompanionPhone || null;
+      extraChanged = true;
+      changes.push({ field: 'companion_phone', label: 'تلفن همراه', old: oldCompPhone || '—', new: newCompanionPhone || '—' });
+    }
+  }
+
+  // ⭐️ ساعت وقوع حادثه (اگر حادثه)
+  if (canIncident && editIsIncident) {
+    const newIncTime = getVal('editIncidentTime');
+    const oldIncTime = visitExtra?.incident_at || null;
+
+    if (newIncTime) {
+      const newIncIso = timeToIso(newIncTime, new Date(visit.visit_date));
+      if (newIncIso !== oldIncTime) {
+        newExtra.incident_at = newIncIso;
+        extraChanged = true;
+        changes.push({ field: 'incident_at', label: 'ساعت وقوع حادثه', old: oldIncTime ? '—' : '—', new: newIncTime });
+      }
+    } else if (oldIncTime) {
+      newExtra.incident_at = null;
+      extraChanged = true;
+      changes.push({ field: 'incident_at', label: 'ساعت وقوع حادثه', old: 'ثبت‌شده', new: '—' });
+    }
+  }
+
   if (!changes.length) { modal.hide(); return; }
 
   const actionLabel = incidentOnly ? 'ویرایش اطلاعات حادثه' : 'ویرایش ویزیت';
@@ -583,6 +763,16 @@ async function saveEdit(visit, modal, ctx) {
             quantity: it.quantity, notes: it.notes || null
           }))
         );
+      }
+    }
+
+    // ⭐️ ذخیره‌ی visit_extra
+    if (extraChanged && Object.keys(newExtra).length > 0) {
+      try {
+        await saveVisitExtra(visit.id, newExtra);
+      } catch (e) {
+        console.warn('visit_extra save failed', e);
+        toast('اطلاعات تکمیلی ذخیره نشد', 'warning');
       }
     }
 
