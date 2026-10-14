@@ -1,0 +1,158 @@
+/* js/process/process.css */
+.process-banner {
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  font-size: 0.82rem;
+}
+.process-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: linear-gradient(135deg, #eff6ff, #f8fafc);
+}
+.process-banner-header:active { background: #e0eaff; }
+.process-banner-summary { flex: 1; line-height: 1.6; }
+.process-banner-toggle { color: #64748b; font-size: 0.75rem; }
+.process-banner-body {
+  padding: 10px 12px;
+  border-top: 1px dashed #e2e8f0;
+  background: #fff;
+}
+.process-quick-answer {
+  background: #f0fdf4;
+  border-right: 3px solid #10b981;
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  line-height: 1.9;
+}
+.process-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.process-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #e0eaff;
+  color: #0d6efd;
+  border: none;
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.process-chip:active { background: #c7d2fe; }
+.process-chip .chip-note {
+  background: #dbeafe;
+  color: #1e40af;
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-right: 4px;
+}
+.process-ref-small {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* ═══ راهنمای فرآیندها ═══ */
+.guide-tabs {
+  display: flex;
+  background: #f1f5f9;
+  border-radius: 12px;
+  padding: 4px;
+  margin-bottom: 12px;
+}
+.guide-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 10px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  font-family: inherit;
+  color: #64748b;
+}
+.guide-tab.active {
+  background: #fff;
+  color: #0d6efd;
+  box-shadow: 0 2px 6px rgba(13,110,253,0.12);
+}
+.guide-procedure {
+  margin: 16px 0 8px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #0d6efd, #4c1d95);
+  color: #fff;
+  border-radius: 10px;
+}
+.guide-procedure-title { font-weight: 800; font-size: 0.92rem; }
+.guide-procedure-code { font-size: 0.7rem; opacity: 0.9; margin-top: 2px; }
+.guide-subprocess {
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.guide-sub-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  cursor: pointer;
+  background: #f8fafc;
+}
+.guide-sub-header:active { background: #eef2f7; }
+.guide-sub-toggle { color: #64748b; font-size: 0.85rem; }
+.guide-sub-body {
+  padding: 12px 14px;
+  border-top: 1px dashed #e2e8f0;
+}
+.guide-quick-answer {
+  background: #f0fdf4;
+  border-right: 3px solid #10b981;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  font-size: 0.82rem;
+  line-height: 1.9;
+}
+.guide-forms-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.guide-steps { display: flex; flex-direction: column; gap: 8px; }
+.guide-step {
+  background: #f8fafc;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  line-height: 1.8;
+}
+.guide-records {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.guide-record {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+}
