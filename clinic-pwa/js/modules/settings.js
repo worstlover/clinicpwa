@@ -2,6 +2,7 @@
 import { sb } from '../sb.js';
 import { $, toast, escapeHtml } from '../utils.js';
 import { getPermissionStatus, getTokenStatus, requestPermissionAndInit } from '../fcm.js';
+import { SUPABASE_URL } from '../config.js';   // 🌟 جدید
 
 let currentPrefs = {
   incident_alerts_mode: 'shift',
@@ -83,7 +84,6 @@ async function renderSettings() {
   }
 
   body.innerHTML = `
-    <!-- 🌟 کارت وضعیت -->
     <div class="alert alert-info" style="border-radius:12px;">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <span>وضعیت اجازه:</span>
@@ -103,7 +103,6 @@ async function renderSettings() {
       </div>
     </div>
 
-    <!-- 🌟 دکمه‌های اقدام -->
     ${perm !== 'granted' ? `
       <button class="btn btn-primary w-100 mb-2" id="btnEnableAlerts">
         <i class="bi bi-bell-fill"></i> فعال‌سازی هشدارها
@@ -114,7 +113,6 @@ async function renderSettings() {
       </button>
     `}
 
-    <!-- 🌟 راهنمای denied -->
     ${perm === 'denied' ? `
       <div class="alert alert-danger small">
         <strong><i class="bi bi-info-circle"></i> چطور فعال کنم؟</strong>
@@ -126,7 +124,6 @@ async function renderSettings() {
       </div>
     ` : ''}
 
-    <!-- 🌟 راهنمای کلی اندروید -->
     <details class="mt-3" style="background:#f8fafc;padding:12px;border-radius:12px;">
       <summary style="cursor:pointer;font-weight:700;color:#0d6efd;">
         <i class="bi bi-gear"></i> راهنمای هشدار در پس‌زمینه (اندروید)
@@ -147,7 +144,6 @@ async function renderSettings() {
 
     <hr class="my-4">
 
-    <!-- ─── حالت دریافت حادثه ─── -->
     <h6 class="mt-3 mb-3" style="font-weight:700;">
       <i class="bi bi-exclamation-triangle-fill" style="color:#dc2626;"></i>
       دریافت هشدار حادثه
@@ -234,7 +230,7 @@ async function renderSettings() {
     };
   }
 
-  // نوتیف آزمایشی
+  // 🌟 نوتیف آزمایشی - اصلاح شده
   const btnTest = $('btnTestNotif');
   if (btnTest) {
     btnTest.onclick = async () => {
@@ -243,10 +239,13 @@ async function renderSettings() {
       
       try {
         const { data: { session } } = await sb.auth.getSession();
-        if (!session) throw new Error('No session');
+        if (!session) throw new Error('نشست کاربری یافت نشد');
 
+        console.log('[Test] Sending to:', `${SUPABASE_URL}/functions/v1/send-incident-notification`);
+
+        // 🌟 استفاده از SUPABASE_URL از config.js
         const res = await fetch(
-          'https://<YOUR_PROJECT_REF>.supabase.co/functions/v1/send-incident-notification',
+          `${SUPABASE_URL}/functions/v1/send-incident-notification`,
           {
             method: 'POST',
             headers: {
@@ -265,10 +264,10 @@ async function renderSettings() {
         } else if (data.ok && data.sent === 0) {
           toast('⚠️ ارسال شد ولی به هیچ دستگاهی نرسید', 'warning');
         } else {
-          toast('❌ ' + (data.message || 'خطا'), 'danger');
+          toast('❌ ' + (data.message || data.error || 'خطا'), 'danger');
         }
       } catch (e) {
-        console.error(e);
+        console.error('[Test] Error:', e);
         toast('❌ خطا: ' + e.message, 'danger');
       }
       
@@ -289,7 +288,6 @@ async function renderSettings() {
       currentPrefs.incident_alerts_mode = mode;
       await savePrefs();
       
-      // اگه always/shift انتخاب شد و permission نداشتیم
       if ((mode === 'always' || mode === 'shift') && getPermissionStatus() === 'default') {
         toast('برای دریافت هشدار، دکمه «فعال‌سازی هشدارها» را بزنید', 'info');
       }
