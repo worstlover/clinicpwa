@@ -7,21 +7,27 @@ import { toast } from './utils.js';
 let currentToken = null;
 let messageUnsubscribe = null;
 
+// ═══════════════════════════════════════════════════════
+// 🌟 initFCM: هر بار که اپ باز می‌شه صدا زده می‌شه
+// (بدون توجه به permission - اگه اجازه داره، توکن رو تازه می‌کنه)
+// ═══════════════════════════════════════════════════════
 export async function initFCM() {
   try {
     if (!('Notification' in window) || !('serviceWorker' in navigator)) {
-      console.warn('[FCM] پشتیبانی نمی‌شود');
+      console.warn('[FCM] Not supported');
       return null;
     }
 
     if (Notification.permission !== 'granted') {
-      console.log('[FCM] اجازه داده نشده - بی‌صدا رد می‌شود');
+      console.log('[FCM] Permission not granted');
       return null;
     }
 
+    // 🌟 هر بار که اپ باز می‌شه، Service Worker رو register/check کن
+    // (چون در TWA ممکنه unregister بشه)
     return await _doInitFCM();
   } catch (e) {
-    console.error('[FCM] خطا در initFCM:', e);
+    console.error('[FCM] initFCM failed:', e);
     return null;
   }
 }
@@ -32,75 +38,80 @@ export async function requestPermissionAndInit() {
       toast('مرورگر شما از نوتیفیکیشن پشتیبانی نمی‌کند', 'warning');
       return null;
     }
-
     if (Notification.permission === 'denied') {
-      toast('نوتیفیکیشن مسدود شده. از تنظیمات مرورگر فعال کن', 'warning');
+      toast('نوتیفیکیشن مسدود شده', 'warning');
       return null;
     }
-
     const permission = await Notification.requestPermission();
-
     if (permission !== 'granted') {
       toast('اجازه نوتیفیکیشن داده نشد', 'warning');
       return null;
     }
-
     toast('✅ نوتیفیکیشن فعال شد', 'success');
     return await _doInitFCM();
-
   } catch (e) {
-    console.error('[FCM] خطا در درخواست اجازه:', e);
+    console.error('[FCM] requestPermission failed:', e);
     return null;
   }
 }
 
 async function _doInitFCM() {
   if (!VAPID_KEY || VAPID_KEY === 'PASTE_VAPID_KEY_HERE') {
-    console.error('[FCM] VAPID_KEY تنظیم نشده!');
+    console.error('[FCM] VAPID_KEY not set');
     return null;
   }
 
-  // 🌟 ثبت Service Worker با scope متفاوت (جدا از service-worker.js اصلی)
+  // ═══════════════════════════════════════════════════════
+  // 🌟 ثبت مجدد Service Worker (حتی اگه قبلاً ثبت شده)
+  // ═══════════════════════════════════════════════════════
   let swRegistration;
   try {
-    // اول چک کن اگه قبلاً ثبت شده
+    // چک کن قبلاً ثبت شده یا نه
     const existingRegs = await navigator.serviceWorker.getRegistrations();
     swRegistration = existingRegs.find(r => 
       r.active?.scriptURL.includes('firebase-messaging-sw.js')
     );
 
     if (!swRegistration) {
-      // ثبت جدید با scope اختصاصی
+      console.log('[FCM] Registering firebase-messaging-sw.js...');
       swRegistration = await navigator.serviceWorker.register(
         './firebase-messaging-sw.js',
         { scope: './firebase-cloud-messaging-push-scope' }
       );
-      console.log('[FCM] SW ثبت شد با scope اختصاصی');
     } else {
-      console.log('[FCM] SW قبلاً ثبت شده بود');
+      console.log('[FCM] SW already registered');
     }
 
-    // منتظر بمون تا SW فعال بشه
+    // 🌟 منتظر بمون تا فعال بشه
     if (swRegistration.installing) {
       await new Promise((resolve) => {
-        swRegistration.installing.addEventListener('statechange', (e) => {
+        const sw = swRegistration.installing;
+        sw.addEventListener('statechange', (e) => {
           if (e.target.state === 'activated') resolve();
         });
+        // تایم اوت ۱۰ ثانیه
+        setTimeout(resolve, 10000);
       });
     }
+
+    // 🌟 چک کن active هست
+    if (!swRegistration.active) {
+      await navigator.serviceWorker.ready;
+    }
   } catch (e) {
-    console.error('[FCM] خطا در ثبت Service Worker:', e);
+    console.error('[FCM] SW registration failed:', e);
     return null;
   }
 
-  // گرفتن messaging instance
+  // ═══════════════════════════════════════════════════════
+  // گرفتن messaging instance و توکن
+  // ═══════════════════════════════════════════════════════
   const messaging = await getMessagingInstance();
   if (!messaging) {
-    console.error('[FCM] messaging instance گرفته نشد');
+    console.error('[FCM] messaging instance not available');
     return null;
   }
 
-  // گرفتن توکن
   let token;
   try {
     token = await getToken(messaging, {
@@ -108,17 +119,17 @@ async function _doInitFCM() {
       serviceWorkerRegistration: swRegistration,
     });
   } catch (e) {
-    console.error('[FCM] خطا در گرفتن توکن:', e);
+    console.error('[FCM] getToken failed:', e);
     return null;
   }
 
   if (!token) {
-    console.warn('[FCM] توکن دریافت نشد');
+    console.warn('[FCM] No token received');
     return null;
   }
 
   currentToken = token;
-  console.log('[FCM] ✅ توکن دریافت شد:', token.substring(0, 25) + '...');
+  console.log('[FCM] ✅ Token:', token.substring(0, 25) + '...');
 
   await saveTokenToSupabase(token);
   setupForegroundListener(messaging);
@@ -126,40 +137,54 @@ async function _doInitFCM() {
   return token;
 }
 
+// ═══════════════════════════════════════════════════════
+// ذخیره توکن - فقط اگه تغییر کرده
+// ═══════════════════════════════════════════════════════
 async function saveTokenToSupabase(token) {
   try {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
 
-    // حذف توکن‌های قبلی این کاربر
+    // 🌟 چک کن توکن فعلی همینه یا نه
+    const { data: existing } = await sb.from('fcm_tokens')
+      .select('id, token')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (existing && existing.token === token) {
+      // فقط last_seen رو آپدیت کن
+      await sb.from('fcm_tokens')
+        .update({ last_seen: new Date().toISOString() })
+        .eq('id', existing.id);
+      console.log('[FCM] Token unchanged, only updated last_seen');
+      return;
+    }
+
+    // توکن تغییر کرده یا وجود نداره → جایگزین کن
     await sb.from('fcm_tokens').delete().eq('user_id', user.id);
 
-    // درج توکن جدید
-    const { error } = await sb
-      .from('fcm_tokens')
-      .insert({
-        user_id: user.id,
-        token: token,
-        platform: 'web',
-        browser: navigator.userAgent.substring(0, 100),
-        last_seen: new Date().toISOString(),
-      });
+    const { error } = await sb.from('fcm_tokens').insert({
+      user_id: user.id,
+      token: token,
+      platform: 'web',
+      browser: navigator.userAgent.substring(0, 100),
+      last_seen: new Date().toISOString(),
+    });
 
     if (error) {
-      console.error('[FCM] خطا در ذخیره توکن:', error);
+      console.error('[FCM] Save token failed:', error);
     } else {
-      console.log('[FCM] ✅ توکن ذخیره شد');
+      console.log('[FCM] ✅ Token saved (old ones removed)');
     }
   } catch (e) {
-    console.error('[FCM] خطا در saveToken:', e);
+    console.error('[FCM] saveToken error:', e);
   }
 }
 
 async function setupForegroundListener(messaging) {
   if (messageUnsubscribe) messageUnsubscribe();
-
   messageUnsubscribe = onMessage(messaging, (payload) => {
-    console.log('[FCM] 📩 پیام foreground:', payload);
+    console.log('[FCM] 📩 Foreground:', payload);
     window.dispatchEvent(new CustomEvent('fcm-message', {
       detail: payload.data || {}
     }));
@@ -171,7 +196,7 @@ export async function removeFCMToken() {
   try {
     await sb.from('fcm_tokens').delete().eq('token', currentToken);
   } catch (e) {
-    console.error('[FCM] خطا:', e);
+    console.error('[FCM] Remove failed:', e);
   }
 }
 
