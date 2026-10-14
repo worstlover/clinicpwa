@@ -1,11 +1,16 @@
+// js/modules/extra-data.js
+// ═══════════════════════════════════════════════════════
+// ماژول مشترک اطلاعات تکمیلی (patient_extra / visit_extra / exam_extra)
+// همه‌ی توابع async هستند و در خطا { data, error } برمی‌گردانند.
+// ═══════════════════════════════════════════════════════
 import { sb } from '../sb.js';
 
 export const REQUIRED_EXTRA_FIELDS = [];
 
 const TABLES = {
   patient: 'patient_extra',
-  visit: 'visit_extra',
-  exam: 'exam_extra'
+  visit:   'visit_extra',
+  exam:    'exam_extra'
 };
 
 async function getUserEmail() {
@@ -21,7 +26,7 @@ function cleanPartial(partial) {
   const out = {};
   for (const [k, v] of Object.entries(partial || {})) {
     if (v === undefined) continue;
-    if (v === '') continue; // مقدار خالی قبلی را بازنویسی نکن
+    if (v === '') continue; // مقدار خالی، مقدار قبلی را بازنویسی نکند
     out[k] = v;
   }
   return out;
@@ -30,6 +35,7 @@ function cleanPartial(partial) {
 async function upsertExtra(table, idCol, idVal, partial) {
   const payload = cleanPartial(partial);
   if (Object.keys(payload).length === 0) return { data: null, error: null };
+
   payload[idCol] = idVal;
   payload.updated_at = new Date().toISOString();
   payload.updated_by_email = await getUserEmail();
