@@ -1,6 +1,6 @@
-const CACHE = 'clinic-drugs-v8';
+// service-worker.js
+const CACHE = 'clinic-drugs-v9';   // ⭐️ نسخه رو بالا بردم که SW جدید نصب بشه
 
-// همه‌ی فایل‌ها حالا روی خود سایت هستند (بدون وابستگی به CDN)
 const ASSETS = [
   './',
   './offline.html',
@@ -13,6 +13,13 @@ const ASSETS = [
   './js/app.js',
   './js/auth.js',
   './js/config.js',
+  './js/fcm.js',
+  './js/firebase.js',
+  './js/session.js',
+  './js/incident-alert.js',
+  './js/referral-alert.js',
+  './js/alert-center.js',
+  './js/quick-incident.js',
   './js/modals.js',
   './js/sb.js',
   './js/scanner.js',
@@ -27,8 +34,9 @@ const ASSETS = [
   './js/modules/inventory.js',
   './js/modules/occupational.js',
   './js/modules/profile.js',
+  './js/modules/settings.js',
 
-  // ═══ ماژول ویزیت (modularized) ═══
+  // ═══ ماژول ویزیت ═══
   './js/modules/visit/index.js',
   './js/modules/visit/state.js',
   './js/modules/visit/helpers.js',
@@ -40,12 +48,16 @@ const ASSETS = [
   './js/modules/visit/edit.js',
   './js/modules/visit/actions.js',
 
-  // ═══ کتابخانه‌های CSS ═══
+  // ═══ Firebase SDK (محلی) ═══
+  './lib/firebase/firebase-app.js',
+  './lib/firebase/firebase-messaging.js',
+  './lib/firebase/firebase-app-compat.js',
+  './lib/firebase/firebase-messaging-compat.js',
+
+  // ═══ کتابخانه‌ها ═══
   './lib/bootstrap.rtl.min.css',
   './lib/bootstrap-icons.min.css',
   './lib/vazirmatn.css',
-
-  // ═══ کتابخانه‌های JS ═══
   './lib/bootstrap.bundle.min.js',
   './lib/supabase.js',
   './lib/html5-qrcode.js',
@@ -66,13 +78,12 @@ const ASSETS = [
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
-    // هر فایل جداگانه؛ شکست یکی نصب را خراب نمی‌کند
     const results = await Promise.allSettled(ASSETS.map(u => c.add(u)));
     const failed = results.filter(r => r.status === 'rejected').length;
     if (failed > 0) {
-      console.warn(`⚠️ ${failed} فایل از ${ASSETS.length} در کش نصب نشد`);
+      console.warn(`⚠️ ${failed} فایل از ${ASSETS.length} کش نشد`);
     } else {
-      console.log(`✅ همه ${ASSETS.length} فایل کش شدند`);
+      console.log(`✅ ${ASSETS.length} فایل کش شد`);
     }
     await self.skipWaiting();
   })());
@@ -109,8 +120,16 @@ self.addEventListener('fetch', e => {
 
   const url = new URL(req.url);
 
-  // ⭐ درخواست‌های خارج از دامنه (Supabase): مستقیم از شبکه
+  // ⭐ درخواست‌های خارج از دامنه (Supabase, FCM): مستقیم از شبکه
   if (url.origin !== location.origin) return;
+
+  // ⭐ درخواست‌های Firebase SDK محلی: از cache اول (مهم برای offline)
+  if (url.pathname.includes('/lib/firebase/')) {
+    e.respondWith(
+      caches.match(req).then(hit => hit || fetch(req))
+    );
+    return;
+  }
 
   // ─── صفحات: network-first با مهلت ۴ ثانیه ───
   if (req.mode === 'navigate') {
@@ -131,7 +150,7 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // ─── کد خودِ برنامه (js/css): network-first با مهلت ۳ ثانیه ───
+  // ─── کد برنامه: network-first ───
   if (!url.pathname.startsWith('/lib/')) {
     e.respondWith((async () => {
       try {
@@ -148,7 +167,7 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // ─── کتابخانه‌ها و فونت‌ها (lib/): cache-first ───
+  // ─── کتابخانه‌ها: cache-first ───
   e.respondWith(
     caches.match(req).then(hit => {
       if (hit) return hit;
@@ -164,15 +183,11 @@ self.addEventListener('fetch', e => {
 });
 
 // ═══════════════════════════════════════════════════════
-// پیام از کلاینت (اختیاری): پاک کردن کش
+// پیام از کلاینت
 // ═══════════════════════════════════════════════════════
 self.addEventListener('message', e => {
-  if (e.data && e.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-  if (e.data && e.data.type === 'CLEAR_CACHE') {
-    caches.keys().then(keys => {
-      keys.forEach(k => caches.delete(k));
-    });
+  if (e.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  if (e.data?.type === 'CLEAR_CACHE') {
+    caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
   }
 });
