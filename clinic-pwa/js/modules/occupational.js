@@ -1,6 +1,6 @@
 // js/modules/occupational.js
 import { sb } from '../sb.js';
-import { $, faNum, escapeHtml, gregorianToJalali } from '../utils.js';
+import { $, faNum, escapeHtml, gregorianToJalali, toast } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { saveExamExtra, loadExamExtra } from './extra-data.js';
 
@@ -281,7 +281,6 @@ async function openExam(examSummary) {
       sb.from('lab_results_sonographyresult').select('*').eq('periodic_exam_id', examId).maybeSingle()
     ]);
 
-    // ⭐️ بارگذاری exam_extra
     let examExtra = null;
     try {
       const { data } = await loadExamExtra(examId);
@@ -307,17 +306,15 @@ function renderExam() {
   const c = $('occContent');
   const jd = e.exam_date ? gregorianToJalali(e.exam_date) : '—';
 
-  // ⭐️ نگاشت تست‌ها به id برای نمایش مقدار راهنما
   const LAB_HINT_MAP = {
     CHO: { id: 1,  name: 'Cholesterol' },
     TG:  { id: 2,  name: 'Triglycerides' },
     SGOT:{ id: 8,  name: 'AST' },
     SGPT:{ id: 9,  name: 'ALT' },
     FBS: { id: 6,  name: 'FBS' },
-    ALK: null  // در lab_results_testtype وجود ندارد
+    ALK: null
   };
 
-  // استخراج مقادیر آزمایش‌ها برای راهنما
   const labValueByName = {};
   (s.labs || []).forEach(l => {
     const n = (l.test_type?.name || '').trim();
@@ -327,7 +324,6 @@ function renderExam() {
   const getLabHint = (key) => {
     const meta = LAB_HINT_MAP[key];
     if (!meta) return '—';
-    // جستجوی نام تست به صورت جزئی
     const found = Object.keys(labValueByName).find(n =>
       n.toLowerCase().includes(meta.name.toLowerCase())
     );
@@ -337,7 +333,31 @@ function renderExam() {
   const flaggedArr = Array.isArray(exExtra.flagged_tests) ? exExtra.flagged_tests : [];
   const recsArr = Array.isArray(exExtra.recommendations) ? exExtra.recommendations : [];
 
-  let html = `
+  // ⭐️ کارت فرم‌های مرتبط (۴۸، ۴۹، ۵۰)
+  const _formButtonsHtml = `
+    <div class="card" style="border:2px solid #10b981;">
+      <div class="card-head" style="background:linear-gradient(135deg,#10b981,#059669);color:#fff;">
+        <i class="bi bi-file-earmark-plus"></i> فرم‌های مرتبط
+      </div>
+      <div class="card-body">
+        <div class="d-grid gap-2">
+          <button type="button" class="btn btn-outline-primary" data-form-open="BR-FR-HS-48-00">
+            <i class="bi bi-send"></i> فرم ارجاع به متخصص
+          </button>
+          <button type="button" class="btn btn-outline-success" data-form-open="BR-FR-HS-49-00">
+            <i class="bi bi-clipboard2-check"></i> فرم اعلام نتایج معاینات طب کار
+          </button>
+          <button type="button" class="btn btn-outline-warning" data-form-open="BR-FR-HS-50-00">
+            <i class="bi bi-file-earmark-text"></i> فرم تعهدنامه شروع به کار
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  let html = _formButtonsHtml;
+
+  html += `
     <div class="card">
       <div class="card-head" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);">
         <i class="bi bi-file-medical"></i> معاینه ${jd}
@@ -355,7 +375,7 @@ function renderExam() {
     </div>
   `;
 
-  // ⭐️ کارت جدید: اطلاعات تکمیلی برای فرم‌ها
+  // ⭐️ کارت اطلاعات تکمیلی (پرامپت ۱)
   html += `
     <div class="card" style="border:2px solid #0ea5e9;">
       <div class="card-head" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;">
@@ -649,12 +669,24 @@ function renderExam() {
 
   c.innerHTML = html;
 
+  // بایند فرم‌های مرتبط (۴۸، ۴۹، ۵۰)
+  c.querySelectorAll('[data-form-open]').forEach(b => {
+    b.onclick = async () => {
+      try {
+        const { openForm } = await import('../forms/engine.js');
+        openForm(b.dataset.formOpen, { examId: e.id, patientId: e.patient_id });
+      } catch (err) {
+        console.error('openForm failed', err);
+        if (typeof toast === 'function') toast('خطا در باز کردن فرم', 'danger');
+      }
+    };
+  });
+
   $('occBack').onclick = () => {
     state.view = 'patient';
     renderPatient();
   };
 
-  // ⭐️ بایند دکمه‌ی ذخیره‌ی اطلاعات تکمیلی
   const saveBtn = $('saveExamExtraBtn');
   if (saveBtn) {
     saveBtn.onclick = async () => {
