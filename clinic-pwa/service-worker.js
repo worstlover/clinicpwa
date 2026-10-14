@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE = 'clinic-drugs-v13';
+const CACHE = 'clinic-drugs-v14';
 
 const ASSETS = [
   './',
@@ -9,7 +9,6 @@ const ASSETS = [
   './icons/icon-192.png',
   './icons/icon-512.png',
 
-  // ═══ JS اصلی ═══
   './js/app.js',
   './js/auth.js',
   './js/config.js',
@@ -26,7 +25,6 @@ const ASSETS = [
   './js/ui.js',
   './js/utils.js',
 
-  // ═══ ماژول‌های ساده ═══
   './js/modules/extra-data.js',
   './js/modules/receive.js',
   './js/modules/report.js',
@@ -37,7 +35,6 @@ const ASSETS = [
   './js/modules/profile.js',
   './js/modules/settings.js',
 
-  // ═══ فرم‌ها ═══
   './js/forms/registry.js',
   './js/forms/engine.js',
   './js/forms/print.css',
@@ -51,14 +48,12 @@ const ASSETS = [
   './js/forms/templates/form49.js',
   './js/forms/templates/form50.js',
 
-  // ═══ راهنمای فرآیندها ═══
   './js/process/processes.js',
   './js/process/guide.js',
   './js/process/banner.js',
   './js/process/sample.js',
   './js/process/process.css',
 
-  // ═══ ماژول ویزیت ═══
   './js/modules/visit/index.js',
   './js/modules/visit/state.js',
   './js/modules/visit/helpers.js',
@@ -70,13 +65,11 @@ const ASSETS = [
   './js/modules/visit/edit.js',
   './js/modules/visit/actions.js',
 
-  // ═══ Firebase SDK (محلی) ═══
   './lib/firebase/firebase-app.js',
   './lib/firebase/firebase-messaging.js',
   './lib/firebase/firebase-app-compat.js',
   './lib/firebase/firebase-messaging-compat.js',
 
-  // ═══ کتابخانه‌ها ═══
   './lib/bootstrap.rtl.min.css',
   './lib/bootstrap-icons.min.css',
   './lib/vazirmatn.css',
@@ -85,7 +78,6 @@ const ASSETS = [
   './lib/html5-qrcode.js',
   './lib/jalaali.js',
 
-  // ═══ فونت‌ها ═══
   './lib/fonts/bootstrap-icons.woff2',
   './lib/fonts/bootstrap-icons.woff',
   './lib/webfonts/Vazirmatn-Regular.woff2',
@@ -95,15 +87,26 @@ const ASSETS = [
 ];
 
 // ═══════════════════════════════════════════════════════
-// نصب
+// نصب — با گزارش دقیق فایل‌های ناموجود
 // ═══════════════════════════════════════════════════════
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
-    const results = await Promise.allSettled(ASSETS.map(u => c.add(u)));
-    const failed = results.filter(r => r.status === 'rejected').length;
-    if (failed > 0) {
-      console.warn(`⚠️ ${failed} فایل از ${ASSETS.length} کش نشد`);
+    const failed = [];
+    for (const u of ASSETS) {
+      try {
+        const res = await fetch(u, { cache: 'no-store' });
+        if (res.ok) {
+          await c.put(u, res);
+        } else {
+          failed.push(`${u} → HTTP ${res.status}`);
+        }
+      } catch (err) {
+        failed.push(`${u} → ${err.message}`);
+      }
+    }
+    if (failed.length) {
+      console.warn(`⚠️ ${failed.length} فایل کش نشد:\n` + failed.join('\n'));
     } else {
       console.log(`✅ ${ASSETS.length} فایل کش شد`);
     }
@@ -117,9 +120,7 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(
-      keys.filter(k => k !== CACHE).map(k => caches.delete(k))
-    );
+    await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)));
     await self.clients.claim();
   })());
 });
@@ -134,7 +135,7 @@ const withTimeout = (p, ms) =>
   ]);
 
 // ═══════════════════════════════════════════════════════
-// fetch
+// fetch — با fallback امن (هیچوقت Response.error نمی‌دهد)
 // ═══════════════════════════════════════════════════════
 self.addEventListener('fetch', e => {
   const req = e.request;
@@ -142,23 +143,23 @@ self.addEventListener('fetch', e => {
 
   const url = new URL(req.url);
 
-  // درخواست‌های خارج از دامنه: مستقیم از شبکه
+  // خارج از دامنه
   if (url.origin !== location.origin) return;
 
-  // Firebase SDK محلی: از cache اول
+  // Firebase SDK محلی
   if (url.pathname.includes('/lib/firebase/')) {
     e.respondWith(
-      caches.match(req).then(hit => hit || fetch(req))
+      caches.match(req).then(hit => hit || fetch(req).catch(() => makeErrorResponse('Firebase SDK آفلاین است')))
     );
     return;
   }
 
-  // صفحات: network-first با مهلت ۴ ثانیه
+  // صفحات
   if (req.mode === 'navigate') {
     e.respondWith((async () => {
       try {
         const res = await withTimeout(fetch(req), 4000);
-        if (res.ok && !res.redirected) {
+        if (res && res.ok && !res.redirected) {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put('./', clone)).catch(() => {});
         }
@@ -166,47 +167,62 @@ self.addEventListener('fetch', e => {
       } catch (err) {
         return (await caches.match('./'))
             || (await caches.match('./offline.html'))
-            || Response.error();
+            || makeErrorResponse('آفلاین هستید');
       }
     })());
     return;
   }
 
-  // کد برنامه: network-first
+  // کد و CSS برنامه
   if (!url.pathname.startsWith('/lib/')) {
     e.respondWith((async () => {
       try {
-        const res = await withTimeout(fetch(req), 3000);
-        if (res.ok) {
+        const res = await withTimeout(fetch(req), 4000);
+        // ⭐️ حتی اگر res.ok نبود، همان را برگردان تا مرورگر 404 واقعی نشان دهد
+        if (res && res.ok) {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put(req, clone)).catch(() => {});
         }
         return res;
       } catch (err) {
-        return (await caches.match(req)) || Response.error();
+        const cached = await caches.match(req);
+        if (cached) return cached;
+        return makeErrorResponse('فایل یافت نشد: ' + url.pathname);
       }
     })());
     return;
   }
 
-  // کتابخانه‌ها: cache-first
+  // کتابخانه‌ها
   e.respondWith(
     caches.match(req).then(hit => {
       if (hit) return hit;
       return fetch(req).then(res => {
-        if (res.ok) {
+        if (res && res.ok) {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put(req, clone)).catch(() => {});
         }
         return res;
+      }).catch(async () => {
+        const cached = await caches.match(req);
+        if (cached) return cached;
+        return makeErrorResponse('فایل کتابخانه یافت نشد');
       });
     })
   );
 });
 
-// ═══════════════════════════════════════════════════════
+// ⭐️ پاسخ جایگزین به‌جای Response.error()
+function makeErrorResponse(message) {
+  const body = `/* ${message} */`;
+  return new Response(body, {
+    status: 200,
+    statusText: 'SW Fallback',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+  });
+}
+
 // پیام از کلاینت
-// ═══════════════════════════════════════════════════════
 self.addEventListener('message', e => {
   if (e.data?.type === 'SKIP_WAITING') self.skipWaiting();
   if (e.data?.type === 'CLEAR_CACHE') {
