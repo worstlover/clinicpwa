@@ -200,4 +200,55 @@ function buildOneCopy(d) {
         </div>
 
         <div style="margin-top:6px;font-weight:700;">اقدامات صورت پذیرفته در مسیر بیمارستان و وضعیت بیمار (علائم حیاتی) در زمان تحویل:</div>
-        ${empty
+        ${emptyLine()}${emptyLine()}
+
+        <div style="margin-top:6px;">
+          Vital Signs
+          BP: ${line('', 50)} PR: ${line('', 40)} RR: ${line('', 40)} GCS: ${line('', 40)} Tem: ${line('', 40)} SPO₂: ${line('', 40)}
+        </div>
+
+        <div style="margin-top:8px;">
+          نام و نام خانوادگی و امضاء تکنسین فوریت های پزشکی: ${line('', 140)}
+        </div>
+        <div style="margin-top:4px;">
+          نام و نام خانوادگی و امضاء راننده: ${line('', 160)}
+        </div>
+
+        <div style="margin-top:6px;font-weight:700;">توضیحات:</div>
+        ${emptyLine()}
+
+        <div style="margin-top:8px;font-weight:700;">تائیدیه تحویل بیمار به پزشک:</div>
+        <div style="margin-top:4px;">اورژانس بیمارستان: ${line(get('hospitalEmergency'), 180)}</div>
+        <div style="margin-top:10px;text-align:left;">
+          مهر و امضا: ${line('', 180)}
+        </div>
+      </div>
+
+      <div style="margin-top:8px;">
+        بدینوسیله تائید می گردد فرم اعزام به بیمارستان آقای
+        ${line(get('_patientName'), 130)}
+        در مورخه: ${line('', 70)} ساعت: ${line('', 50)}
+        به رویت و تائید اینجانب ${line('', 130)} رسید.
+      </div>
+
+      <div style="text-align:left;margin-top:8px;font-size:9px;">
+        امضاء رئیس ایمنی، بهداشت و محیط زیست: ${line('', 180)}
+      </div>
+
+      <div style="text-align:center;font-size:9px;margin-top:10px;border-top:1px dashed #666;padding-top:5px;">
+        توزیع نسخ: نسخه اول: واحد بهداری — نسخه دوم: پرونده بیمارستان
+      </div>
+    </div>
+  `;
+}
+
+export function render(d) {
+  d = d || {};
+  const copies = Number(d.copyCount) === 1 ? 1 : 2;
+  const one = buildOneCopy(d);
+  if (copies === 1) return one;
+  return `
+    <div class="page-break-after">${one}</div>
+    <div>${one}</div>
+  `;
+}
