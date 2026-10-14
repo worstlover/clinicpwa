@@ -10,7 +10,7 @@ import {
 import { loadChangeLog } from './changelog.js';
 import { renderList } from './list.js';
 import { openForm } from '../../forms/engine.js';
-import { loadVisitExtra } from '../../extra-data.js';
+import { loadVisitExtra } from '../extra-data.js';
 import { mountProcessBanner } from '../../process/banner.js';
 
 export async function openDetail(visitId) {
