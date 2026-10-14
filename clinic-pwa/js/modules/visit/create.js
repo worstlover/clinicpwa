@@ -7,8 +7,8 @@ import { renderBodyMap } from './bodymap.js';
 import { logChange } from './changelog.js';
 import { renderList } from './list.js';
 import { broadcastIncidentAlert } from '../../incident-alert.js';
-// ⭐️ جدید
 import { saveVisitExtra, loadPatientExtra, savePatientExtra, timeToIso } from '../extra-data.js';
+import { mountProcessBanner } from '../../process/banner.js';
 
 // ═══════════════════════════════════════════════════════
 // تشخیص دارو از لوازم مصرفی (form === 'other')
@@ -43,16 +43,18 @@ function renderWizard() {
   const c = $('visitContent');
   const fd = state.formData;
   const steps = [
-    { n: 1, label: 'بیمار' }, 
+    { n: 1, label: 'بیمار' },
     { n: 2, label: 'علت و حادثه' },
-    { n: 3, label: 'مصدومیت' }, 
+    { n: 3, label: 'مصدومیت' },
     { n: 4, label: 'علائم حیاتی' },
-    { n: 5, label: 'داروها' }, 
+    { n: 5, label: 'داروها' },
     { n: 6, label: 'لوازم مصرفی' },
     { n: 7, label: 'تشخیص' }
   ];
 
   c.innerHTML = `
+    <div id="visitBannerMount"></div>
+
     <div class="card"><div class="card-body">
       <div class="wizard-steps">
         ${steps.map(s => `
@@ -111,7 +113,6 @@ function renderWizard() {
             </div>
           </div>
 
-          <!-- ⭐️ جدید: ساعت شروع علائم -->
           <div class="mb-3">
             <label class="form-label small">ساعت شروع علائم (اختیاری)</label>
             <input type="time" class="form-control" id="vSymptomTime" value="${fd.symptomTime || ''}">
@@ -167,7 +168,6 @@ function renderWizard() {
             <label class="form-label">شرح حادثه</label>
             <textarea class="form-control" id="vIncidentDesc" rows="2">${escapeHtml(fd.incidentDesc || '')}</textarea>
           </div>
-          <!-- ⭐️ جدید: ساعت وقوع حادثه -->
           <div class="mb-3">
             <label class="form-label small">ساعت وقوع حادثه (اختیاری)</label>
             <input type="time" class="form-control" id="vIncidentTime" value="${fd.incidentTime || ''}">
@@ -221,7 +221,6 @@ function renderWizard() {
               <input type="number" class="form-control text-center" id="vHR" value="${escapeHtml(fd.hr)}" inputmode="numeric"></div>
             <div class="col-6 col-md-3"><label class="form-label small">SpO2 %</label>
               <input type="number" class="form-control text-center" id="vSpo2" value="${escapeHtml(fd.spo2)}" inputmode="numeric"></div>
-            <!-- ⭐️ جدید: RR کنار SpO2 -->
             <div class="col-6 col-md-3"><label class="form-label small">تنفس (RR) (اختیاری)</label>
               <input type="text" inputmode="numeric" class="form-control text-center" id="vRR" value="${escapeHtml(fd.rr || '')}"></div>
             <div class="col-6 col-md-3"><label class="form-label small">فشار خون</label>
@@ -294,7 +293,6 @@ function renderWizard() {
             </select>
           </div>
 
-          <!-- ⭐️ جدید: بستری موقت -->
           <div class="mb-3">
             <div class="form-check">
               <input class="form-check-input" type="checkbox" id="vAdmitted" ${fd.vAdmitted ? 'checked' : ''}>
@@ -315,7 +313,6 @@ function renderWizard() {
                     <input type="text" class="form-control" id="vDispatchDest" value="${escapeHtml(fd.dispatchDest || '')}" placeholder="نام بیمارستان"></div>
                 </div>
 
-                <!-- ⭐️ جدید: نحوه ارجاع (فقط برای ارجاع) -->
                 <div id="vTransportTypeWrap" class="mt-3 ${fd.treatmentId && isReferral(fd.treatmentId) ? '' : 'hidden'}">
                   <label class="form-label small">نحوه ارجاع (اختیاری)</label>
                   <select class="form-select" id="vTransportType">
@@ -327,7 +324,6 @@ function renderWizard() {
                   </select>
                 </div>
 
-                <!-- ⭐️ جدید: اطلاعات همراه -->
                 <div id="vCompanionWrap" class="mt-3">
                   <div class="form-check mb-2">
                     <input class="form-check-input" type="checkbox" id="vCompanionNeeded" ${fd.vCompanionNeeded ? 'checked' : ''}>
@@ -378,6 +374,21 @@ function renderWizard() {
   `;
 
   bindWizard();
+  mountBannerInWizard();
+}
+
+function mountBannerInWizard() {
+  try {
+    const mount = $('visitBannerMount');
+    if (!mount) return;
+    mountProcessBanner(mount, 'visit-create', {
+      isIncident: state.isIncident,
+      isAdmitted: !!(state.formData?.vAdmitted),
+      isDispatch: isDispatch(state.formData?.treatmentId),
+      isReferral: isReferral(state.formData?.treatmentId),
+      onStep: state.step
+    });
+  } catch (e) { console.warn('banner failed', e); }
 }
 
 function isDispatch(treatmentId) {
@@ -386,7 +397,6 @@ function isDispatch(treatmentId) {
   return t?.name?.includes('اعزام');
 }
 
-// ⭐️ جدید
 function isReferral(treatmentId) {
   if (!treatmentId) return false;
   const t = state.treatments.find(x => String(x.id) === String(treatmentId));
@@ -425,7 +435,7 @@ function bindWizard() {
       if (!btn) return;
       e.preventDefault(); e.stopPropagation();
       pickPatient(
-        parseInt(btn.dataset.pickPatient), 
+        parseInt(btn.dataset.pickPatient),
         btn.dataset.patientName || '',
         btn.dataset.patientNational || '',
         btn.dataset.patientPassport || ''
@@ -436,7 +446,6 @@ function bindWizard() {
   const pClear = $('vPatientClear');
   if (pClear) pClear.onclick = () => { state.patientId = null; state.patientName = ''; renderWizard(); };
 
-  // ⭐️ واحد کاری بیمار (بعد از انتخاب بیمار)
   const pWorkUnit = $('vPatientWorkUnit');
   if (pWorkUnit) {
     pWorkUnit.addEventListener('blur', async () => {
@@ -497,8 +506,8 @@ function bindWizard() {
         try {
           await broadcastIncidentAlert({
             patientName: state.patientName || '',
-            patientId:   state.patientId   || null,
-            visitId:     null,
+            patientId: state.patientId || null,
+            visitId: null,
           });
         } catch (e) {
           console.error('[Alert] Broadcast failed:', e);
@@ -588,7 +597,7 @@ function bindWizard() {
     const el = $(id); if (el) el.addEventListener('input', saveFormState);
   });
   ['vAdmitted','vCompanionNeeded'].forEach(id => {
-    const el = $(id); if (el) el.addEventListener('change', saveFormState);
+    const el = $(id); if (el) el.addEventListener('change', () => { saveFormState(); mountBannerInWizard(); });
   });
 
   const dateEl = $('vDate'); if (dateEl) dateEl.addEventListener('input', saveFormState);
@@ -650,11 +659,11 @@ function bindWizard() {
     }
   });
 
-  const addBtn = $('vAddDrug'); 
+  const addBtn = $('vAddDrug');
   if (addBtn) addBtn.onclick = () => openItemSearchModal(false);
-  const addConsBtn = $('vAddConsumable'); 
+  const addConsBtn = $('vAddConsumable');
   if (addConsBtn) addConsBtn.onclick = () => openItemSearchModal(true);
-  const fabAdd = $('vFabAdd'); 
+  const fabAdd = $('vFabAdd');
   if (fabAdd) fabAdd.onclick = () => openItemSearchModal(state.step === 6);
 
   const itemsList = $('vItemsList');
@@ -697,7 +706,6 @@ function bindWizard() {
     });
   }
 
-  // ⭐️ Treatment with isReferral support
   const treatmentSel = $('vTreatment');
   if (treatmentSel) treatmentSel.onchange = e => {
     state.formData.treatmentId = e.target.value;
@@ -719,13 +727,8 @@ function bindWizard() {
       dispatchSection?.classList.add('hidden');
     }
 
-    if (transportWrap) {
-      transportWrap.classList.toggle('hidden', !referral);
-    }
-
-    if (companionWrap) {
-      companionWrap.classList.toggle('hidden', !(dispatch || referral));
-    }
+    if (transportWrap) transportWrap.classList.toggle('hidden', !referral);
+    if (companionWrap) companionWrap.classList.toggle('hidden', !(dispatch || referral));
 
     if (dispatch) {
       state.formData.vTransportType = 'ambulance';
@@ -734,6 +737,7 @@ function bindWizard() {
     }
 
     saveFormState();
+    mountBannerInWizard();
   };
 
   const dtEl = $('vDispatchTime'); if (dtEl) dtEl.addEventListener('input', saveFormState);
@@ -743,18 +747,6 @@ function bindWizard() {
   const notesEl = $('vNotes'); if (notesEl) notesEl.addEventListener('input', saveFormState);
 
   calcGCS(); calcBMI();
-
-  // ⭐️ در اولین بارگذاری: بخش‌ها را بر اساس treatmentId فعلی به‌روز کن
-  if (fd.treatmentId) {
-    const dispatch = isDispatch(fd.treatmentId);
-    const referral = isReferral(fd.treatmentId);
-    const dispatchSection = $('vDispatchSection');
-    const transportWrap = $('vTransportTypeWrap');
-    const companionWrap = $('vCompanionWrap');
-    if (dispatchSection) dispatchSection.classList.toggle('hidden', !(dispatch || referral));
-    if (transportWrap) transportWrap.classList.toggle('hidden', !referral);
-    if (companionWrap) companionWrap.classList.toggle('hidden', !(dispatch || referral));
-  }
 
   const btnPrev = $('btnPrev');
   if (btnPrev) btnPrev.onclick = () => {
@@ -786,7 +778,7 @@ function bindWizard() {
 }
 
 // ═══════════════════════════════════════════════════════
-// مودال ثبت سریع بیمار (+ واحد کاری + محل تولد)
+// مودال ثبت سریع بیمار
 // ═══════════════════════════════════════════════════════
 function openQuickPatientModal() {
   const existing = $('quickPatientModal');
@@ -827,7 +819,6 @@ function openQuickPatientModal() {
             <div class="mb-2"><input type="text" id="qpPersonnelCode" class="form-control" placeholder="کد پرسنلی" dir="ltr"></div>
             <div class="mb-2"><input type="text" id="qpCompanyName" class="form-control" placeholder="نام شرکت"></div>
             <div class="mb-2"><input type="text" id="qpDateOfBirth" class="form-control" placeholder="تاریخ تولد (مثال: 1370/01/15)" dir="ltr"></div>
-            <!-- ⭐️ جدید -->
             <div class="mb-2"><input type="text" id="qpWorkUnit" class="form-control" placeholder="واحد کاری (اختیاری)" list="workUnitListModal"></div>
             <div class="mb-2"><input type="text" id="qpBirthPlace" class="form-control" placeholder="محل تولد (اختیاری)"></div>
             <datalist id="workUnitListModal"></datalist>
@@ -901,9 +892,7 @@ function openQuickPatientModal() {
 
     if (!firstName || !lastName) { errEl.textContent = '❌ نام و نام خانوادگی الزامی است.'; return; }
     if (!selectedGender) { errEl.textContent = '❌ جنسیت را انتخاب کنید.'; return; }
-    if (!nationalCode && !passportNo) {
-      errEl.textContent = '❌ کد ملی یا شماره پاسپورت الزامی است.'; return;
-    }
+    if (!nationalCode && !passportNo) { errEl.textContent = '❌ کد ملی یا شماره پاسپورت الزامی است.'; return; }
     if (nationalCode) {
       if (nationalCode.length !== 10 || !/^\d+$/.test(nationalCode)) {
         errEl.textContent = '❌ کد ملی باید ۱۰ رقم عددی باشد.'; return;
@@ -942,7 +931,6 @@ function openQuickPatientModal() {
       };
 
       if (passportNo) payload.passport_number = passportNo;
-
       if (dobInput) {
         const g = jalaliToGregorian(dobInput);
         if (g) payload.date_of_birth = g;
@@ -951,7 +939,6 @@ function openQuickPatientModal() {
       const { data: newPatient, error } = await sb.from('core_patient').insert(payload).select().single();
       if (error) throw error;
 
-      // ⭐️ ذخیره واحد کاری و محل تولد در patient_extra
       if (workUnit || birthPlace) {
         try {
           await savePatientExtra(newPatient.id, {
@@ -1036,12 +1023,8 @@ function openNationalCodeFixModal(patient) {
     const errEl = $('fixError');
     errEl.textContent = '';
 
-    if (!nc && !pp) {
-      errEl.textContent = '❌ کد ملی یا شماره پاسپورت الزامی است.'; return;
-    }
-    if (nc && (nc.length !== 10 || !/^\d+$/.test(nc))) {
-      errEl.textContent = '❌ کد ملی باید ۱۰ رقم عددی باشد.'; return;
-    }
+    if (!nc && !pp) { errEl.textContent = '❌ کد ملی یا شماره پاسپورت الزامی است.'; return; }
+    if (nc && (nc.length !== 10 || !/^\d+$/.test(nc))) { errEl.textContent = '❌ کد ملی باید ۱۰ رقم عددی باشد.'; return; }
     if (nc) {
       const { data: dup } = await sb.from('core_patient').select('id').eq('national_code', nc).neq('id', patient.id).limit(1);
       if (dup?.length) { errEl.textContent = '❌ این کد ملی قبلاً برای بیمار دیگری ثبت شده است.'; return; }
@@ -1125,8 +1108,8 @@ async function searchPatients(q) {
     const meta = [p.national_code, p.personnel_number].filter(Boolean).join(' | ');
     return `
       <button type="button" class="btn btn-light w-100 text-end mb-1 py-2"
-        data-pick-patient="${p.id}" 
-        data-patient-name="${escapeHtml(name)}" 
+        data-pick-patient="${p.id}"
+        data-patient-name="${escapeHtml(name)}"
         data-patient-meta="${escapeHtml(meta)}"
         data-patient-national="${escapeHtml(p.national_code || '')}"
         data-patient-passport="${escapeHtml(p.passport_number || '')}"
@@ -1144,16 +1127,13 @@ function pickPatient(id, name, nationalCode, passportNumber) {
 
   if (!hasNational && !hasPassport) {
     sb.from('core_patient').select('*').eq('id', id).single().then(({ data }) => {
-      if (data) {
-        openNationalCodeFixModal(data);
-      } else {
-        toast('بیمار یافت نشد', 'danger');
-      }
+      if (data) openNationalCodeFixModal(data);
+      else toast('بیمار یافت نشد', 'danger');
     });
     return;
   }
 
-  state.patientId = id; 
+  state.patientId = id;
   state.patientName = name;
   state.step = 2;
   if (state.step > state.maxStep) state.maxStep = state.step;
@@ -1161,14 +1141,12 @@ function pickPatient(id, name, nationalCode, passportNumber) {
   setTimeout(() => toast(`بیمار "${name}" انتخاب شد`, 'success'), 100);
   beep();
 
-  // ⭐️ بررسی واحد کاری موجود
   loadPatientExtra(id).then(({ data: pe }) => {
     const wrap = $('vPatientWorkUnitWrap');
     const input = $('vPatientWorkUnit');
     if (!wrap || !input) return;
     if (!pe?.work_unit) {
       wrap.classList.remove('hidden');
-      // پر کردن datalist با واحدهای موجود (اختیاری)
       sb.from('patient_extra').select('work_unit').not('work_unit', 'is', null).limit(200).then(({ data }) => {
         const dl = $('workUnitList');
         if (!dl || !data) return;
@@ -1209,8 +1187,8 @@ function renderQuickList(boxId, filterFn, type) {
         <span class="btn-edit-action danger" data-action="toggle" data-quick-drug="${d.id}">${hidden ? '👁' : '❌'}</span>
       </div>`;
     }
-    return `<button type="button" class="quick-drug-btn" 
-      data-quick-drug="${d.id}" 
+    return `<button type="button" class="quick-drug-btn"
+      data-quick-drug="${d.id}"
       data-quick-name="${escapeHtml(d.name)}"
       data-quick-type="${type}">
       <span style="margin-left:6px;">${d.icon || (type === 'consumable' ? '🩹' : '💊')}</span>${escapeHtml(d.name)}</button>`;
@@ -1260,7 +1238,7 @@ async function openItemSearchModal(isConsumable) {
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
-            <input type="text" id="itemSearchInput" class="form-control mb-3" 
+            <input type="text" id="itemSearchInput" class="form-control mb-3"
               placeholder="تایپ کنید..." autocomplete="off" dir="auto">
             <div id="itemSearchResults" style="max-height:50vh;overflow-y:auto;"></div>
           </div>
@@ -1332,12 +1310,10 @@ async function openItemSearchModal(isConsumable) {
 function renderItems() {
   const list = $('vItemsList');
   if (!list) return;
-  const entries = state.items
-    .map((it, idx) => ({ it, idx }))
-    .filter(x => (x.it.type || 'drug') === 'drug');
-  if (!entries.length) { 
-    list.innerHTML = '<div class="text-center muted small py-3">دارویی اضافه نشده</div>'; 
-    return; 
+  const entries = state.items.map((it, idx) => ({ it, idx })).filter(x => (x.it.type || 'drug') === 'drug');
+  if (!entries.length) {
+    list.innerHTML = '<div class="text-center muted small py-3">دارویی اضافه نشده</div>';
+    return;
   }
   list.innerHTML = entries.map(({ it, idx }) => `
     <div class="item-card">
@@ -1362,12 +1338,10 @@ function renderItems() {
 function renderConsumables() {
   const list = $('vConsumablesList');
   if (!list) return;
-  const entries = state.items
-    .map((it, idx) => ({ it, idx }))
-    .filter(x => x.it.type === 'consumable');
-  if (!entries.length) { 
-    list.innerHTML = '<div class="text-center muted small py-3">لوزام مصرفی اضافه نشده</div>'; 
-    return; 
+  const entries = state.items.map((it, idx) => ({ it, idx })).filter(x => x.it.type === 'consumable');
+  if (!entries.length) {
+    list.innerHTML = '<div class="text-center muted small py-3">لوزام مصرفی اضافه نشده</div>';
+    return;
   }
   list.innerHTML = entries.map(({ it, idx }) => `
     <div class="item-card" style="border-right-color:#0891b2;">
@@ -1483,9 +1457,9 @@ async function saveVisit() {
     if (state.items.length) {
       await sb.from('visits_visititem').insert(
         state.items.map(it => ({
-          visit_id: visit.id, 
+          visit_id: visit.id,
           drug_id: it.drug_id,
-          quantity: it.quantity, 
+          quantity: it.quantity,
           notes: it.notes || null
         }))
       );
@@ -1499,7 +1473,6 @@ async function saveVisit() {
 
     await logChange(visit.id, 'create', [], 'ایجاد ویزیت');
 
-    // ⭐️ ذخیره اطلاعات تکمیلی ویزیت (visit_extra)
     try {
       const vRR = $('vRR')?.value?.trim();
       const vSymptomTime = $('vSymptomTime')?.value;
@@ -1526,10 +1499,7 @@ async function saveVisit() {
         companion_phone: vCompanionPhone || undefined
       };
 
-      const hasExtra = Object.values(extra).some(
-        (v) => v !== undefined && v !== false && v !== ''
-      );
-
+      const hasExtra = Object.values(extra).some(v => v !== undefined && v !== false && v !== '');
       if (hasExtra) {
         try {
           await saveVisitExtra(visit.id, extra);
@@ -1547,7 +1517,6 @@ async function saveVisit() {
     resetFormData();
     state.view = 'list';
     renderList();
-
   } catch (e) {
     console.error(e);
     alert('❌ ' + e.message);
