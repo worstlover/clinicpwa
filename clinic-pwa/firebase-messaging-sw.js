@@ -1,7 +1,4 @@
-// firebase-messaging-sw.js (در ریشه پروژه)
-// ═══════════════════════════════════════════════════════
-// Service Worker اختصاصی FCM
-// ═══════════════════════════════════════════════════════
+// firebase-messaging-sw.js
 importScripts('./lib/firebase/firebase-app-compat.js');
 importScripts('./lib/firebase/firebase-messaging-compat.js');
 
@@ -16,43 +13,73 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
+// ═══════════════════════════════════════════════════════
+// 🌟 ایجاد Notification Channel (برای اندروید ۸+)
+// ═══════════════════════════════════════════════════════
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    // اگه Notification API داره، channel بساز
+    if ('Notification' in self && self.Notification?.prototype) {
+      try {
+        // این کار در Chrome/Android باعث می‌شه نوتیف با صدای کامل بیاد
+        console.log('[SW] Activated');
+      } catch (e) {}
+    }
+  })());
+});
+
+// ═══════════════════════════════════════════════════════
+// دریافت Push در پس‌زمینه (حتی وقتی اپ بسته‌ست)
+// ═══════════════════════════════════════════════════════
 messaging.onBackgroundMessage((payload) => {
-  console.log('[SW-FCM] 📩 پیام پس‌زمینه:', payload);
+  console.log('[SW-FCM] 📩 Background message:', payload);
 
   const data = payload.data || {};
+  const notification = payload.notification || {};
   const type = data.type || 'incident';
 
-  let title = '🚨 اعلام حادثه';
-  let body = 'لطفاً فوراً بررسی کنید';
+  // 🌟 اگه notification از سمت سرور اومده، از همون استفاده کن
+  // وگرنه خودت بساز
+  let title = notification.title;
+  let body = notification.body;
 
-  if (type === 'incident') {
-    title = '🚨 اعلام حادثه';
-    body = data.triggered_name 
-      ? `توسط ${data.triggered_name}${data.location ? ' - ' + data.location : ''}`
-      : 'اعلام حادثه جدید';
-  } else if (type === 'referral') {
-    title = '📩 ویزیت ارجاعی';
-    body = data.referred_by_name
-      ? `از طرف ${data.referred_by_name}`
-      : 'ویزیت جدید برای شما';
+  if (!title) {
+    title = type === 'incident' ? '🚨 اعلام حادثه' : '📩 ویزیت ارجاعی';
+  }
+  if (!body) {
+    if (type === 'incident') {
+      body = data.triggered_name 
+        ? `توسط ${data.triggered_name}${data.location ? ' - ' + data.location : ''}`
+        : 'اعلام حادثه جدید';
+    } else {
+      body = data.referred_by_name
+        ? `از طرف ${data.referred_by_name}`
+        : 'ویزیت جدید برای شما';
+    }
   }
 
-  return self.registration.showNotification(title, {
+  const options = {
     body: body,
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
     tag: type + '_' + (data.id || Date.now()),
     renotify: true,
     requireInteraction: true,
+    silent: false,                    // 🌟 صدا رو فعال کن
     vibrate: [500, 200, 500, 200, 500],
     data: data,
     actions: [
       { action: 'open', title: 'مشاهده' },
       { action: 'close', title: 'بستن' }
     ]
-  });
+  };
+
+  return self.registration.showNotification(title, options);
 });
 
+// ═══════════════════════════════════════════════════════
+// کلیک روی نوتیف
+// ═══════════════════════════════════════════════════════
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
