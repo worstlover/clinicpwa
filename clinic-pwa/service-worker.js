@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE = 'clinic-drugs-v11';
+const CACHE = 'clinic-drugs-v13';
 
 const ASSETS = [
   './',
@@ -41,9 +41,22 @@ const ASSETS = [
   './js/forms/registry.js',
   './js/forms/engine.js',
   './js/forms/print.css',
+  './js/forms/visit-data.js',
+  './js/forms/templates/form34.js',
+  './js/forms/templates/form36.js',
+  './js/forms/templates/form37.js',
+  './js/forms/templates/form38.js',
+  './js/forms/templates/form39.js',
   './js/forms/templates/form48.js',
   './js/forms/templates/form49.js',
   './js/forms/templates/form50.js',
+
+  // ═══ راهنمای فرآیندها ═══
+  './js/process/processes.js',
+  './js/process/guide.js',
+  './js/process/banner.js',
+  './js/process/sample.js',
+  './js/process/process.css',
 
   // ═══ ماژول ویزیت ═══
   './js/modules/visit/index.js',
