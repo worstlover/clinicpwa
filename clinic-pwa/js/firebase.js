@@ -1,7 +1,4 @@
 // js/firebase.js
-// ═══════════════════════════════════════════════════════
-// تنظیمات Firebase (نسخه محلی)
-// ═══════════════════════════════════════════════════════
 import { initializeApp } from '../lib/firebase/firebase-app.js';
 import { getMessaging, isSupported } from '../lib/firebase/firebase-messaging.js';
 
@@ -14,7 +11,6 @@ const firebaseConfig = {
   appId: "1:162768973465:web:af9c9f092531290a83d208"
 };
 
-// 🌟 VAPID Key از Firebase Console → Project Settings → Cloud Messaging → Web Push certificates
 export const VAPID_KEY = 'BJv_QoXImDpAqUq__0I6PsPxEZ3xUVXXC2tDH_fQcjrMI4FTVEKxI6voDplW0WFi4qIJm1wgqJRO0SPFTNMTn7I';
 
 export const firebaseApp = initializeApp(firebaseConfig);
@@ -26,14 +22,18 @@ export async function getMessagingInstance() {
   
   try {
     const supported = await isSupported();
+    console.log('[FCM] isSupported:', supported);
+    
     if (!supported) {
       console.warn('[FCM] این مرورگر پشتیبانی نمی‌شود');
       return null;
     }
+    
     messagingInstance = getMessaging(firebaseApp);
+    console.log('[FCM] messaging instance ساخته شد');
     return messagingInstance;
   } catch (e) {
-    console.warn('[FCM] خطا در راه‌اندازی:', e);
+    console.error('[FCM] خطا در ساخت messaging instance:', e);
     return null;
   }
 }
