@@ -37,13 +37,11 @@ await build({
   entryPoints: [join(ROOT, 'js/app.js')],
   outdir: join(OUT, 'js'),
   entryNames: '[name]',
-  chunkNames: 'chunk-[hash]',
   bundle: true,
-  splitting: true,
   format: 'esm',
   target: 'es2020',
   minify: true,
-  external: ['https://*', 'http://*'], // CDNها (مثل فایربیس) باندل نشن
+  external: ['https://*', 'http://*'],
   logLevel: 'info'
 });
 
