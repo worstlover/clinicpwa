@@ -14,58 +14,59 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 
 // ═══════════════════════════════════════════════════════
-// 🌟 ایجاد Notification Channel (برای اندروید ۸+)
+// جلوگیری از نوتیف تکراری
 // ═══════════════════════════════════════════════════════
-self.addEventListener('activate', (event) => {
-  event.waitUntil((async () => {
-    // اگه Notification API داره، channel بساز
-    if ('Notification' in self && self.Notification?.prototype) {
-      try {
-        // این کار در Chrome/Android باعث می‌شه نوتیف با صدای کامل بیاد
-        console.log('[SW] Activated');
-      } catch (e) {}
-    }
-  })());
-});
+const recentNotifications = new Map();
+const DEDUP_WINDOW_MS = 5000;
+
+function isDuplicate(key) {
+  const now = Date.now();
+  // پاک‌سازی قدیمی‌ها
+  for (const [k, t] of recentNotifications.entries()) {
+    if (now - t > DEDUP_WINDOW_MS) recentNotifications.delete(k);
+  }
+  if (recentNotifications.has(key)) return true;
+  recentNotifications.set(key, now);
+  return false;
+}
 
 // ═══════════════════════════════════════════════════════
-// دریافت Push در پس‌زمینه (حتی وقتی اپ بسته‌ست)
+// Background Message Handler
 // ═══════════════════════════════════════════════════════
 messaging.onBackgroundMessage((payload) => {
-  console.log('[SW-FCM] 📩 Background message:', payload);
+  console.log('[SW-FCM] 📩 Background:', payload);
 
   const data = payload.data || {};
-  const notification = payload.notification || {};
   const type = data.type || 'incident';
+  const id = data.id || Date.now();
 
-  // 🌟 اگه notification از سمت سرور اومده، از همون استفاده کن
-  // وگرنه خودت بساز
-  let title = notification.title;
-  let body = notification.body;
+  // 🌟 جلوگیری از تکرار
+  const dedupKey = `${type}_${id}`;
+  if (isDuplicate(dedupKey)) {
+    console.log('[SW-FCM] Duplicate skipped:', dedupKey);
+    return;
+  }
 
-  if (!title) {
-    title = type === 'incident' ? '🚨 اعلام حادثه' : '📩 ویزیت ارجاعی';
-  }
-  if (!body) {
-    if (type === 'incident') {
-      body = data.triggered_name 
-        ? `توسط ${data.triggered_name}${data.location ? ' - ' + data.location : ''}`
-        : 'اعلام حادثه جدید';
-    } else {
-      body = data.referred_by_name
-        ? `از طرف ${data.referred_by_name}`
-        : 'ویزیت جدید برای شما';
-    }
-  }
+  // 🌟 title و body از data
+  const title = data.title || (type === 'incident' ? '🚨 اعلام حادثه' : '📩 ویزیت ارجاعی');
+  const body = data.body || (
+    type === 'incident'
+      ? (data.triggered_name 
+          ? `توسط ${data.triggered_name}${data.location ? ' - ' + data.location : ''}`
+          : 'اعلام حادثه جدید')
+      : (data.referred_by_name 
+          ? `از طرف ${data.referred_by_name}`
+          : 'ویزیت جدید برای شما')
+  );
 
   const options = {
     body: body,
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
-    tag: type + '_' + (data.id || Date.now()),
+    tag: dedupKey,
     renotify: true,
     requireInteraction: true,
-    silent: false,                    // 🌟 صدا رو فعال کن
+    silent: false,
     vibrate: [500, 200, 500, 200, 500],
     data: data,
     actions: [
@@ -78,7 +79,7 @@ messaging.onBackgroundMessage((payload) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// کلیک روی نوتیف
+// Notification Click
 // ═══════════════════════════════════════════════════════
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
