@@ -12,6 +12,7 @@ import { openProfile } from './modules/profile.js';
 import { openOccupational } from './modules/occupational.js';
 import { openVisits } from './modules/visit/index.js';
 import { openForms } from './forms/engine.js';
+import { openGuide } from './process/guide.js';
 
 initQtyModal();
 initSearchModal();
@@ -56,6 +57,7 @@ document.querySelectorAll('[data-nav]').forEach(el => {
     else if (n === 'profile') openProfile();
     else if (n === 'occupational') openOccupational();
     else if (n === 'forms') openForms();
+    else if (n === 'guide') openGuide();
   });
 });
 
