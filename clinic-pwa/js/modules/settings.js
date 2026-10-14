@@ -1,10 +1,7 @@
 // js/modules/settings.js
-// ═══════════════════════════════════════════════════════
-// صفحه تنظیمات هشدارها
-// ═══════════════════════════════════════════════════════
 import { sb } from '../sb.js';
 import { $, toast, escapeHtml } from '../utils.js';
-import { getPermissionStatus } from '../fcm.js';
+import { getPermissionStatus, getTokenStatus, requestPermissionAndInit } from '../fcm.js';
 
 let currentPrefs = {
   incident_alerts_mode: 'shift',
@@ -12,11 +9,8 @@ let currentPrefs = {
 };
 
 export async function openSettings() {
-  const c = $('profileContent');   // یا هر کانتینری که استفاده می‌کنی
-  if (!c) {
-    console.warn('[Settings] No container found');
-    return;
-  }
+  const c = $('profileContent');
+  if (!c) return;
 
   c.innerHTML = `
     <div class="card">
@@ -30,7 +24,7 @@ export async function openSettings() {
   `;
 
   await loadPrefs();
-  renderSettings();
+  await renderSettings();
 }
 
 async function loadPrefs() {
@@ -38,16 +32,8 @@ async function loadPrefs() {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
 
-    const { data, error } = await sb
-      .from('user_notification_preferences')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (error) {
-      console.error('[Settings] Load failed:', error);
-      return;
-    }
+    const { data } = await sb.from('user_notification_preferences')
+      .select('*').eq('user_id', user.id).maybeSingle();
 
     if (data) {
       currentPrefs = {
@@ -55,107 +41,146 @@ async function loadPrefs() {
         referral_alerts_enabled: data.referral_alerts_enabled ?? true,
       };
     } else {
-      // ساخت پیش‌فرض
       await sb.from('user_notification_preferences').insert({
         user_id: user.id,
         incident_alerts_mode: 'shift',
         referral_alerts_enabled: true,
       });
     }
-  } catch (e) {
-    console.error(e);
-  }
+  } catch (e) { console.error(e); }
 }
 
-function renderSettings() {
+async function renderSettings() {
   const body = $('settingsBody');
   if (!body) return;
 
   const perm = getPermissionStatus();
+  const tokenStatus = await getTokenStatus();
 
-  // پیام درخواست اجازه
-  let permAlert = '';
-  if (perm === 'default') {
-    permAlert = `
-      <div class="alert alert-warning small">
-        <i class="bi bi-exclamation-triangle"></i>
-        برای دریافت هشدار در پس‌زمینه، باید اجازه نوتیفیکیشن بدی.
-        <button class="btn btn-sm btn-warning mt-2 w-100" id="btnRequestPerm">
-          <i class="bi bi-bell"></i> اجازه دادن
-        </button>
-      </div>`;
-  } else if (perm === 'denied') {
-    permAlert = `
-      <div class="alert alert-danger small">
-        <i class="bi bi-x-circle"></i>
-        <strong>نوتیفیکیشن مسدوده.</strong> برای فعال‌سازی:
-        توی تنظیمات مرورگر، برای این سایت نوتیفیکیشن رو فعال کن.
-      </div>`;
-  } else if (perm === 'unsupported') {
-    permAlert = `
-      <div class="alert alert-secondary small">
-        <i class="bi bi-info-circle"></i>
-        مرورگر شما از نوتیفیکیشن پشتیبانی نمی‌کند.
-      </div>`;
-  } else if (perm === 'granted') {
-    permAlert = `
-      <div class="alert alert-success small">
-        <i class="bi bi-check-circle-fill"></i>
-        نوتیفیکیشن فعال است. ✅
-      </div>`;
+  // ─── کارت وضعیت هشدارها ───
+  const permColor = {
+    granted: 'success', default: 'warning', denied: 'danger', unsupported: 'gray'
+  }[perm] || 'gray';
+  
+  const permLabel = {
+    granted: 'فعال ✅', default: 'داده نشده', denied: 'مسدود ❌', unsupported: 'پشتیبانی نمی‌شود'
+  }[perm] || perm;
+
+  let tokenLabel = 'ذخیره نشده';
+  let tokenColor = 'danger';
+  if (tokenStatus.saved) {
+    tokenLabel = 'ذخیره شده ✅';
+    tokenColor = 'success';
+  } else if (tokenStatus.count > 0) {
+    tokenLabel = 'توکن قدیمی موجود';
+    tokenColor = 'warning';
+  }
+
+  let lastSeenLabel = '—';
+  if (tokenStatus.lastSeen) {
+    const d = new Date(tokenStatus.lastSeen);
+    lastSeenLabel = d.toLocaleString('fa-IR');
   }
 
   body.innerHTML = `
-    ${permAlert}
+    <!-- 🌟 کارت وضعیت -->
+    <div class="alert alert-info" style="border-radius:12px;">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span>وضعیت اجازه:</span>
+        <span class="badge-soft ${permColor}">${permLabel}</span>
+      </div>
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span>توکن FCM:</span>
+        <span class="badge-soft ${tokenColor}">${tokenLabel}</span>
+      </div>
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span>آخرین فعالیت:</span>
+        <span class="small muted">${lastSeenLabel}</span>
+      </div>
+      <div class="d-flex justify-content-between align-items-center">
+        <span>تعداد دستگاه‌ها:</span>
+        <span class="small muted">${tokenStatus.count}</span>
+      </div>
+    </div>
 
+    <!-- 🌟 دکمه‌های اقدام -->
+    ${perm !== 'granted' ? `
+      <button class="btn btn-primary w-100 mb-2" id="btnEnableAlerts">
+        <i class="bi bi-bell-fill"></i> فعال‌سازی هشدارها
+      </button>
+    ` : `
+      <button class="btn btn-outline-primary w-100 mb-2" id="btnTestNotif">
+        <i class="bi bi-send"></i> ارسال نوتیف آزمایشی
+      </button>
+    `}
+
+    <!-- 🌟 راهنمای denied -->
+    ${perm === 'denied' ? `
+      <div class="alert alert-danger small">
+        <strong><i class="bi bi-info-circle"></i> چطور فعال کنم؟</strong>
+        <div style="margin-top:8px;line-height:1.9;">
+          تنظیمات گوشی ← برنامه‌ها ← کلینیک ← اعلان‌ها ← <strong>فعال کنید</strong>
+          <br>
+          و دسته‌ی اعلان را روی <strong>Pop on screen / Urgent</strong> بگذارید.
+        </div>
+      </div>
+    ` : ''}
+
+    <!-- 🌟 راهنمای کلی اندروید -->
+    <details class="mt-3" style="background:#f8fafc;padding:12px;border-radius:12px;">
+      <summary style="cursor:pointer;font-weight:700;color:#0d6efd;">
+        <i class="bi bi-gear"></i> راهنمای هشدار در پس‌زمینه (اندروید)
+      </summary>
+      <div style="margin-top:12px;font-size:0.85rem;line-height:2;">
+        <strong>برای اینکه هشدار حتی با اپ بسته کار کند:</strong>
+        <ol style="padding-right:20px;">
+          <li>تنظیمات ← باتری ← <strong>Unrestricted</strong> برای این اپ</li>
+          <li>خاموش کردن <strong>Pause app activity</strong> در تنظیمات اپ</li>
+          <li>فعال‌سازی <strong>Autostart</strong> (شیائومی/هواوی/سامسونگ/اوپو)</li>
+          <li>استثنا در <strong>Do Not Disturb</strong></li>
+        </ol>
+        <div class="alert alert-light small mt-2" style="margin-bottom:0;">
+          💡 نمایش «بالای صفحه» (Heads-up) با تنظیم کانال اعلان در اندروید کنترل می‌شود، نه با کد.
+        </div>
+      </div>
+    </details>
+
+    <hr class="my-4">
+
+    <!-- ─── حالت دریافت حادثه ─── -->
     <h6 class="mt-3 mb-3" style="font-weight:700;">
       <i class="bi bi-exclamation-triangle-fill" style="color:#dc2626;"></i>
       دریافت هشدار حادثه
     </h6>
-    <p class="small muted mb-3">
-      در چه مواقعی می‌خواهی هشدار حادثه دریافت کنی؟
-    </p>
+    <p class="small muted mb-3">در چه مواقعی هشدار حادثه بگیرم؟</p>
 
     <div class="option-list">
-      <label class="option-card ${currentPrefs.incident_alerts_mode === 'always' ? 'selected' : ''}" 
-             data-mode="always">
-        <input type="radio" name="incidentMode" value="always" 
-               ${currentPrefs.incident_alerts_mode === 'always' ? 'checked' : ''}>
-        <div class="option-icon">🔔</div>
-        <div class="option-body">
-          <div class="option-title">همیشه</div>
-          <div class="option-desc">حتی اگه امروز لاگین نکرده باشم</div>
-        </div>
-      </label>
-
-      <label class="option-card ${currentPrefs.incident_alerts_mode === 'shift' ? 'selected' : ''}" 
-             data-mode="shift">
-        <input type="radio" name="incidentMode" value="shift"
-               ${currentPrefs.incident_alerts_mode === 'shift' ? 'checked' : ''}>
-        <div class="option-icon">🌅</div>
-        <div class="option-body">
-          <div class="option-title">فقط شیفت فعال</div>
-          <div class="option-desc">اگه از ساعت ۷ صبح امروز لاگین کرده باشم</div>
-        </div>
-      </label>
-
-      <label class="option-card ${currentPrefs.incident_alerts_mode === 'never' ? 'selected' : ''}" 
-             data-mode="never">
-        <input type="radio" name="incidentMode" value="never"
-               ${currentPrefs.incident_alerts_mode === 'never' ? 'checked' : ''}>
-        <div class="option-icon">🔕</div>
-        <div class="option-body">
-          <div class="option-title">هرگز</div>
-          <div class="option-desc">هیچ هشدار حادثه‌ای دریافت نکن</div>
-        </div>
-      </label>
+      ${['always', 'shift', 'never'].map(mode => {
+        const meta = {
+          always: { icon: '🔔', title: 'همیشه', desc: 'حتی اگه امروز لاگین نکرده باشم' },
+          shift:  { icon: '🌅', title: 'فقط شیفت فعال', desc: 'از ۷ صبح امروز که لاگین کرده‌ام' },
+          never:  { icon: '🔕', title: 'هرگز', desc: 'هیچ هشدار حادثه‌ای نگیرم' },
+        }[mode];
+        const selected = currentPrefs.incident_alerts_mode === mode ? 'selected' : '';
+        return `
+          <label class="option-card ${selected}" data-mode="${mode}">
+            <input type="radio" name="incidentMode" value="${mode}" 
+                   ${currentPrefs.incident_alerts_mode === mode ? 'checked' : ''}>
+            <div class="option-icon">${meta.icon}</div>
+            <div class="option-body">
+              <div class="option-title">${meta.title}</div>
+              <div class="option-desc">${meta.desc}</div>
+            </div>
+          </label>
+        `;
+      }).join('')}
     </div>
 
     <hr class="my-4">
 
     <h6 class="mb-3" style="font-weight:700;">
       <i class="bi bi-envelope-fill" style="color:#0d6efd;"></i>
-      دریافت هشدار ارجاع ویزیت
+      هشدار ارجاع ویزیت
     </h6>
     <div class="toggle-box ${currentPrefs.referral_alerts_enabled ? 'active' : ''}" id="referralToggle">
       <input type="checkbox" class="big-checkbox" id="referralEnabled"
@@ -164,67 +189,91 @@ function renderSettings() {
         دریافت هشدار وقتی ویزیتی به من ارجاع می‌شود
       </label>
     </div>
-
-    <div class="alert alert-info small mt-4">
-      <i class="bi bi-info-circle"></i>
-      تغییرات به‌صورت خودکار ذخیره می‌شوند.
-    </div>
   `;
 
-  // استایل‌های inline
+  // استایل‌ها
   if (!document.getElementById('settingsStyle')) {
     const style = document.createElement('style');
     style.id = 'settingsStyle';
     style.textContent = `
       .option-list { display: flex; flex-direction: column; gap: 10px; }
       .option-card {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 14px 16px;
-        border: 2px solid #e2e8f0;
-        border-radius: 14px;
-        cursor: pointer;
-        background: #fff;
-        transition: all 0.15s;
-        text-align: right;
+        display: flex; align-items: center; gap: 14px;
+        padding: 14px 16px; border: 2px solid #e2e8f0;
+        border-radius: 14px; cursor: pointer; background: #fff;
+        transition: all 0.15s; text-align: right;
       }
       .option-card:active { transform: scale(0.98); }
       .option-card.selected {
-        border-color: #0d6efd;
-        background: #eff6ff;
+        border-color: #0d6efd; background: #eff6ff;
         box-shadow: 0 4px 12px rgba(13, 110, 253, 0.15);
       }
       .option-card input[type="radio"] {
-        margin: 0;
-        flex-shrink: 0;
-        accent-color: #0d6efd;
-        width: 20px;
-        height: 20px;
+        margin: 0; flex-shrink: 0; accent-color: #0d6efd;
+        width: 20px; height: 20px;
       }
       .option-icon { font-size: 1.8rem; flex-shrink: 0; }
       .option-body { flex: 1; }
-      .option-title {
-        font-weight: 700;
-        font-size: 0.95rem;
-        color: #1e293b;
-      }
-      .option-desc {
-        font-size: 0.75rem;
-        color: #64748b;
-        margin-top: 2px;
-      }
+      .option-title { font-weight: 700; font-size: 0.95rem; color: #1e293b; }
+      .option-desc { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
     `;
     document.head.appendChild(style);
   }
 
-  // رویدادها
-  const requestBtn = $('btnRequestPerm');
-  if (requestBtn) {
-    requestBtn.onclick = async () => {
-      const { initFCM } = await import('../fcm.js');
-      await initFCM();
-      renderSettings();
+  // ─── رویدادها ───
+
+  // فعال‌سازی هشدارها
+  const btnEnable = $('btnEnableAlerts');
+  if (btnEnable) {
+    btnEnable.onclick = async () => {
+      const token = await requestPermissionAndInit();
+      if (token) {
+        toast('✅ هشدارها فعال شد', 'success');
+        await renderSettings();
+      }
+    };
+  }
+
+  // نوتیف آزمایشی
+  const btnTest = $('btnTestNotif');
+  if (btnTest) {
+    btnTest.onclick = async () => {
+      btnTest.disabled = true;
+      btnTest.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ارسال...';
+      
+      try {
+        const { data: { session } } = await sb.auth.getSession();
+        if (!session) throw new Error('No session');
+
+        const res = await fetch(
+          'https://<YOUR_PROJECT_REF>.supabase.co/functions/v1/send-incident-notification',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ test: true }),
+          }
+        );
+
+        const data = await res.json();
+        console.log('[Test] Result:', data);
+        
+        if (data.ok && data.sent > 0) {
+          toast(`✅ نوتیف آزمایشی ارسال شد (${data.sent} دستگاه)`, 'success');
+        } else if (data.ok && data.sent === 0) {
+          toast('⚠️ ارسال شد ولی به هیچ دستگاهی نرسید', 'warning');
+        } else {
+          toast('❌ ' + (data.message || 'خطا'), 'danger');
+        }
+      } catch (e) {
+        console.error(e);
+        toast('❌ خطا: ' + e.message, 'danger');
+      }
+      
+      btnTest.disabled = false;
+      btnTest.innerHTML = '<i class="bi bi-send"></i> ارسال نوتیف آزمایشی';
     };
   }
 
@@ -233,21 +282,16 @@ function renderSettings() {
     card.onclick = async () => {
       const mode = card.dataset.mode;
       if (mode === currentPrefs.incident_alerts_mode) return;
-
-      // آپدیت UI
+      
       document.querySelectorAll('.option-card[data-mode]').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
       card.querySelector('input').checked = true;
-
-      // ذخیره
       currentPrefs.incident_alerts_mode = mode;
       await savePrefs();
-
-      // 🌟 اگه "همیشه" یا "شیفت" انتخاب شد و permission نداشتیم، درخواست کن
+      
+      // اگه always/shift انتخاب شد و permission نداشتیم
       if ((mode === 'always' || mode === 'shift') && getPermissionStatus() === 'default') {
-        const { initFCM } = await import('../fcm.js');
-        await initFCM();
-        renderSettings();
+        toast('برای دریافت هشدار، دکمه «فعال‌سازی هشدارها» را بزنید', 'info');
       }
     };
   });
@@ -269,23 +313,17 @@ async function savePrefs() {
   try {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
-
-    const { error } = await sb
-      .from('user_notification_preferences')
-      .upsert({
-        user_id: user.id,
-        incident_alerts_mode: currentPrefs.incident_alerts_mode,
-        referral_alerts_enabled: currentPrefs.referral_alerts_enabled,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' });
-
-    if (error) {
-      console.error('[Settings] Save failed:', error);
-      toast('خطا در ذخیره تنظیمات', 'danger');
-    } else {
-      toast('✅ تنظیمات ذخیره شد', 'success');
-    }
+    const { error } = await sb.from('user_notification_preferences').upsert({
+      user_id: user.id,
+      incident_alerts_mode: currentPrefs.incident_alerts_mode,
+      referral_alerts_enabled: currentPrefs.referral_alerts_enabled,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' });
+    
+    if (error) throw error;
+    toast('✅ ذخیره شد', 'success');
   } catch (e) {
     console.error(e);
+    toast('خطا در ذخیره', 'danger');
   }
 }
