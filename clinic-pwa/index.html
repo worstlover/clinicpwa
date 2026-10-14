@@ -18,6 +18,7 @@
 <link href="lib/bootstrap-icons.min.css" rel="stylesheet">
 <link href="styles/main.css" rel="stylesheet">
 <link href="js/forms/print.css" rel="stylesheet">
+<link href="js/process/process.css" rel="stylesheet">
 
 <script type="importmap">
 {
@@ -168,17 +169,25 @@
     </div>
 
     <div class="menu-section-title" style="margin-top:24px;">
-      <i class="bi bi-file-earmark-text"></i> فرم‌ها
+      <i class="bi bi-diagram-3"></i> راهنما و فرم‌ها
     </div>
     <div class="row g-3">
-      <div class="col-12">
-        <button class="menu-card menu-card-wide" data-nav="forms">
+      <div class="col-6">
+        <button class="menu-card" data-nav="guide">
+          <div class="icon-bg" style="background:#e0e7ff;color:#4f46e5;">
+            <i class="bi bi-diagram-3-fill"></i>
+          </div>
+          <div class="label">راهنمای فرآیندها</div>
+          <div class="sub">مراحل + فرم‌ها</div>
+        </button>
+      </div>
+      <div class="col-6">
+        <button class="menu-card" data-nav="forms">
           <div class="icon-bg" style="background:#fef3c7;color:#d97706;">
             <i class="bi bi-file-earmark-text-fill"></i>
           </div>
-          <div class="label">فرم‌های چاپی</div>
-          <div class="sub">۴۸ / ۴۹ / ۵۰ و سایر فرم‌ها</div>
-          <i class="bi bi-chevron-left" style="position:absolute;left:20px;top:50%;transform:translateY(-50%);font-size:1.5rem;color:#94a3b8;"></i>
+          <div class="label">فرم‌ها</div>
+          <div class="sub">چاپ و آرشیو</div>
         </button>
       </div>
     </div>
@@ -262,6 +271,7 @@
 <div id="screenProfile"      class="screen"><div class="content" id="profileContent"></div></div>
 <div id="screenOccupational" class="screen"><div class="content" id="occContent"></div></div>
 <div id="screenForms"        class="screen"><div class="content" id="formsContent"></div></div>
+<div id="screenGuide"        class="screen"><div class="content" id="guideContent"></div></div>
 
 <!-- ═════════════ نوار پایین ═════════════ -->
 <div class="bottom-nav hidden" id="bottomNav">
