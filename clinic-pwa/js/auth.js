@@ -7,8 +7,8 @@ import { initIncidentAlertListener } from './incident-alert.js';
 import { initReferralAlertListener } from './referral-alert.js';
 import { initAlertCenter } from './alert-center.js';
 import { initQuickIncidentButton } from './quick-incident.js';
-import { initFCM } from './fcm.js';                        // 🌟 جدید
-import { openSettings } from './modules/settings.js';      // 🌟 جدید
+import { initFCM } from './fcm.js';                       // 🌟 باقی می‌مونه ولی صدا زده نمی‌شه در init
+import { openSettings } from './modules/settings.js';
 
 export let currentUser = null;
 export let isAdmin = false;
@@ -19,11 +19,13 @@ async function initAllListeners() {
   try { await initReferralAlertListener(); } catch (e) { console.error('[AUTH] referral:', e); }
   try { await initAlertCenter(); } catch (e) { console.error('[AUTH] alertCenter:', e); }
   try { initQuickIncidentButton(); } catch (e) { console.error('[AUTH] quickIncident:', e); }
-  try { await initFCM(); } catch (e) { console.error('[AUTH] fcm:', e); }   // 🌟
+
+  // 🌟 initFCM فقط اگه permission قبلاً داده شده باشه کار می‌کنه
+  // (اگه نداده، بی‌صدا رد می‌شه)
+  try { await initFCM(); } catch (e) { console.error('[AUTH] fcm:', e); }
 }
 
 export async function doLogin() {
-  console.log('[AUTH] doLogin called');
   let email = $('loginEmail').value.trim();
   const pass = $('loginPass').value;
 
@@ -42,8 +44,11 @@ export async function doLogin() {
   await loadAdminStatus();
 
   await initAllListeners();
-  bindSettingsButton();     // 🌟
+  bindSettingsButton();
   showScreen('Home');
+
+  // 🌟 جدید: چک کن اگه permission default هست، بنر دعوت نشون بده
+  setTimeout(() => maybeShowPermissionBanner(), 800);
 }
 
 export async function checkAuth() {
@@ -53,14 +58,15 @@ export async function checkAuth() {
     $('userEmail').textContent = currentUser.email;
     await loadAdminStatus();
     await initAllListeners();
-    bindSettingsButton();   // 🌟
+    bindSettingsButton();
     showScreen('Home');
+
+    setTimeout(() => maybeShowPermissionBanner(), 800);
   } else {
     showScreen('Login');
   }
 }
 
-// 🌟 بایند کردن دکمه تنظیمات
 function bindSettingsButton() {
   const btn = $('btnSettings');
   if (btn) {
@@ -69,6 +75,141 @@ function bindSettingsButton() {
       setTimeout(() => openSettings(), 100);
     };
   }
+}
+
+// ═══════════════════════════════════════════════════════
+// 🌟 جدید: بنر دعوت به فعال‌سازی نوتیفیکیشن
+// ═══════════════════════════════════════════════════════
+async function maybeShowPermissionBanner() {
+  // اگه permission قبلاً داده یا رد شده، نشون نده
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission !== 'default') return;
+
+  // اگه کاربر قبلاً دیسکیس کرده، نشون نده (تا ۳ روز)
+  const dismissed = localStorage.getItem('fcm_banner_dismissed_until');
+  if (dismissed && Date.now() < parseInt(dismissed)) return;
+
+  // حذف بنر قبلی
+  document.querySelectorAll('.fcm-permission-banner').forEach(el => el.remove());
+
+  const banner = document.createElement('div');
+  banner.className = 'fcm-permission-banner';
+  banner.innerHTML = `
+    <div class="fcm-banner-content">
+      <div class="fcm-banner-icon">🔔</div>
+      <div class="fcm-banner-body">
+        <div class="fcm-banner-title">فعال‌سازی هشدارها</div>
+        <div class="fcm-banner-text">برای دریافت اعلان حادثه و ارجاع، نوتیفیکیشن را فعال کنید.</div>
+      </div>
+      <div class="fcm-banner-actions">
+        <button class="fcm-banner-enable" id="fcmBannerEnable">فعال کن</button>
+        <button class="fcm-banner-close" id="fcmBannerClose" title="بعداً">✕</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(banner);
+
+  // استایل
+  if (!document.getElementById('fcmBannerStyle')) {
+    const style = document.createElement('style');
+    style.id = 'fcmBannerStyle';
+    style.textContent = `
+      .fcm-permission-banner {
+        position: fixed;
+        top: 70px;
+        left: 12px; right: 12px;
+        z-index: 9998;
+        background: linear-gradient(135deg, #0d6efd, #4c1d95);
+        color: #fff;
+        padding: 14px;
+        border-radius: 14px;
+        box-shadow: 0 8px 24px rgba(13, 110, 253, 0.4);
+        animation: fcmBannerSlide 0.4s ease-out;
+      }
+      @keyframes fcmBannerSlide {
+        from { transform: translateY(-20px); opacity: 0; }
+        to   { transform: translateY(0); opacity: 1; }
+      }
+      .fcm-banner-content {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .fcm-banner-icon {
+        font-size: 2rem;
+        animation: fcmBellRing 2s infinite;
+      }
+      @keyframes fcmBellRing {
+        0%, 100% { transform: rotate(0); }
+        10%, 30% { transform: rotate(-15deg); }
+        20%, 40% { transform: rotate(15deg); }
+        50% { transform: rotate(0); }
+      }
+      .fcm-banner-body { flex: 1; }
+      .fcm-banner-title {
+        font-weight: 800;
+        font-size: 0.95rem;
+        margin-bottom: 2px;
+      }
+      .fcm-banner-text {
+        font-size: 0.75rem;
+        opacity: 0.9;
+        line-height: 1.4;
+      }
+      .fcm-banner-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .fcm-banner-enable {
+        background: #fff;
+        color: #0d6efd;
+        border: none;
+        padding: 8px 14px;
+        border-radius: 10px;
+        font-weight: 700;
+        font-size: 0.8rem;
+        cursor: pointer;
+        font-family: inherit;
+        white-space: nowrap;
+      }
+      .fcm-banner-enable:active { transform: scale(0.96); }
+      .fcm-banner-close {
+        background: rgba(255,255,255,0.2);
+        color: #fff;
+        border: none;
+        width: 32px; height: 32px;
+        border-radius: 50%;
+        font-size: 1rem;
+        font-weight: 700;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .fcm-banner-close:active { background: rgba(255,255,255,0.35); }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // 🌟 دکمه فعال‌سازی - از تابع جدید استفاده می‌کنه
+  $('fcmBannerEnable').onclick = async () => {
+    const { requestPermissionAndInit } = await import('./fcm.js');
+    const token = await requestPermissionAndInit();
+    if (token) {
+      banner.remove();
+      // اگه توکن گرفت، بنر رو حذف کن
+      toast('✅ هشدارها فعال شد', 'success');
+    }
+  };
+
+  // دکمه بعداً - ۳ روز مخفی
+  $('fcmBannerClose').onclick = () => {
+    const until = Date.now() + 3 * 24 * 60 * 60 * 1000;
+    localStorage.setItem('fcm_banner_dismissed_until', String(until));
+    banner.remove();
+  };
 }
 
 export async function loadAdminStatus() {
