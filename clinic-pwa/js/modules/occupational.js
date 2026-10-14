@@ -3,6 +3,7 @@ import { sb } from '../sb.js';
 import { $, faNum, escapeHtml, gregorianToJalali, toast } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { saveExamExtra, loadExamExtra } from './extra-data.js';
+import { mountProcessBanner } from '../process/banner.js';
 
 let state = {
   view: 'list',
@@ -21,7 +22,7 @@ export function openOccupational() {
 }
 
 // ═══════════════════════════════════════════════════════
-// صفحه لیست کارگران
+// لیست کارگران
 // ═══════════════════════════════════════════════════════
 async function renderList(query = '') {
   const c = $('occContent');
@@ -91,11 +92,7 @@ async function loadPatients(query = '') {
       if (!e.patient) return;
       const pid = e.patient.id;
       if (!patientMap.has(pid)) {
-        patientMap.set(pid, {
-          ...e.patient,
-          exams: [],
-          last_opinion: null
-        });
+        patientMap.set(pid, { ...e.patient, exams: [], last_opinion: null });
       }
       const p = patientMap.get(pid);
       p.exams.push({
@@ -104,9 +101,7 @@ async function loadPatients(query = '') {
         exam_type: e.exam_type,
         final_opinion_text: e.final_opinion_text
       });
-      if (!p.last_opinion && e.final_opinion_text) {
-        p.last_opinion = e.final_opinion_text;
-      }
+      if (!p.last_opinion && e.final_opinion_text) p.last_opinion = e.final_opinion_text;
     });
 
     state.patients = Array.from(patientMap.values());
@@ -158,7 +153,6 @@ async function loadPatients(query = '') {
         if (patient) openPatient(patient);
       };
     });
-
   } catch (e) {
     console.error(e);
     list.innerHTML = `<div class="alert alert-danger">خطا: ${escapeHtml(e.message)}</div>`;
@@ -166,7 +160,7 @@ async function loadPatients(query = '') {
 }
 
 // ═══════════════════════════════════════════════════════
-// صفحه لیست معاینات کارگر
+// لیست معاینات کارگر
 // ═══════════════════════════════════════════════════════
 function openPatient(patient) {
   state.selectedPatient = patient;
@@ -248,7 +242,7 @@ function renderPatient() {
 }
 
 // ═══════════════════════════════════════════════════════
-// صفحه جزئیات یک معاینه
+// جزئیات معاینه
 // ═══════════════════════════════════════════════════════
 async function openExam(examSummary) {
   state.view = 'exam';
@@ -307,11 +301,11 @@ function renderExam() {
   const jd = e.exam_date ? gregorianToJalali(e.exam_date) : '—';
 
   const LAB_HINT_MAP = {
-    CHO: { id: 1,  name: 'Cholesterol' },
-    TG:  { id: 2,  name: 'Triglycerides' },
-    SGOT:{ id: 8,  name: 'AST' },
-    SGPT:{ id: 9,  name: 'ALT' },
-    FBS: { id: 6,  name: 'FBS' },
+    CHO: { id: 1, name: 'Cholesterol' },
+    TG:  { id: 2, name: 'Triglycerides' },
+    SGOT:{ id: 8, name: 'AST' },
+    SGPT:{ id: 9, name: 'ALT' },
+    FBS: { id: 6, name: 'FBS' },
     ALK: null
   };
 
@@ -333,7 +327,6 @@ function renderExam() {
   const flaggedArr = Array.isArray(exExtra.flagged_tests) ? exExtra.flagged_tests : [];
   const recsArr = Array.isArray(exExtra.recommendations) ? exExtra.recommendations : [];
 
-  // ⭐️ کارت فرم‌های مرتبط (۴۸، ۴۹، ۵۰)
   const _formButtonsHtml = `
     <div class="card" style="border:2px solid #10b981;">
       <div class="card-head" style="background:linear-gradient(135deg,#10b981,#059669);color:#fff;">
@@ -355,7 +348,7 @@ function renderExam() {
     </div>
   `;
 
-  let html = _formButtonsHtml;
+  let html = `<div id="occBannerMount"></div>` + _formButtonsHtml;
 
   html += `
     <div class="card">
@@ -375,7 +368,6 @@ function renderExam() {
     </div>
   `;
 
-  // ⭐️ کارت اطلاعات تکمیلی (پرامپت ۱)
   html += `
     <div class="card" style="border:2px solid #0ea5e9;">
       <div class="card-head" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;">
@@ -474,7 +466,6 @@ function renderExam() {
     </div>
   `;
 
-  // ۱. اندازه‌گیری‌های بالینی
   if (s.clinical) {
     const cm = s.clinical;
     html += `
@@ -615,119 +606,4 @@ function renderExam() {
         <div class="card-head" style="background:linear-gradient(135deg,#64748b,#475569);">
           <i class="bi bi-clipboard-check"></i> جزئیات معاینه اعضا
         </div>
-        <div class="card-body">
-          ${s.details.map(d => `
-            <div class="row-item">
-              <div style="font-weight:700;color:#0d6efd;font-size:0.9rem;">${escapeHtml(d.section || '')}</div>
-              ${d.sign ? `<div class="small">علامت: ${escapeHtml(d.sign)}</div>` : ''}
-              ${d.symptom ? `<div class="small">شکایت: ${escapeHtml(d.symptom)}</div>` : ''}
-              ${d.notes ? `<div class="small muted">${escapeHtml(d.notes)}</div>` : ''}
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  if (e.final_opinion_text || e.final_opinion_conditions) {
-    const opinion = e.final_opinion_text || '';
-    let statusCls = 'gray';
-    if (opinion.includes('بلامانع')) statusCls = 'success';
-    else if (opinion.includes('مشروط')) statusCls = 'warning';
-    else if (opinion.includes('عدم صلاحیت')) statusCls = 'danger';
-
-    html += `
-      <div class="card">
-        <div class="card-head" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);">
-          <i class="bi bi-file-earmark-medical"></i> نظریه نهایی
-        </div>
-        <div class="card-body">
-          <div class="badge-soft ${statusCls}" style="display:inline-flex;padding:8px 14px;font-size:0.85rem;">
-            ${escapeHtml(opinion || '—')}
-          </div>
-          ${e.final_opinion_conditions ? `
-            <div class="mt-3">
-              <div class="muted small mb-1">شروط:</div>
-              <div>${escapeHtml(e.final_opinion_conditions)}</div>
-            </div>
-          ` : ''}
-          ${e.final_opinion_date ? `
-            <div class="mt-2 muted small"><i class="bi bi-calendar"></i> ${gregorianToJalali(e.final_opinion_date)}</div>
-          ` : ''}
-        </div>
-      </div>
-    `;
-  }
-
-  html += `
-    <div class="d-grid gap-2 mt-3 mb-4">
-      <button class="btn btn-outline-secondary" id="occBack">
-        <i class="bi bi-arrow-right"></i> بازگشت به معاینات
-      </button>
-    </div>
-  `;
-
-  c.innerHTML = html;
-
-  // بایند فرم‌های مرتبط (۴۸، ۴۹، ۵۰)
-  c.querySelectorAll('[data-form-open]').forEach(b => {
-    b.onclick = async () => {
-      try {
-        const { openForm } = await import('../forms/engine.js');
-        openForm(b.dataset.formOpen, { examId: e.id, patientId: e.patient_id });
-      } catch (err) {
-        console.error('openForm failed', err);
-        if (typeof toast === 'function') toast('خطا در باز کردن فرم', 'danger');
-      }
-    };
-  });
-
-  $('occBack').onclick = () => {
-    state.view = 'patient';
-    renderPatient();
-  };
-
-  const saveBtn = $('saveExamExtraBtn');
-  if (saveBtn) {
-    saveBtn.onclick = async () => {
-      const flagged = [];
-      if ($('ft_CHO')?.checked) flagged.push('CHO');
-      if ($('ft_TG')?.checked) flagged.push('TG');
-      if ($('ft_SGOT')?.checked) flagged.push('SGOT');
-      if ($('ft_SGPT')?.checked) flagged.push('SGPT');
-      if ($('ft_ALK')?.checked) flagged.push('ALK');
-      if ($('ft_FBS')?.checked) flagged.push('FBS');
-
-      const recs = [];
-      if ($('rec_low_fat')?.checked) recs.push('low_fat');
-      if ($('rec_daily_exercise')?.checked) recs.push('daily_exercise');
-      if ($('rec_weight_loss')?.checked) recs.push('weight_loss');
-      if ($('rec_healthy_diet')?.checked) recs.push('healthy_diet');
-
-      const payload = {
-        exam_kind: $('examKind')?.value || undefined,
-        health_status: $('healthStatus')?.value || undefined,
-        flagged_tests: flagged,
-        recommendations: recs,
-        other_findings: $('otherFindings')?.value?.trim() || undefined,
-        other_recommendation: $('otherRecommendation')?.value?.trim() || undefined
-      };
-
-      saveBtn.disabled = true;
-      saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ذخیره...';
-
-      try {
-        const { error } = await saveExamExtra(s.id, payload);
-        if (error) throw error;
-        toast('✅ اطلاعات تکمیلی ذخیره شد', 'success');
-        state.examExtra = { ...state.examExtra, ...payload };
-      } catch (err) {
-        console.error('saveExamExtra failed', err);
-        toast('ذخیره ناموفق بود', 'danger');
-      } finally {
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = '<i class="bi bi-save"></i> ذخیره اطلاعات تکمیلی';
-      }
-    };
-  }
-}
+        <div class="card-body
