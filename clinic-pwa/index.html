@@ -207,28 +207,28 @@
       </button>
     </div>
 
-    <!-- راهنما و فرم‌ها -->
+    <!-- فرآیندها و فرم‌ها -->
     <div class="home-section">
       <div class="home-section-title">
         <span class="home-section-dot"></span>
-        راهنما و فرم‌ها
+        فرآیندها و فرم‌ها
       </div>
       <div class="home-cards-2col">
-        <button class="home-card" data-nav="guide">
-          <div class="home-card-icon" style="background:#dbeafe;color:#2563eb;">
-            <i class="bi bi-book-fill"></i>
-          </div>
-          <div class="home-card-label">راهنمای کاربری</div>
-          <div class="home-card-sub">آموزش استفاده از بخش‌های اپلیکیشن</div>
-          <i class="bi bi-chevron-left home-card-arrow"></i>
-        </button>
-
-        <button class="home-card" data-nav="forms">
+        <button class="home-card" data-nav="formsMenu">
           <div class="home-card-icon" style="background:#ede9fe;color:#7c3aed;">
             <i class="bi bi-file-earmark-text-fill"></i>
           </div>
-          <div class="home-card-label">فرم‌ها</div>
-          <div class="home-card-sub">دانلود و تکمیل فرم‌های مورد نیاز</div>
+          <div class="home-card-label">فرآیندها و فرم‌ها</div>
+          <div class="home-card-sub">فرم‌ها، راهنما و آرشیو</div>
+          <i class="bi bi-chevron-left home-card-arrow"></i>
+        </button>
+
+        <button class="home-card" data-nav="report">
+          <div class="home-card-icon" style="background:#fef3c7;color:#d97706;">
+            <i class="bi bi-graph-up"></i>
+          </div>
+          <div class="home-card-label">گزارش‌ها</div>
+          <div class="home-card-sub">موجودی و هشدارها</div>
           <i class="bi bi-chevron-left home-card-arrow"></i>
         </button>
       </div>
@@ -241,20 +241,20 @@
         سایر
       </div>
       <div class="home-cards-2col">
-        <button class="home-card" data-nav="report">
-          <div class="home-card-icon" style="background:#fef3c7;color:#d97706;">
-            <i class="bi bi-graph-up"></i>
-          </div>
-          <div class="home-card-label">گزارش‌ها</div>
-          <div class="home-card-sub">موجودی و هشدارها</div>
-          <i class="bi bi-chevron-left home-card-arrow"></i>
-        </button>
         <button class="home-card" data-nav="profile">
           <div class="home-card-icon" style="background:#e0e7ff;color:#4f46e5;">
             <i class="bi bi-person-circle"></i>
           </div>
           <div class="home-card-label">پروفایل</div>
           <div class="home-card-sub">حساب کاربری</div>
+          <i class="bi bi-chevron-left home-card-arrow"></i>
+        </button>
+        <button class="home-card" data-nav="guide">
+          <div class="home-card-icon" style="background:#dbeafe;color:#2563eb;">
+            <i class="bi bi-book-fill"></i>
+          </div>
+          <div class="home-card-label">راهنمای کاربری</div>
+          <div class="home-card-sub">آموزش استفاده از اپلیکیشن</div>
           <i class="bi bi-chevron-left home-card-arrow"></i>
         </button>
       </div>
@@ -308,22 +308,24 @@
 </div>
 
 <!-- ═════════════ صفحات ═════════════ -->
-<div id="screenVisit"        class="screen"><div class="content" id="visitContent"></div></div>
-<div id="screenInventory"    class="screen"><div class="content" id="invContent"></div></div>
-<div id="screenReceive"      class="screen"><div class="content" id="recvContent"></div></div>
-<div id="screenDisposal"     class="screen"><div class="content" id="disp2Content"></div></div>
-<div id="screenReport"       class="screen"><div class="content" id="repContent"></div></div>
-<div id="screenProfile"      class="screen"><div class="content" id="profileContent"></div></div>
-<div id="screenOccupational" class="screen"><div class="content" id="occContent"></div></div>
-<div id="screenForms"        class="screen"><div class="content" id="formsContent"></div></div>
-<div id="screenGuide"        class="screen"><div class="content" id="guideContent"></div></div>
+<div id="screenVisit"          class="screen"><div class="content" id="visitContent"></div></div>
+<div id="screenInventory"      class="screen"><div class="content" id="invContent"></div></div>
+<div id="screenReceive"        class="screen"><div class="content" id="recvContent"></div></div>
+<div id="screenDisposal"       class="screen"><div class="content" id="disp2Content"></div></div>
+<div id="screenReport"         class="screen"><div class="content" id="repContent"></div></div>
+<div id="screenProfile"        class="screen"><div class="content" id="profileContent"></div></div>
+<div id="screenOccupational"   class="screen"><div class="content" id="occContent"></div></div>
+<div id="screenForms"          class="screen"><div class="content" id="formsContent"></div></div>
+<div id="screenFormsMenu"      class="screen"><div class="content" id="formsMenuContent"></div></div>
+<div id="screenFormsArchive"   class="screen"><div class="content" id="formsArchiveContent"></div></div>
+<div id="screenGuide"          class="screen"><div class="content" id="guideContent"></div></div>
 
 <!-- ═════════════ نوار پایین ═════════════ -->
 <div class="bottom-nav hidden" id="bottomNav">
   <a href="#" data-nav="home"><i class="bi bi-house-door-fill"></i>خانه</a>
   <a href="#" data-nav="visits"><i class="bi bi-clipboard2-pulse"></i>ویزیت</a>
   <a href="#" data-nav="pharmacy"><i class="bi bi-prescription2"></i>داروخانه</a>
-  <a href="#" data-nav="report"><i class="bi bi-graph-up"></i>گزارش</a>
+  <a href="#" data-nav="formsMenu"><i class="bi bi-file-earmark-text"></i>فرم‌ها</a>
   <a href="#" data-nav="profile"><i class="bi bi-person-circle"></i>پروفایل</a>
 </div>
 
