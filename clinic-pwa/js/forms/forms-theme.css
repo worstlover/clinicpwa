@@ -3,11 +3,12 @@
    همه‌ی قالب‌ها فقط از این کلاس‌ها استفاده می‌کنند.
    ═══════════════════════════════════════════════════════════════ */
 
-/* ── فونت دست‌نویس محلی برای مقادیر پر شده توسط سیستم ── */
+/* ── فونت نیمه‌دست‌نویس محلی برای مقادیر پر شده توسط سیستم ──
+   فایل: fonts/Mikhak-Bold.woff2 */
 @font-face {
   font-family: 'FormHand';
-  src: url('../../fonts/Mikhak-Bold.woff2') format('truetype');
-  font-weight: 100 900;
+  src: url('../../fonts/Mikhak-Bold.woff2') format('woff2');
+  font-weight: 700;
   font-style: normal;
   font-display: swap;
   unicode-range: U+0600-06FF, U+0750-077F, U+FB50-FDFF, U+FE70-FEFF;
@@ -136,14 +137,16 @@
 .form-sheet .fs-para { text-align: justify; line-height: 2.35; font-size: 13.5px; }
 .form-sheet .fs-para.bold { font-weight: 800; font-size: 14.5px; }
 
-/* ── مقادیر پرشده (دست‌نویس) — بزرگ‌تر و متمایز از متن ثابت ── */
+/* ── مقادیر پرشده (نیمه‌دست‌نویس) — بزرگ‌تر و متمایز از متن ثابت ──
+   نکته: روی Mikhak نباید letter-spacing یا -webkit-text-stroke گذاشت
+   چون اتصال حروف فارسی خراب می‌شود. فقط با font-size بزرگ‌تر می‌کنیم. */
 .form-sheet .fs-hand,
 .form-sheet .fs-val,
 .form-sheet .fs-dots:not(:empty) {
-  font-family: 'FormHand', 'IranNastaliq', 'B Nazanin', 'Vazirmatn', Tahoma, cursive;
-  font-weight: 400;
-  font-size: 1.45em;       /* ← ۴۵٪ بزرگ‌تر از متن پایه (13.5 → حدود 19.5px) */
-  line-height: 1.35;
+  font-family: 'FormHand', 'Mikhak', 'Vazirmatn', Tahoma, sans-serif;
+  font-weight: 700;
+  font-size: 1.35em;       /* ← ۳۵٪ بزرگ‌تر از متن پایه (13.5 → حدود 18px) */
+  line-height: 1.45;
   letter-spacing: 0;
 }
 
