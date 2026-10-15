@@ -12,6 +12,8 @@ export function showScreen(screenName) {
     'Profile':      'screenProfile',
     'Occupational': 'screenOccupational',
     'Forms':        'screenForms',
+    'FormsMenu':    'screenFormsMenu',      // ← اضافه شد
+    'FormsArchive': 'screenFormsArchive',   // ← اضافه شد
     'Guide':        'screenGuide',
   };
 
@@ -50,6 +52,8 @@ export function showScreen(screenName) {
     'Profile':      'پروفایل',
     'Occupational': 'طب کار',
     'Forms':        'فرم‌ها',
+    'FormsMenu':    'فرآیندها و فرم‌ها',    // ← اضافه شد
+    'FormsArchive': 'آرشیو فرم‌ها',         // ← اضافه شد
     'Guide':        'راهنمای فرآیندها',
   };
   if (headerTitle) headerTitle.textContent = titles[screenName] || 'کلینیک';
