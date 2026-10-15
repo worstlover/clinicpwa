@@ -65,7 +65,7 @@ if (!sw.includes('__BUILD__') || !sw.includes('__ASSETS__')) {
 }
 sw = sw
   .replace('__BUILD__', () => String(Date.now()))
-  .replace('__ASSETS__', () => JSON.stringify(assets, null, 2));
+  .replace('__ASSETS__', () => JSON.stringify(assets));
 await writeFile(swPath, sw);
 
 console.log(`✔ build done — ${assets.length} precached files`);
