@@ -234,3 +234,5 @@ async function pasteFromClipboard() {
     }
   }
 }
+// ⭐ alias برای سازگاری با ماژول‌های قدیمی که openScanner رو import می‌کنن
+export const openScanner = startScanner;
