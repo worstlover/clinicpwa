@@ -1,4 +1,46 @@
 /* ═══════════════════════════════════════════════════════════════
+   فونت دست‌نویس محلی برای مقادیر پر شده توسط سیستم (نه متن‌های ثابت)
+   ═══════════════════════════════════════════════════════════════ */
+@font-face {
+  font-family: 'FormHand';
+  src: url('../../fonts/FormHand.woff2') format('woff2'),
+       url('../../fonts/FormHand.woff') format('woff'),
+       url('../../fonts/FormHand.ttf') format('truetype'),
+       url('../../fonts/IranNastaliq.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+FB50-FDFF, U+FE70-FEFF, U+0030-0039;
+}
+
+/* مقادیر پرشده (دست‌نویس + کمی بولدتر از متن ثابت) */
+.form-sheet .fs-hand,
+.form-sheet .fs-val,
+.form-sheet .fs-dots:not(:empty) {
+  font-family: 'FormHand', 'IranNastaliq', 'B Nazanin', 'Vazirmatn', Tahoma, cursive;
+  font-weight: 900;
+  letter-spacing: 0.3px;
+  -webkit-text-stroke: 0.15px currentColor;
+}
+
+/* مقادیر خالی (نقطه‌چین خالی) → فونت عادی */
+.form-sheet .fs-dots:empty,
+.form-sheet .fs-dots:has(> :only-child) { font-family: inherit; font-weight: inherit; }
+
+/* در حالت فشرده، یک پله کوچک‌تر */
+.form-sheet .fs.compact .fs-hand,
+.form-sheet .fs.compact .fs-val,
+.form-sheet .fs.compact .fs-dots:not(:empty) {
+  font-size: 10.5px;
+}
+
+
+
+
+
+
+
+/* ═══════════════════════════════════════════════════════════════
    js/forms/forms-theme.css — طراحی مشترک فرم‌ها (مطابق فرم‌های اصلی شرکت)
    همه‌ی قالب‌ها فقط از این کلاس‌ها استفاده می‌کنند.
    ═══════════════════════════════════════════════════════════════ */
