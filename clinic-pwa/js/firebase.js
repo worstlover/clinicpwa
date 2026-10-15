@@ -1,6 +1,11 @@
 // js/firebase.js
-import firebase from '../lib/firebase/firebase-app-compat.js';
-import '../lib/firebase/firebase-messaging-compat.js';
+
+// ═══════════════════════════════════════════════════════
+// Firebase از CDN بارگذاری می‌شود (نه از lib/firebase)
+// مطمئن شوید در index.html این دو اسکریپت قبل از app.js بارگذاری شده‌اند:
+// <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+// <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
+// ═══════════════════════════════════════════════════════
 
 const firebaseConfig = {
   apiKey: "AIzaSyCKyUDeX2BYBz8sE64R44xpC1NgLy94obs",
@@ -13,7 +18,12 @@ const firebaseConfig = {
 
 export const VAPID_KEY = 'BJv_QoXImDpAqUq__0I6PsPxEZ3xUVXXC2tDH_fQcjrMI4FTVEKxI6voDplW0WFi4qIJm1wgqJRO0SPFTNMTn7I';
 
-// firebase.apps جلوگیری از init دوباره (در hot reload / debug)
+// بررسی اینکه Firebase از CDN بارگذاری شده است
+if (typeof firebase === 'undefined') {
+  throw new Error('[FCM] Firebase بارگذاری نشده است. مطمئن شوید اسکریپت‌های CDN در index.html قبل از app.js قرار دارند.');
+}
+
+// جلوگیری از init دوباره
 export const firebaseApp = firebase.apps.length
   ? firebase.app()
   : firebase.initializeApp(firebaseConfig);
@@ -41,5 +51,5 @@ export async function getMessagingInstance() {
   }
 }
 
-// ⭐ اختیاری: نسخه‌ی firebase برای استفاده در جاهای دیگر
+// ⭐ نسخه‌ی firebase برای استفاده در جاهای دیگر
 export { firebase };
