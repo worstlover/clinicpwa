@@ -42,6 +42,9 @@ await build({
   target: 'es2020',
   minify: true,
   external: ['https://*', 'http://*'],
+  define: {
+    'firebase': 'window.firebase'  // ← firebase را به window.firebase نگاشت می‌کند
+  },
   logLevel: 'info'
 });
 
