@@ -85,5 +85,5 @@ export function render(d) {
         </td>
       </tr>
     </table>
-  `));
+  `);
 }
