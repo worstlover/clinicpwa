@@ -5,6 +5,7 @@ let codeReader = null;
 let controls = null;
 let currentDeviceId = null;
 let onScanCallback = null;
+let cachedDevices = [];  // کش لیست دوربین‌ها
 
 // ═══════════════════════════════════════════════════════
 // راه‌اندازی دکمه‌ها
@@ -34,15 +35,23 @@ export function initScannerButtons() {
 }
 
 // ═══════════════════════════════════════════════════════
-// درخواست اجازه‌ی دسترسی به دوربین
+// ⭐ درخواست اجازه + کش کردن لیست دوربین‌ها
 // ═══════════════════════════════════════════════════════
 async function requestCameraPermission() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' }
-    });
+    // ⭐ constraints آزاد - همه‌ی دوربین‌ها رو قبول می‌کنه
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+    // ⭐ در حین فعال بودن استریم، لیست دوربین‌ها رو بگیر
+    // (labels فقط وقتی استریم فعاله پر می‌شن)
+    const allDevices = await navigator.mediaDevices.enumerateDevices();
+    cachedDevices = allDevices.filter(d => d.kind === 'videoinput');
+    console.log('[SCANNER] cached devices:', cachedDevices);
+
+    // ⭐ حالا استریم رو ببند
     stream.getTracks().forEach(t => t.stop());
-    return true;
+
+    return cachedDevices.length > 0;
   } catch (err) {
     console.warn('[SCANNER] permission request failed:', err);
     return false;
@@ -50,13 +59,12 @@ async function requestCameraPermission() {
 }
 
 // ═══════════════════════════════════════════════════════
-// ساخت یه <video> و اضافه کردن به #reader
+// ساخت <video>
 // ═══════════════════════════════════════════════════════
 function createVideoElement() {
   const reader = $('reader');
   if (!reader) return null;
 
-  // پاک کردن محتوای قبلی
   reader.innerHTML = '';
 
   const videoEl = document.createElement('video');
@@ -71,6 +79,24 @@ function createVideoElement() {
 
   reader.appendChild(videoEl);
   return videoEl;
+}
+
+// ═══════════════════════════════════════════════════════
+// انتخاب بک‌کمرا (اگه وجود داشت)
+// ═══════════════════════════════════════════════════════
+function pickBestCamera(devices) {
+  if (!devices || !devices.length) return null;
+
+  const backKeywords = ['back', 'rear', 'environment', 'پشت', 'عقب'];
+  const backDevice = devices.find(d => {
+    const label = (d.label || '').toLowerCase();
+    return backKeywords.some(k => label.includes(k));
+  });
+
+  if (backDevice) return backDevice.deviceId;
+
+  // اگه دوربین بک‌کمرا نبود (مثل دسکتاپ)، اولی رو انتخاب کن
+  return devices[0].deviceId;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -93,53 +119,30 @@ export async function startScanner(callback) {
       return;
     }
 
-    // اول اجازه بگیر
+    // ⭐ اجازه بگیر + لیست دوربین‌ها رو کش کن
     if (statusEl) statusEl.textContent = 'درخواست دسترسی به دوربین...';
     const hasPermission = await requestCameraPermission();
-    if (!hasPermission) {
+
+    if (!hasPermission || cachedDevices.length === 0) {
       if (statusEl) statusEl.textContent = 'دسترسی به دوربین رد شد';
       toast('برای اسکن، اجازه دسترسی به دوربین را بدهید', 'danger');
-      setTimeout(() => closeScanner(), 2000);
+      setTimeout(() => closeScanner(), 2500);
       return;
     }
 
-    // حالا لیست دوربین‌ها پر می‌شه
-    if (statusEl) statusEl.textContent = 'در حال شناسایی دوربین‌ها...';
-    let devices = [];
-    try {
-      devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
-      console.log('[SCANNER] devices:', devices);
-    } catch (e) {
-      console.warn('[SCANNER] list devices failed:', e);
-    }
+    // ⭐ انتخاب بهترین دوربین
+    const deviceId = pickBestCamera(cachedDevices);
+    console.log('[SCANNER] selected device:', deviceId, cachedDevices);
 
-    // اگه لیست خالیه، با constraints مستقیم امتحان کن
-    if (!devices || devices.length === 0) {
-      console.warn('[SCANNER] no devices from list, trying constraints directly');
-      await startWithConstraints(statusEl);
+    if (!deviceId) {
+      if (statusEl) statusEl.textContent = 'دوربینی یافت نشد';
+      toast('دوربینی روی دستگاه پیدا نشد', 'danger');
       return;
     }
 
-    // انتخاب دوربین بک‌کمرا
-    const backKeywords = ['back', 'rear', 'environment', 'پشت', 'عقب'];
-    const backDevice = devices.find(d => {
-      const label = (d.label || '').toLowerCase();
-      return backKeywords.some(k => label.includes(k));
-    });
-
-    let deviceId;
-    if (backDevice) {
-      deviceId = backDevice.deviceId;
-    } else if (devices.length > 1) {
-      deviceId = devices[devices.length - 1].deviceId;
-    } else {
-      deviceId = devices[0].deviceId;
-    }
-
-    console.log('[SCANNER] selected device:', deviceId);
     await startDecodeWithDevice(deviceId, statusEl);
-
     currentDeviceId = deviceId;
+
     if (statusEl) statusEl.textContent = 'آماده اسکن...';
 
   } catch (err) {
@@ -148,34 +151,29 @@ export async function startScanner(callback) {
   }
 }
 
-// alias برای سازگاری با ماژول‌های قدیمی
+// alias
 export const openScanner = startScanner;
 
 // ═══════════════════════════════════════════════════════
-// شروع با deviceId مشخص
+// شروع دیکود با deviceId
 // ═══════════════════════════════════════════════════════
 async function startDecodeWithDevice(deviceId, statusEl) {
-  // اگه قبلی بازه، ببندش
   if (controls) {
     try { controls.stop(); } catch (e) {}
     controls = null;
   }
 
-  // ساخت video element جدید
   const videoEl = createVideoElement();
-  if (!videoEl) {
-    throw new Error('reader element not found');
-  }
+  if (!videoEl) throw new Error('reader element not found');
 
   if (!codeReader) {
     codeReader = new ZXing.BrowserMultiFormatReader();
   }
 
-  // پاس دادن element به‌جای id
   controls = await codeReader.decodeFromVideoDevice(
     deviceId,
     videoEl,
-    (result, error, ctrls) => {
+    (result) => {
       if (result) {
         const text = result.getText();
         console.log('[SCANNER] scanned:', text);
@@ -191,47 +189,7 @@ async function startDecodeWithDevice(deviceId, statusEl) {
 }
 
 // ═══════════════════════════════════════════════════════
-// شروع با constraints (وقتی listVideoInputDevices خالیه)
-// ═══════════════════════════════════════════════════════
-async function startWithConstraints(statusEl) {
-  if (controls) {
-    try { controls.stop(); } catch (e) {}
-    controls = null;
-  }
-
-  const videoEl = createVideoElement();
-  if (!videoEl) {
-    throw new Error('reader element not found');
-  }
-
-  if (!codeReader) {
-    codeReader = new ZXing.BrowserMultiFormatReader();
-  }
-
-  try {
-    controls = await codeReader.decodeFromConstraints(
-      { video: { facingMode: { ideal: 'environment' } } },
-      videoEl,
-      (result) => {
-        if (result) {
-          const text = result.getText();
-          console.log('[SCANNER] scanned:', text);
-          if (statusEl) statusEl.textContent = '✅ اسکن شد';
-          if (navigator.vibrate) navigator.vibrate(100);
-          if (onScanCallback) onScanCallback(text);
-          closeScanner();
-        }
-      }
-    );
-    if (statusEl) statusEl.textContent = 'آماده اسکن...';
-  } catch (e) {
-    console.error('[SCANNER] constraints fallback failed:', e);
-    throw e;
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-// مدیریت خطا به فارسی
+// مدیریت خطا
 // ═══════════════════════════════════════════════════════
 function handleStartError(err, statusEl) {
   if (statusEl) statusEl.textContent = 'خطا در راه‌اندازی دوربین';
@@ -242,7 +200,7 @@ function handleStartError(err, statusEl) {
   } else if (err.name === 'NotFoundError' || err.message?.includes('not found')) {
     msg = 'دوربینی روی دستگاه پیدا نشد';
   } else if (err.name === 'NotReadableError' || err.message?.includes('could not start')) {
-    msg = 'دوربین در حال استفاده توسط برنامه دیگر است. برنامه‌های دیگر را ببندید.';
+    msg = 'دوربین در حال استفاده توسط برنامه دیگر است.';
   } else if (err.name === 'OverconstrainedError') {
     msg = 'تنظیمات دوربین با دستگاه سازگار نیست';
   } else {
@@ -251,19 +209,19 @@ function handleStartError(err, statusEl) {
   toast(msg, 'danger');
 
   if (err.name === 'NotAllowedError' || err.name === 'NotFoundError') {
-    setTimeout(() => closeScanner(), 2000);
+    setTimeout(() => closeScanner(), 2500);
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// توقف اسکن
+// بستن
 // ═══════════════════════════════════════════════════════
 export function closeScanner() {
   const wrap = $('scannerWrap');
   if (wrap) wrap.classList.remove('active');
 
   if (controls) {
-    try { controls.stop(); } catch (e) { console.warn('[SCANNER] stop error:', e); }
+    try { controls.stop(); } catch (e) {}
     controls = null;
   }
 
@@ -280,12 +238,13 @@ export function closeScanner() {
 }
 
 // ═══════════════════════════════════════════════════════
-// انتخاب دوربین
+// ⭐ انتخاب دوربین — با استفاده از کش
 // ═══════════════════════════════════════════════════════
 async function showCameraPicker() {
   const popup = $('cameraPopup');
   if (!popup) return;
 
+  // اگه بازه، ببند
   if (popup.style.display === 'block') {
     popup.style.display = 'none';
     return;
@@ -295,13 +254,24 @@ async function showCameraPicker() {
   popup.innerHTML = '<div style="color:#fff;font-size:0.8rem;text-align:center;padding:8px;">در حال بارگذاری...</div>';
 
   try {
-    const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
-    if (!devices || devices.length === 0) {
-      popup.innerHTML = '<div style="color:#fff;font-size:0.8rem;text-align:center;padding:8px;">دوربینی یافت نشد</div>';
+    // اگه کش خالیه، دوباره لیست بگیر
+    if (!cachedDevices.length) {
+      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      cachedDevices = allDevices.filter(d => d.kind === 'videoinput');
+    }
+
+    // اگه هنوز خالیه، خطا بده
+    if (!cachedDevices.length) {
+      popup.innerHTML = `
+        <div style="color:#fff;font-size:0.8rem;text-align:center;padding:12px;">
+          دوربینی یافت نشد<br>
+          <span style="font-size:0.7rem;opacity:0.7;">دسترسی به دوربین را چک کنید</span>
+        </div>`;
       return;
     }
 
-    popup.innerHTML = devices.map((d, i) => `
+    // نمایش لیست
+    popup.innerHTML = cachedDevices.map((d, i) => `
       <div class="camera-option" data-id="${d.deviceId}" style="
         padding: 10px 12px;
         border-radius: 8px;
@@ -334,6 +304,9 @@ async function showCameraPicker() {
   }
 }
 
+// ═══════════════════════════════════════════════════════
+// تغییر دوربین
+// ═══════════════════════════════════════════════════════
 async function switchCamera(deviceId) {
   const statusEl = $('scannerStatus');
   if (statusEl) statusEl.textContent = 'در حال تغییر دوربین...';
