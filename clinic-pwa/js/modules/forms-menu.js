@@ -1,12 +1,26 @@
 // js/modules/forms-menu.js
 import { $ } from '../utils.js';
-import { showScreen } from '../ui.js';
 import { openForms } from '../forms/engine.js';
 import { openGuide } from '../process/guide.js';
 import { openFormsArchive } from './forms-archive.js';
 
+/** نمایش صفحه بدون وابستگی به ui.js */
+function showScreenDirect(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById('screen' + name);
+  if (!el) {
+    console.error('[FORMS-MENU] screen not found: screen' + name);
+    return false;
+  }
+  el.classList.add('active');
+  window.scrollTo(0, 0);
+  return true;
+}
+
 export function openFormsMenu() {
-  showScreen('FormsMenu');
+  console.log('[FORMS-MENU] openFormsMenu called');
+  showScreenDirect('FormsMenu');
+
   const wrap = $('formsMenuContent');
   if (!wrap) {
     console.error('[FORMS-MENU] #formsMenuContent not found!');
@@ -15,7 +29,6 @@ export function openFormsMenu() {
 
   wrap.innerHTML = `
     <div class="forms-menu-page">
-
       <div class="forms-menu-header">
         <div class="forms-menu-title">فرآیندها و فرم‌ها</div>
         <div class="forms-menu-sub">مدیریت کامل فرم‌های کلینیک</div>
@@ -71,16 +84,20 @@ export function openFormsMenu() {
         </div>
         <i class="bi bi-chevron-left forms-menu-card-arrow"></i>
       </button>
-
     </div>
   `;
 
   wrap.querySelectorAll('[data-action]').forEach(btn => {
     btn.addEventListener('click', () => {
       const a = btn.dataset.action;
-      if (a === 'forms') openForms();
-      else if (a === 'guide') openGuide();
-      else if (a === 'archive') openFormsArchive();
+      console.log('[FORMS-MENU] action:', a);
+      try {
+        if (a === 'forms') openForms();
+        else if (a === 'guide') openGuide();
+        else if (a === 'archive') openFormsArchive();
+      } catch (err) {
+        console.error('[FORMS-MENU] action error:', err);
+      }
     });
   });
 }
