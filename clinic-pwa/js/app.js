@@ -19,6 +19,31 @@ import { openGuide } from './process/guide.js';
 // ═══════════════════════════════════════════════════════
 import { initFCM } from './fcm.js';
 
+// ═══════════════════════════════════════════════════════
+// انیمیشن نوار پیشرفت صفحه‌ی لودینگ
+// ═══════════════════════════════════════════════════════
+function startLoadingProgress() {
+  const bar = document.getElementById('loadingProgressBar');
+  const percent = document.getElementById('loadingPercent');
+  if (!bar || !percent) return;
+
+  let value = 0;
+  const interval = setInterval(() => {
+    value += Math.random() * 12 + 4; // سرعت تصادفی واقعی‌تر
+    if (value >= 95) {
+      value = 95;
+      clearInterval(interval);
+    }
+    bar.style.width = value + '%';
+    percent.textContent = Math.floor(value) + '%';
+  }, 280);
+}
+
+// اجرا به‌محض بارگذاری صفحه (اسکریپت در انتهای body است، پس DOM آماده است)
+if (document.getElementById('screenLoading')?.classList.contains('active')) {
+  startLoadingProgress();
+}
+
 initQtyModal();
 initSearchModal();
 initScannerButtons();
