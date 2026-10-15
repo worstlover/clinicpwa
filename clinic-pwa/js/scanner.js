@@ -41,13 +41,36 @@ async function requestCameraPermission() {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment' }
     });
-    // بستن فوری استریم (فقط برای گرفتن اجازه)
     stream.getTracks().forEach(t => t.stop());
     return true;
   } catch (err) {
     console.warn('[SCANNER] permission request failed:', err);
     return false;
   }
+}
+
+// ═══════════════════════════════════════════════════════
+// ساخت یه <video> و اضافه کردن به #reader
+// ═══════════════════════════════════════════════════════
+function createVideoElement() {
+  const reader = $('reader');
+  if (!reader) return null;
+
+  // پاک کردن محتوای قبلی
+  reader.innerHTML = '';
+
+  const videoEl = document.createElement('video');
+  videoEl.setAttribute('autoplay', '');
+  videoEl.setAttribute('muted', '');
+  videoEl.setAttribute('playsinline', '');
+  videoEl.setAttribute('webkit-playsinline', '');
+  videoEl.style.width = '100%';
+  videoEl.style.height = '100%';
+  videoEl.style.objectFit = 'cover';
+  videoEl.style.display = 'block';
+
+  reader.appendChild(videoEl);
+  return videoEl;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -70,7 +93,7 @@ export async function startScanner(callback) {
       return;
     }
 
-    // ⭐ اول اجازه بگیر (خیلی مهم!)
+    // اول اجازه بگیر
     if (statusEl) statusEl.textContent = 'درخواست دسترسی به دوربین...';
     const hasPermission = await requestCameraPermission();
     if (!hasPermission) {
@@ -125,7 +148,7 @@ export async function startScanner(callback) {
   }
 }
 
-// ⭐ alias برای سازگاری با ماژول‌های قدیمی
+// alias برای سازگاری با ماژول‌های قدیمی
 export const openScanner = startScanner;
 
 // ═══════════════════════════════════════════════════════
@@ -138,18 +161,20 @@ async function startDecodeWithDevice(deviceId, statusEl) {
     controls = null;
   }
 
-  // پاک کردن reader
-  const reader = $('reader');
-  if (reader) reader.innerHTML = '';
+  // ساخت video element جدید
+  const videoEl = createVideoElement();
+  if (!videoEl) {
+    throw new Error('reader element not found');
+  }
 
-  // ساخت codeReader اگه نبود
   if (!codeReader) {
     codeReader = new ZXing.BrowserMultiFormatReader();
   }
 
+  // پاس دادن element به‌جای id
   controls = await codeReader.decodeFromVideoDevice(
     deviceId,
-    'reader',
+    videoEl,
     (result, error, ctrls) => {
       if (result) {
         const text = result.getText();
@@ -159,21 +184,24 @@ async function startDecodeWithDevice(deviceId, statusEl) {
         if (onScanCallback) onScanCallback(text);
         closeScanner();
       }
-      // error رو نادیده بگیر چون ZXing برای هر فریم خطا می‌ده
     }
   );
 
   return controls;
 }
 
-// ⭐ شروع با constraints (وقتی listVideoInputDevices خالیه)
+// ═══════════════════════════════════════════════════════
+// شروع با constraints (وقتی listVideoInputDevices خالیه)
+// ═══════════════════════════════════════════════════════
 async function startWithConstraints(statusEl) {
-  const reader = $('reader');
-  if (reader) reader.innerHTML = '';
-
   if (controls) {
     try { controls.stop(); } catch (e) {}
     controls = null;
+  }
+
+  const videoEl = createVideoElement();
+  if (!videoEl) {
+    throw new Error('reader element not found');
   }
 
   if (!codeReader) {
@@ -183,7 +211,7 @@ async function startWithConstraints(statusEl) {
   try {
     controls = await codeReader.decodeFromConstraints(
       { video: { facingMode: { ideal: 'environment' } } },
-      'reader',
+      videoEl,
       (result) => {
         if (result) {
           const text = result.getText();
@@ -202,7 +230,9 @@ async function startWithConstraints(statusEl) {
   }
 }
 
-// ⭐ مدیریت خطا به فارسی
+// ═══════════════════════════════════════════════════════
+// مدیریت خطا به فارسی
+// ═══════════════════════════════════════════════════════
 function handleStartError(err, statusEl) {
   if (statusEl) statusEl.textContent = 'خطا در راه‌اندازی دوربین';
 
@@ -243,7 +273,6 @@ export function closeScanner() {
   const statusEl = $('scannerStatus');
   if (statusEl) statusEl.textContent = 'آماده اسکن...';
 
-  // بستن پاپ‌آپ دوربین
   const popup = $('cameraPopup');
   if (popup) popup.style.display = 'none';
 
@@ -257,7 +286,6 @@ async function showCameraPicker() {
   const popup = $('cameraPopup');
   if (!popup) return;
 
-  // toggle
   if (popup.style.display === 'block') {
     popup.style.display = 'none';
     return;
@@ -337,7 +365,6 @@ async function pasteFromClipboard() {
   } catch (e) {
     console.error('[SCANNER] paste error:', e);
     toast('دسترسی به کلیپ‌بورد ممکن نیست', 'warning');
-    // روش دستی
     const manual = prompt('کد را وارد کنید:');
     if (manual && manual.trim()) {
       if (onScanCallback) onScanCallback(manual.trim());
