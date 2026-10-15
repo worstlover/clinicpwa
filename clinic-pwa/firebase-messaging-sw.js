@@ -61,8 +61,8 @@ messaging.onBackgroundMessage((payload) => {
 
   const options = {
     body: body,
-    icon: '/icons/icon-192.png',       // ✅ مسیر اصلاح شد (با / شروع شود)
-    badge: '/icons/icon-mono.png',     // ✅ مسیر اصلاح شد
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-mono.png',
     tag: dedupKey,
     renotify: true,
     requireInteraction: true,
