@@ -1,13 +1,13 @@
 /* ═══════════════════════════════════════════════════════════════
    js/forms/forms-theme.css — طراحی مشترک فرم‌ها (مطابق فرم‌های اصلی شرکت)
    ترکیب فونت: Shabnam (متن ثابت) + Mikhak (مقادیر پرشده)
+   فونت‌ها: clinic-pwa/lib/fonts/
    ═══════════════════════════════════════════════════════════════ */
 
-/* ── فونت اصلی (متن ثابت و برچسب‌ها) ──
-   فایل‌ها: fonts/Shabnam.woff2 و fonts/Shabnam-Bold.woff2 */
+/* ── فونت اصلی (متن ثابت و برچسب‌ها) ── */
 @font-face {
   font-family: 'Shabnam';
-  src: url('../../fonts/Shabnam.woff2') format('woff2');
+  src: url('../../lib/fonts/Shabnam.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -15,18 +15,17 @@
 }
 @font-face {
   font-family: 'Shabnam';
-  src: url('../../fonts/Shabnam-Bold.woff2') format('woff2');
+  src: url('../../lib/fonts/Shabnam-Bold.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
   font-display: swap;
   unicode-range: U+0600-06FF, U+0750-077F, U+FB50-FDFF, U+FE70-FEFF;
 }
 
-/* ── فونت نیمه‌دست‌نویس برای مقادیر پر شده ──
-   فایل: fonts/Mikhak-Bold.woff2 */
+/* ── فونت نیمه‌دست‌نویس برای مقادیر پر شده ── */
 @font-face {
   font-family: 'FormHand';
-  src: url('../../fonts/Mikhak-Bold.woff2') format('woff2');
+  src: url('../../lib/fonts/Mikhak-Bold.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
   font-display: swap;
@@ -156,9 +155,7 @@
 .form-sheet .fs-para { text-align: justify; line-height: 2.35; font-size: 13.5px; }
 .form-sheet .fs-para.bold { font-weight: 800; font-size: 14.5px; }
 
-/* ── مقادیر پرشده (نیمه‌دست‌نویس) — بزرگ‌تر و متمایز از متن ثابت ──
-   نکته: روی Mikhak نباید letter-spacing یا -webkit-text-stroke گذاشت
-   چون اتصال حروف فارسی خراب می‌شود. فقط با font-size بزرگ‌تر می‌کنیم. */
+/* ── مقادیر پرشده (نیمه‌دست‌نویس) ── */
 .form-sheet .fs-hand,
 .form-sheet .fs-val,
 .form-sheet .fs-dots:not(:empty) {
@@ -176,7 +173,7 @@
   font-size: inherit;
 }
 
-/* مقادیر خالی → فونت عادی (اندازه‌ی پایه) */
+/* مقادیر خالی → فونت عادی */
 .form-sheet .fs-dots:empty,
 .form-sheet .fs-dots:has(> :only-child) {
   font-family: inherit;
