@@ -60,20 +60,20 @@ messaging.onBackgroundMessage((payload) => {
   );
 
   const options = {
-    body: body,
-    icon: './icons/icon-192.png',
-    badge: '/icons/icon-mono.png'
-    tag: dedupKey,
-    renotify: true,
-    requireInteraction: true,
-    silent: false,
-    vibrate: [500, 200, 500, 200, 500],
-    data: data,
-    actions: [
-      { action: 'open', title: 'مشاهده' },
-      { action: 'close', title: 'بستن' }
-    ]
-  };
+  body: body,
+  icon: './icons/icon-192.png',
+  badge: '/icons/icon-mono.png',      // ← این کاما اضافه شد
+  tag: dedupKey,
+  renotify: true,
+  requireInteraction: true,
+  silent: false,
+  vibrate: [500, 200, 500, 200, 500],
+  data: data,
+  actions: [
+    { action: 'open', title: 'مشاهده' },
+    { action: 'close', title: 'بستن' }
+  ]
+};
 
   return self.registration.showNotification(title, options);
 });
