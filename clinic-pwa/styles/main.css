@@ -1950,3 +1950,52 @@ body {
 .vr-detail-table tr { border-bottom: 1px solid #f1f5f9; }
 .vr-detail-key { padding: 9px 6px; color: #64748b; font-weight: 600; width: 40%; text-align: right; }
 .vr-detail-val { padding: 9px 6px; color: #0f172a; font-weight: 700; text-align: right; }
+
+
+/* آمار کارگر در فرم جریمه */
+.fr-worker-stats { margin-top: 10px; padding: 12px; background: #f8fafc; border-radius: 12px; }
+.fr-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+.fr-stat-box { text-align: center; padding: 8px 4px; border-radius: 10px; background: #fff; }
+.fr-stat-box.danger { background: #fee2e2; color: #dc2626; }
+.fr-stat-box.warning { background: #fef3c7; color: #d97706; }
+.fr-stat-box.success { background: #d1fae5; color: #059669; }
+.fr-stat-num { font-size: 1.2rem; font-weight: 900; }
+.fr-stat-lbl { font-size: 0.68rem; font-weight: 700; }
+
+.fr-safety-score { text-align: center; padding: 10px; background: #fff; border-radius: 10px; margin-bottom: 10px; }
+.fr-score-stars { font-size: 1.6rem; color: #f59e0b; letter-spacing: 3px; }
+.fr-score-text { font-size: 0.78rem; color: #475569; font-weight: 700; margin-top: 4px; }
+
+.fr-occupational { background: #fff; padding: 10px 12px; border-radius: 10px; }
+.fr-occupational-title { font-size: 0.82rem; font-weight: 800; color: #0f172a; margin-bottom: 8px; }
+.fr-oc-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.78rem; }
+.fr-oc-row > span { color: #64748b; font-weight: 600; }
+.fr-oc-row > b { color: #0f172a; font-weight: 700; text-align: left; }
+
+/* چیپ‌های درج سریع */
+.fr-quick-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.fr-chip {
+  padding: 5px 12px; border: 1.5px solid #e2e8f0; background: #fff;
+  border-radius: 16px; color: #475569; font-size: 0.72rem; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+}
+.fr-chip:active { background: #0d6efd; border-color: #0d6efd; color: #fff; }
+
+/* فیلترهای لیست جریمه */
+.fr-filters { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px; padding: 12px; margin-bottom: 14px; }
+
+/* تب مالی */
+.fr-finance-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 12px; padding: 10px 12px; background: #d1fae5;
+  border-radius: 12px; font-weight: 700; color: #065f46; font-size: 0.85rem;
+}
+
+/* فیلترهای گزارش ویزیت */
+.vr-chart-section { page-break-inside: avoid; }
+.vr-bar-fill.info { background: linear-gradient(90deg, #06b6d4, #0891b2); }
+
+@media print {
+  .vr-actions, .vr-row-arrow, .fr-tabs, .fr-filters, .fr-save-btn, .fr-quick-chips { display: none !important; }
+  .vr-row, .vr-chart-section, .vr-summary { page-break-inside: avoid; }
+}
