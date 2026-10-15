@@ -1,5 +1,5 @@
 // js/modules/forms-menu.js
-import { $, escapeHtml } from '../utils.js';
+import { $ } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { openForms } from '../forms/engine.js';
 import { openGuide } from '../process/guide.js';
@@ -8,7 +8,10 @@ import { openFormsArchive } from './forms-archive.js';
 export function openFormsMenu() {
   showScreen('FormsMenu');
   const wrap = $('formsMenuContent');
-  if (!wrap) return;
+  if (!wrap) {
+    console.error('[FORMS-MENU] #formsMenuContent not found!');
+    return;
+  }
 
   wrap.innerHTML = `
     <div class="forms-menu-page">
@@ -28,7 +31,7 @@ export function openFormsMenu() {
           <div class="forms-menu-card-meta">
             <span class="badge-soft" style="background:#ede9fe;color:#7c3aed;">
               <i class="bi bi-file-earmark"></i>
-              ۸ فرم موجود
+              فرم‌های قابل ثبت
             </span>
           </div>
         </div>
