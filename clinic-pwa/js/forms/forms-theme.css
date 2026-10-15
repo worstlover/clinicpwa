@@ -18,18 +18,18 @@
   font-family: 'Vazirmatn', Tahoma, sans-serif;
   direction: rtl;
   color: #000;
-  font-size: 13.5px;
-  line-height: 1.95;
+  font-size: 16px;
+  line-height: 2;
 }
 .form-sheet .fs * { box-sizing: border-box; }
 
 /* ── سرتیتر: [لوگو | عنوان | کد فرم] ── */
-.form-sheet .fs-head { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 8px; }
-.form-sheet .fs-head td { border: 1.5px solid #000; vertical-align: middle; text-align: center; padding: 5px 8px; }
-.form-sheet .fs-head .fs-logo { width: 19%; padding: 3px; }
-.form-sheet .fs-head .fs-logo img { display: block; margin: 0 auto; width: 68px; height: 68px; object-fit: contain; }
-.form-sheet .fs-head .fs-title { font-size: 18px; font-weight: 800; line-height: 1.6; }
-.form-sheet .fs-head .fs-code { width: 24%; font-size: 12px; font-weight: 700; line-height: 1.6; }
+.form-sheet .fs-head { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 10px; }
+.form-sheet .fs-head td { border: 1.5px solid #000; vertical-align: middle; text-align: center; padding: 6px 10px; }
+.form-sheet .fs-head .fs-logo { width: 19%; padding: 4px; }
+.form-sheet .fs-head .fs-logo img { display: block; margin: 0 auto; width: 76px; height: 76px; object-fit: contain; }
+.form-sheet .fs-head .fs-title { font-size: 22px; font-weight: 800; line-height: 1.6; }
+.form-sheet .fs-head .fs-code { width: 24%; font-size: 14px; font-weight: 700; line-height: 1.6; }
 .form-sheet .fs-head .fs-code bdi { display: block; direction: ltr; font-weight: 800; }
 
 /* ── جدول اصلی ── */
@@ -37,17 +37,17 @@
 .form-sheet .fs-grid + .fs-grid { margin-top: -1.5px; }
 .form-sheet .fs-grid td, .form-sheet .fs-grid th {
   border: 1.5px solid #000;
-  padding: 5px 8px;
+  padding: 7px 10px;
   vertical-align: top;
-  font-size: 13.5px;
+  font-size: 16px;
   font-weight: 400;
   text-align: right;
 }
 .form-sheet .fs-lbl { font-weight: 800; }
 .form-sheet .fs-val { font-weight: 400; }
-.form-sheet .fs-grid td.fs-tall  { height: 330px; }
-.form-sheet .fs-grid td.fs-mid   { height: 90px; }
-.form-sheet .fs-grid td.fs-small { height: 52px; }
+.form-sheet .fs-grid td.fs-tall  { height: 340px; }
+.form-sheet .fs-grid td.fs-mid   { height: 100px; }
+.form-sheet .fs-grid td.fs-small { height: 60px; }
 .form-sheet .fs-grid td.fs-center { text-align: center; vertical-align: middle; }
 .form-sheet .fs-grid td.fs-bottom { vertical-align: bottom; }
 .form-sheet .fs-grid td.fs-left   { text-align: left; }
@@ -55,13 +55,13 @@
 
 /* ── خانه‌ی کنار عمودی ── */
 .form-sheet .fs-side {
-  width: 30px;
-  padding: 2px !important;
+  width: 34px;
+  padding: 3px !important;
   text-align: center !important;
   vertical-align: middle !important;
   font-weight: 800;
   background: #d9e2f3;
-  font-size: 12.5px;
+  font-size: 15px;
 }
 .form-sheet .fs-side.gray { background: #d9d9d9; }
 .form-sheet .fs-side > span {
@@ -77,75 +77,72 @@
   background: #d9d9d9;
   font-weight: 800;
   text-align: center !important;
-  font-size: 14px;
+  font-size: 17px;
 }
 
 /* ── خط‌چین و چک‌باکس ── */
 .form-sheet .fs-dots {
   display: inline-block;
-  min-width: 70px;
+  min-width: 80px;
   border-bottom: 1px dotted #000;
-  padding: 0 4px;
-  line-height: 1.7;
+  padding: 0 5px;
+  line-height: 1.8;
   vertical-align: baseline;
   text-align: center;
 }
-.form-sheet .fs-dots.w40 { min-width: 45px; }
-.form-sheet .fs-dots.w60 { min-width: 65px; }
-.form-sheet .fs-dots.w90 { min-width: 95px; }
-.form-sheet .fs-dots.w120 { min-width: 125px; }
-.form-sheet .fs-dots.w160 { min-width: 165px; }
-.form-sheet .fs-dots.w220 { min-width: 225px; }
+.form-sheet .fs-dots.w40 { min-width: 50px; }
+.form-sheet .fs-dots.w60 { min-width: 75px; }
+.form-sheet .fs-dots.w90 { min-width: 110px; }
+.form-sheet .fs-dots.w120 { min-width: 145px; }
+.form-sheet .fs-dots.w160 { min-width: 190px; }
+.form-sheet .fs-dots.w220 { min-width: 255px; }
 
-.form-sheet .fs-dline { border-bottom: 1px dotted #000; min-height: 26px; padding: 3px 5px; }
+.form-sheet .fs-dline { border-bottom: 1px dotted #000; min-height: 30px; padding: 4px 6px; }
 
 .form-sheet .fs-cb {
   display: inline-block;
-  width: 13px;
-  height: 13px;
-  border: 1.3px solid #000;
+  width: 15px;
+  height: 15px;
+  border: 1.4px solid #000;
   vertical-align: middle;
   text-align: center;
-  line-height: 11px;
-  font-size: 11px;
+  line-height: 13px;
+  font-size: 13px;
   font-weight: 800;
-  margin: 0 3px;
+  margin: 0 4px;
 }
 .form-sheet .fs-cb.on::before { content: '✓'; }
-.form-sheet .fs-opt { display: inline-flex; align-items: center; gap: 4px; margin-left: 12px; white-space: nowrap; }
+.form-sheet .fs-opt { display: inline-flex; align-items: center; gap: 5px; margin-left: 14px; white-space: nowrap; }
 
 /* ── امضا و پاورقی ── */
-.form-sheet .fs-sign { text-align: left; font-weight: 700; font-size: 12px; padding-top: 14px; }
+.form-sheet .fs-sign { text-align: left; font-weight: 700; font-size: 14px; padding-top: 16px; }
 .form-sheet .fs-sign small { display: block; font-weight: 400; text-align: center; }
-.form-sheet .fs-note { text-align: center; font-size: 11.5px; font-weight: 700; margin-top: 8px; }
+.form-sheet .fs-note { text-align: center; font-size: 13.5px; font-weight: 700; margin-top: 10px; }
 
 /* ── شبکه‌ی شمارنده‌ها (فرم ۳۸) ── */
 .form-sheet .fs-count td {
   border: 1px dotted #000 !important;
   border-left: none !important;
   border-right: none !important;
-  height: 48px;
+  height: 55px;
   vertical-align: middle;
 }
 .form-sheet .fs-count td:first-child { border-right: none !important; }
 
 /* ── قاب بیرونی کل صفحه (فرم ۵۰) ── */
-.form-sheet .fs-frame { border: 1.5px solid #000; padding: 16px 20px; min-height: 980px; }
+.form-sheet .fs-frame { border: 1.5px solid #000; padding: 18px 22px; min-height: 980px; }
 
 /* ── متن بند ── */
-.form-sheet .fs-para { text-align: justify; line-height: 2.35; font-size: 13.5px; }
-.form-sheet .fs-para.bold { font-weight: 800; font-size: 14.5px; }
+.form-sheet .fs-para { text-align: justify; line-height: 2.4; font-size: 16px; }
+.form-sheet .fs-para.bold { font-weight: 800; font-size: 17px; }
 
-/* ── مقادیر پرشده (دست‌نویس) ──
-   نکته: روی فونت‌های cursive/nastaliq نباید font-weight بولد، letter-spacing
-   یا -webkit-text-stroke اعمال کرد چون حروف به هم می‌چسبن. فقط با بزرگ‌تر
-   کردن font-size از متن ثابت متمایز می‌کنیم. */
+/* ── مقادیر پرشده (دست‌نویس) ── */
 .form-sheet .fs-hand,
 .form-sheet .fs-val,
 .form-sheet .fs-dots:not(:empty) {
   font-family: 'FormHand', 'IranNastaliq', 'B Nazanin', 'Vazirmatn', Tahoma, cursive;
   font-weight: 400;
-  font-size: 1.15em;
+  font-size: 1.2em;
   letter-spacing: 0;
 }
 
@@ -155,7 +152,7 @@
 
 /* ── چاپ ── */
 @media print {
-  .form-sheet .fs-grid td.fs-tall { height: 300px; }
+  .form-sheet .fs-grid td.fs-tall { height: 310px; }
   .form-sheet .fs-side,
   .form-sheet .fs-bar,
   .form-sheet .fs-side.gray {
@@ -164,9 +161,9 @@
   }
 }
 
-/* ── حالت فشرده (برای فرم‌های پرمحتوا مثل ۳۴ و ۳۷ و ۴۸) ── */
-.form-sheet .fs.compact { font-size: 12.5px; line-height: 1.85; }
-.form-sheet .fs.compact .fs-grid td { font-size: 12.5px; padding: 4px 7px; }
-.form-sheet .fs.compact .fs-head .fs-logo img { width: 58px; height: 58px; }
-.form-sheet .fs.compact .fs-head .fs-title { font-size: 16px; }
-.form-sheet .fs.compact .fs-dline { min-height: 24px; }
+/* ── حالت فشرده (فرم‌های ۳۴ و ۳۷ و ۴۸) ── */
+.form-sheet .fs.compact { font-size: 15px; line-height: 1.9; }
+.form-sheet .fs.compact .fs-grid td { font-size: 15px; padding: 6px 9px; }
+.form-sheet .fs.compact .fs-head .fs-logo img { width: 66px; height: 66px; }
+.form-sheet .fs.compact .fs-head .fs-title { font-size: 20px; }
+.form-sheet .fs.compact .fs-dline { min-height: 28px; }
