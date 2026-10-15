@@ -312,71 +312,134 @@ body {
 .expiry-warn { border-color: var(--danger) !important; background: #fef2f2 !important; }
 .expiry-caution { border-color: var(--warning) !important; background: #fffbeb !important; }
 
-/* ══════ اسکنر ══════ */
+/* ═══════════════════════════════════════════════════════
+   اسکنر — نسخه‌ی اصلاح‌شده (بدون inset)
+   ═══════════════════════════════════════════════════════ */
 .scanner-wrap {
-  position: fixed; inset: 0; background: #000; z-index: 9999;
-  display: none; flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  z-index: 9999;
+  display: none;
+  flex-direction: column;
 }
-.scanner-wrap.active { display: flex; }
+.scanner-wrap.active {
+  display: flex !important;
+}
+.scanner-wrap:not(.active) {
+  display: none !important;
+}
 .scanner-viewport {
-  flex: 1; position: relative; overflow: hidden;
-  display: flex; align-items: center; justify-content: center;
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 #reader { width: 100% !important; height: 100% !important; }
 #reader video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
-#reader__dashboard_section_csr, #reader__scan_region img { display: none !important; }
+#reader__dashboard_section_csr,
+#reader__scan_region img { display: none !important; }
+
 .scan-frame {
-  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: 270px; height: 270px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 270px;
+  height: 270px;
   border: 3px solid rgba(0, 255, 100, 0.85);
   border-radius: 24px;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
-  pointer-events: none; z-index: 10;
+  pointer-events: none;
+  z-index: 10;
 }
 .scan-line {
-  position: absolute; left: 12px; right: 12px; height: 3px;
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  height: 3px;
   background: linear-gradient(90deg, transparent, #00ff64, #00ff64, transparent);
-  border-radius: 3px; animation: scanLine 1.6s ease-in-out infinite;
+  border-radius: 3px;
+  animation: scanLine 1.6s ease-in-out infinite;
 }
 @keyframes scanLine {
   0%, 100% { top: 12px; }
   50% { top: calc(100% - 12px); }
 }
 .scanner-bar {
-  background: rgba(0, 0, 0, 0.9); color: #fff;
-  padding: 14px; text-align: center; font-weight: 600; font-size: 0.95rem;
+  background: rgba(0, 0, 0, 0.9);
+  color: #fff;
+  padding: 14px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.95rem;
 }
 .scanner-controls {
-  display: flex; justify-content: center; gap: 18px;
-  padding: 14px; background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.9);
 }
 .scan-btn {
-  width: 54px; height: 54px; border-radius: 50%;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.4);
   background: rgba(255, 255, 255, 0.12);
-  color: #fff; font-size: 22px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; transition: background 0.12s; position: relative;
+  color: #fff;
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.12s;
+  position: relative;
 }
 .scan-btn:active { background: rgba(255, 255, 255, 0.25); }
 .scan-btn.close { background: rgba(220, 50, 50, 0.35); }
 
-/* ══════ نوار پایین ══════ */
+/* ═══════════════════════════════════════════════════════
+   نوار پایین — نسخه‌ی اصلاح‌شده (بدون inset)
+   ═══════════════════════════════════════════════════════ */
 .bottom-nav {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  background: #fff; border-top: 1px solid var(--border);
-  display: flex; z-index: 1000;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  background: #fff;
+  border-top: 1px solid var(--border);
+  display: flex;
+  z-index: 1000;
   box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.05);
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
+.bottom-nav.hidden {
+  display: none !important;
+}
 .bottom-nav a {
-  flex: 1; padding: 10px 4px 8px; text-align: center;
-  color: var(--muted); text-decoration: none;
-  font-size: 0.7rem; font-weight: 600; transition: color 0.15s;
+  flex: 1;
+  padding: 10px 4px 8px;
+  text-align: center;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.7rem;
+  font-weight: 600;
+  transition: color 0.15s;
 }
 .bottom-nav a.active { color: var(--primary); }
 .bottom-nav a i {
-  display: block; font-size: 1.35rem; margin-bottom: 2px;
+  display: block;
+  font-size: 1.35rem;
+  margin-bottom: 2px;
 }
 
 /* ══════ مودال ══════ */
@@ -407,7 +470,7 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════
-   صفحه‌ی اصلی (Home) — طراحی مدرن کارتی
+   صفحه‌ی اصلی (Home)
    ═══════════════════════════════════════════════════════ */
 .home-container {
   padding: 16px 16px 100px;
@@ -415,7 +478,6 @@ body {
   margin: 0 auto;
 }
 
-/* سلام + ایمیل */
 .home-greeting {
   text-align: right;
   margin: 8px 4px 18px;
@@ -436,7 +498,6 @@ body {
   display: inline-block;
 }
 
-/* دکمه‌ی اعلام حادثه */
 .home-incident-btn {
   position: relative;
   width: 100%;
@@ -490,7 +551,10 @@ body {
 }
 .home-incident-ecg {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   width: 100%;
   height: 100%;
   opacity: 0.55;
@@ -498,7 +562,6 @@ body {
   z-index: 1;
 }
 
-/* بخش‌ها */
 .home-section { margin-top: 26px; }
 .home-section-title {
   display: flex;
@@ -518,7 +581,6 @@ body {
   flex-shrink: 0;
 }
 
-/* کارت‌ها */
 .home-cards-2col {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -576,7 +638,6 @@ body {
   font-weight: 700;
 }
 
-/* کارت عریض (داروخانه) */
 .home-card-wide {
   width: 100%;
   flex-direction: row;
@@ -610,7 +671,6 @@ body {
   margin-top: 4px;
 }
 
-/* دکمه‌ی نصب */
 .home-install-btn {
   display: none;
   width: 100%;
@@ -631,7 +691,6 @@ body {
 }
 .home-install-btn:active { transform: scale(0.98); }
 
-/* ریسپانسیو Home */
 @media (max-width: 360px) {
   .home-card-sub { display: none; }
   .home-card { padding: 14px 12px; }
@@ -639,14 +698,13 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════
-   منوی فرم‌ها (Forms Menu)
+   منوی فرم‌ها (Forms Menu) — پدینگ اصلاح‌شده
    ═══════════════════════════════════════════════════════ */
 .forms-menu-page {
   padding: 20px 16px 100px;
   max-width: 640px;
   margin: 0 auto;
 }
-
 .forms-menu-header { margin-bottom: 22px; }
 .forms-menu-title {
   font-size: 1.45rem;
@@ -659,7 +717,7 @@ body {
   margin-top: 4px;
 }
 
-/* ⭐ پدینگ اصلاح‌شده: راست=16px | چپ=44px (برای فلش) */
+/* ⭐ پدینگ درست: راست=16px | چپ=44px */
 .forms-menu-card {
   position: relative;
   width: 100%;
@@ -718,7 +776,7 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════
-   آرشیو فرم‌ها (Forms Archive)
+   آرشیو فرم‌ها
    ═══════════════════════════════════════════════════════ */
 .archive-page {
   padding: 16px 16px 100px;
@@ -737,7 +795,6 @@ body {
   margin-top: 2px;
 }
 
-/* جستجو */
 .archive-search {
   position: relative;
   margin-bottom: 12px;
@@ -788,7 +845,6 @@ body {
 }
 .archive-search-clear.hidden { display: none; }
 
-/* فیلتر تاریخ */
 .archive-dates {
   background: #fff;
   border: 1.5px solid #e2e8f0;
@@ -855,7 +911,6 @@ body {
   box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.12);
 }
 
-/* دسته‌بندی */
 .archive-cats {
   display: flex;
   gap: 8px;
@@ -897,7 +952,6 @@ body {
   min-height: 16px;
 }
 
-/* آیتم‌ها */
 .archive-list {
   display: flex;
   flex-direction: column;
@@ -994,7 +1048,6 @@ body {
   flex-shrink: 0;
 }
 
-/* حالت خالی */
 .archive-empty {
   text-align: center;
   padding: 60px 20px;
@@ -1014,7 +1067,6 @@ body {
 }
 .archive-empty-sub { font-size: 0.8rem; }
 
-/* اسکلتون */
 .archive-item.skeleton {
   pointer-events: none;
   background: #fff;
@@ -1034,10 +1086,15 @@ body {
   100% { background-position: -200% 0; }
 }
 
-/* Bottom sheet جزئیات */
+/* Bottom sheet جزئیات — بدون inset */
 .archive-backdrop {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
   background: rgba(15, 23, 42, 0.55);
   z-index: 9999;
   display: flex;
@@ -1199,7 +1256,6 @@ body {
   border-radius: 20px; font-weight: 700; color: var(--primary);
 }
 
-/* Incident Cards */
 .incident-card {
   padding: 22px 14px; border: 3px solid #e2e8f0; border-radius: 16px;
   cursor: pointer; transition: all 0.25s; height: 100%; text-align: center;
@@ -1218,7 +1274,6 @@ body {
 .incident-card .title-big { font-weight: 700; margin-top: 10px; font-size: 1rem; }
 .incident-card .subtitle-big { font-size: 0.72rem; color: #64748b; margin-top: 4px; }
 
-/* Incident Type Radios */
 .incident-type-radio {
   display: block; padding: 12px; background: #fff;
   border: 2px solid #e2e8f0; border-radius: 12px;
@@ -1231,7 +1286,6 @@ body {
   background: #fff3cd; border-color: var(--warning); color: #92400e;
 }
 
-/* Body Map */
 .body-map-container {
   display: flex; justify-content: center; align-items: flex-start;
   gap: 20px; padding: 16px 8px; background: #f8fafc;
@@ -1287,7 +1341,6 @@ body {
   .body-map-title { font-size: 0.75rem; padding: 4px 8px; }
 }
 
-/* Toggle Boxes */
 .toggle-box {
   background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
   padding: 14px 18px; border-radius: 12px;
@@ -1308,7 +1361,6 @@ body {
   width: 22px; height: 22px; cursor: pointer; accent-color: var(--success);
 }
 
-/* Quick Drugs */
 .quick-drug-wrapper {
   background: #eef2f5; border-radius: 12px; padding: 12px;
   margin-bottom: 16px; border: 1px dashed #b8c2cc;
@@ -1351,7 +1403,6 @@ body {
 .pulse-bg { animation: pulseGreen 0.8s; }
 @keyframes pulseGreen { 50% { background: #d1fae5; border-color: var(--success); } }
 
-/* FAB */
 .fab-container {
   position: fixed; bottom: 90px; left: 20px;
   z-index: 999; display: none; align-items: center; gap: 12px;
@@ -1376,7 +1427,6 @@ body {
   border-left-color: var(--success);
 }
 
-/* Visit List Cards */
 .visit-card {
   background: #fff; border-radius: 14px; padding: 14px;
   margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.05);
@@ -1390,7 +1440,6 @@ body {
 .visit-card .visit-name { font-weight: 700; font-size: 0.95rem; }
 .visit-card .visit-meta { font-size: 0.72rem; color: #64748b; margin-top: 4px; line-height: 1.7; }
 
-/* Filter Pills */
 .filter-pills {
   display: flex; gap: 6px; padding: 4px; background: #f1f5f9;
   border-radius: 12px; margin-bottom: 14px;
@@ -1426,7 +1475,6 @@ body {
 }
 #btnAlertBell { position: relative; }
 
-/* دکمه حادثه سریع قدیمی */
 .quick-incident-btn {
   width: 100%; margin-top: 16px;
   background: linear-gradient(135deg, #dc2626, #991b1b);
@@ -1506,7 +1554,6 @@ body {
   margin-bottom: 22px;
 }
 
-/* قلب تپنده */
 .beating-heart {
   margin: 8px 0 18px;
   display: inline-flex;
@@ -1539,7 +1586,6 @@ body {
   100% { content: ''; }
 }
 
-/* نوار پیشرفت */
 .progress-container {
   width: 100%;
   height: 8px;
@@ -1563,7 +1609,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* لاگین مدرن */
 .modern-login {
   background: white;
   border-radius: 22px;
