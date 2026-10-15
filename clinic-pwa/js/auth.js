@@ -30,6 +30,22 @@ async function initAllListeners() {
 }
 
 // ═══════════════════════════════════════════════════════
+// نمایش صفحه لودینگ با ریست انیمیشن
+// ═══════════════════════════════════════════════════════
+function showLoadingScreen() {
+  showScreen('Loading');
+  // ریست نوار پیشرفت
+  const bar = document.getElementById('loadingProgressBar');
+  const percent = document.getElementById('loadingPercent');
+  if (bar) bar.style.width = '0%';
+  if (percent) percent.textContent = '0%';
+  // فراخوانی انیمیشن (اگر app.js لود شده)
+  if (typeof window.startLoadingProgress === 'function') {
+    window.startLoadingProgress();
+  }
+}
+
+// ═══════════════════════════════════════════════════════
 // تشخیص خطای قطعی
 // ═══════════════════════════════════════════════════════
 function isDefinitiveAuthError(err) {
@@ -42,7 +58,7 @@ function isDefinitiveAuthError(err) {
 }
 
 // ═══════════════════════════════════════════════════════
-// checkAuth - با retry و نمایش اتصال ضعیف
+// checkAuth
 // ═══════════════════════════════════════════════════════
 export async function checkAuth() {
   console.log('[AUTH] checkAuth called');
@@ -56,29 +72,29 @@ export async function checkAuth() {
       if (res.error) throw res.error;
       session = res.data?.session;
       lastError = null;
-      break;  // موفق
+      break;
     } catch (e) {
       lastError = e;
       console.warn(`[AUTH] getSession attempt ${attempt} failed:`, e.message);
-      
-      // اگه خطای قطعی بود، معطل نکن
       if (isDefinitiveAuthError(e)) break;
-      
-      // در غیر این صورت صبر کن
       if (attempt < MAX_RETRIES) {
         await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
       }
     }
   }
 
-  // ═══════════════════════════════════════════════════════
-  // تصمیم‌گیری
-  // ═══════════════════════════════════════════════════════
-
-  // حالت ۱: session معتبر داری
+  // حالت ۱: session معتبر
   if (session?.user) {
     currentUser = session.user;
-    $('userEmail').textContent = currentUser.email;
+    const el = $('userEmail');
+    if (el) el.textContent = currentUser.email;
+
+    // اگه روی Login هستیم، برو به Loading
+    const loginScreen = $('screenLogin');
+    if (loginScreen?.classList.contains('active')) {
+      showLoadingScreen();
+    }
+
     await loadAdminStatus();
     await initAllListeners();
     bindSettingsButton();
@@ -87,7 +103,7 @@ export async function checkAuth() {
     return;
   }
 
-  // حالت ۲: خطای قطعی (توکن منقضی شده)
+  // حالت ۲: خطای قطعی
   if (lastError && isDefinitiveAuthError(lastError)) {
     console.warn('[AUTH] Definitive error - going to Login');
     localStorage.removeItem('clinic-auth-token');
@@ -95,10 +111,10 @@ export async function checkAuth() {
     return;
   }
 
-  // حالت ۳: خطای شبکه ولی توکن هست → اتصال ضعیف
+  // حالت ۳: خطای شبکه ولی توکن هست
   const hasToken = localStorage.getItem('clinic-auth-token');
   if (lastError && hasToken) {
-    console.warn('[AUTH] Network error with token present → weak net screen');
+    console.warn('[AUTH] Network error with token present');
     setupWeakNetScreen();
     showScreen('WeakNet');
     return;
@@ -114,14 +130,14 @@ export async function checkAuth() {
 function setupWeakNetScreen() {
   const retryBtn = $('btnWeakNetRetry');
   const logoutBtn = $('btnWeakNetLogout');
-  
+
   if (retryBtn) {
     retryBtn.onclick = () => {
-      showScreen('Loading');
+      showLoadingScreen();
       setTimeout(() => checkAuth(), 100);
     };
   }
-  
+
   if (logoutBtn) {
     logoutBtn.onclick = async () => {
       if (!confirm('از حساب خارج می‌شوید؟')) return;
@@ -133,10 +149,14 @@ function setupWeakNetScreen() {
 }
 
 // ═══════════════════════════════════════════════════════
-// لاگین
+// لاگین — نسخه اصلاح‌شده
 // ═══════════════════════════════════════════════════════
 export async function doLogin() {
   console.log('[AUTH] doLogin called');
+
+  const btn = $('btnLogin');
+  const msg = $('loginMsg');
+
   let email = $('loginEmail').value.trim();
   const pass = $('loginPass').value;
 
@@ -149,23 +169,64 @@ export async function doLogin() {
     email = email + '@clinic.local';
   }
 
-  $('loginMsg').innerHTML = '<div class="alert alert-info py-2 small">در حال ورود...</div>';
-  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
-  
+  // ⭐ غیرفعال کردن دکمه + نمایش spinner
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ورود...';
+  }
+  if (msg) {
+    msg.innerHTML = '<div class="alert alert-info py-2 small"><span class="spinner-border spinner-border-sm"></span> در حال ورود...</div>';
+  }
+
+  let data, error;
+  try {
+    const res = await sb.auth.signInWithPassword({ email, password: pass });
+    data = res.data;
+    error = res.error;
+  } catch (e) {
+    error = e;
+  }
+
+  // ⭐ خطا → فعال‌سازی دکمه و نمایش پیام
   if (error) {
-    $('loginMsg').innerHTML = `<div class="alert alert-danger py-2 small">${escapeHtml(error.message)}</div>`;
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-box-arrow-in-left"></i> ورود به سامانه';
+    }
+    if (msg) {
+      msg.innerHTML = `<div class="alert alert-danger py-2 small">${escapeHtml(error.message || 'خطا در ورود')}</div>`;
+    }
     return;
   }
-  
-  $('loginMsg').innerHTML = '';
-  currentUser = data.user;
-  $('userEmail').textContent = currentUser.email;
-  await loadAdminStatus();
 
-  await initAllListeners();
-  bindSettingsButton();
-  showScreen('Home');
-  setTimeout(() => maybeShowPermissionBanner(), 800);
+  // ⭐ موفق → پاک کردن پیام و رفتن فوری به Loading
+  if (msg) msg.innerHTML = '';
+  currentUser = data.user;
+  const emailEl = $('userEmail');
+  if (emailEl) emailEl.textContent = currentUser.email;
+
+  // بلافاصله صفحه‌ی لودینگ رو نشون بده
+  showLoadingScreen();
+
+  // ⭐ حالا کارهای سنگین رو انجام بده (بدون اینکه کاربر ببینه)
+  try {
+    await loadAdminStatus();
+    await initAllListeners();
+    bindSettingsButton();
+    showScreen('Home');
+    setTimeout(() => maybeShowPermissionBanner(), 800);
+  } catch (e) {
+    console.error('[AUTH] post-login error:', e);
+    toast('خطا در راه‌اندازی: ' + e.message, 'danger');
+    // به‌هرحال کاربر لاگین هست، برو به Home
+    showScreen('Home');
+  }
+
+  // بازگرداندن دکمه (برای logout بعدی)
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-box-arrow-in-left"></i> ورود به سامانه';
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -182,12 +243,10 @@ function bindSettingsButton() {
 }
 
 // ═══════════════════════════════════════════════════════
-// بنر درخواست اجازه (فقط وقتی permission === 'default')
+// بنر درخواست اجازه
 // ═══════════════════════════════════════════════════════
 async function maybeShowPermissionBanner() {
   if (typeof Notification === 'undefined') return;
-  
-  // 🌟 فقط اگه default باشه نشون بده
   if (Notification.permission !== 'default') return;
 
   const dismissed = localStorage.getItem('fcm_banner_dismissed_until');
@@ -273,12 +332,18 @@ async function maybeShowPermissionBanner() {
   };
 }
 
+// ═══════════════════════════════════════════════════════
+// بارگذاری وضعیت ادمین
+// ═══════════════════════════════════════════════════════
 export async function loadAdminStatus() {
   if (!currentUser?.email) { isAdmin = false; return; }
   const { data } = await sb.from('pwa_admins').select('email').eq('email', currentUser.email).maybeSingle();
   isAdmin = !!data;
 }
 
+// ═══════════════════════════════════════════════════════
+// خروج
+// ═══════════════════════════════════════════════════════
 export async function doLogout() {
   if (!confirm('از حساب خارج می‌شوید؟')) return;
   try { await endSession(); } catch (e) {}
