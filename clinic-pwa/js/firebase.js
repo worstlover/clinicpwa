@@ -51,5 +51,5 @@ export async function getMessagingInstance() {
   }
 }
 
-// ⭐ نسخه‌ی firebase برای استفاده در جاهای دیگر
-export { firebase };
+// ❌ خط export { firebase } حذف شد
+// اگر جایی به firebase نیاز دارید، از window.firebase استفاده کنید
