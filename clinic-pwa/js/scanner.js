@@ -18,7 +18,6 @@ export function initScannerButtons() {
   if (btnPaste) btnPaste.onclick = () => pasteFromClipboard();
   if (btnCamera) btnCamera.onclick = () => showCameraPicker();
 
-  // کلیک روی پس‌زمینه اسکنر هم ببنده
   const wrap = $('scannerWrap');
   if (wrap) {
     wrap.addEventListener('click', (e) => {
@@ -42,44 +41,40 @@ export async function startScanner(callback) {
   if (statusEl) statusEl.textContent = 'در حال راه‌اندازی دوربین...';
 
   try {
-    // ساخت خواننده با تنظیمات بهینه
+    if (typeof ZXing === 'undefined' || !ZXing.BrowserMultiFormatReader) {
+      if (statusEl) statusEl.textContent = 'کتابخانه ZXing بارگذاری نشده';
+      toast('کتابخانه اسکنر پیدا نشد. اتصال اینترنت را چک کنید.', 'danger');
+      return;
+    }
+
     if (!codeReader) {
       codeReader = new ZXing.BrowserMultiFormatReader();
     }
 
-    // تنظیمات دوربین: اولویت به دوربین پشت
     const constraints = {
       video: {
         facingMode: 'environment',
         width: { ideal: 1280 },
         height: { ideal: 720 },
-        // focusMode در صورت پشتیبانی
-        ...(navigator.mediaDevices.getSupportedConstraints().focusMode
-          ? { focusMode: 'continuous' }
-          : {})
       }
     };
 
-    // شروع دیکود کردن
     controls = await codeReader.decodeFromConstraints(
       constraints,
       'reader',
       (result, error) => {
         if (result) {
           console.log('[SCANNER] scanned:', result.getText());
-          if (statusEl) statusEl.textContent = '✅ اسکن شد: ' + result.getText().substring(0, 30);
+          if (statusEl) statusEl.textContent = '✅ اسکن شد';
           if (onScanCallback) onScanCallback(result.getText());
-          // لرزش کوتاه
           if (navigator.vibrate) navigator.vibrate(100);
           closeScanner();
         }
-        // error رو نادیده بگیر (وقتی چیزی پیدا نمی‌شه خطا می‌ده)
       }
     );
 
     if (statusEl) statusEl.textContent = 'آماده اسکن...';
 
-    // ذخیره device id برای انتخاب دوربین
     if (controls && controls.stream) {
       const track = controls.stream.getVideoTracks()[0];
       if (track) {
@@ -88,19 +83,20 @@ export async function startScanner(callback) {
       }
     }
 
-    // پر کردن لیست دوربین‌ها
     setTimeout(() => populateCameraList(), 500);
 
   } catch (err) {
     console.error('[SCANNER] start error:', err);
     if (statusEl) statusEl.textContent = 'خطا در راه‌اندازی دوربین';
     toast('خطا در دسترسی به دوربین: ' + err.message, 'danger');
-    // اگه اجازه نداشت، ببند
     if (err.name === 'NotAllowedError' || err.name === 'NotFoundError') {
       closeScanner();
     }
   }
 }
+
+// ⭐ alias برای سازگاری با ماژول‌های قدیمی
+export const openScanner = startScanner;
 
 // ═══════════════════════════════════════════════════════
 // توقف اسکن
@@ -114,11 +110,8 @@ export function closeScanner() {
     controls = null;
   }
 
-  // پاک کردن video element
   const reader = $('reader');
-  if (reader) {
-    reader.innerHTML = '';
-  }
+  if (reader) reader.innerHTML = '';
 
   const statusEl = $('scannerStatus');
   if (statusEl) statusEl.textContent = 'آماده اسکن...';
@@ -134,7 +127,6 @@ async function populateCameraList() {
   if (!popup || !codeReader) return;
 
   try {
-    // دریافت لیست دوربین‌ها
     const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
     if (!devices || devices.length <= 1) {
       popup.style.display = 'none';
@@ -226,7 +218,6 @@ async function pasteFromClipboard() {
   } catch (e) {
     console.error('[SCANNER] paste error:', e);
     toast('دسترسی به کلیپ‌بورد ممکن نیست', 'warning');
-    // روش قدیمی
     const manual = prompt('کد را وارد کنید:');
     if (manual && manual.trim()) {
       if (onScanCallback) onScanCallback(manual.trim());
@@ -234,5 +225,3 @@ async function pasteFromClipboard() {
     }
   }
 }
-// ⭐ alias برای سازگاری با ماژول‌های قدیمی که openScanner رو import می‌کنن
-export const openScanner = startScanner;
