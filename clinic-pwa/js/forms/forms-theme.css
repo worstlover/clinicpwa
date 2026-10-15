@@ -1,9 +1,28 @@
 /* ═══════════════════════════════════════════════════════════════
    js/forms/forms-theme.css — طراحی مشترک فرم‌ها (مطابق فرم‌های اصلی شرکت)
-   همه‌ی قالب‌ها فقط از این کلاس‌ها استفاده می‌کنند.
+   ترکیب فونت: Shabnam (متن ثابت) + Mikhak (مقادیر پرشده)
    ═══════════════════════════════════════════════════════════════ */
 
-/* ── فونت نیمه‌دست‌نویس محلی برای مقادیر پر شده توسط سیستم ──
+/* ── فونت اصلی (متن ثابت و برچسب‌ها) ──
+   فایل‌ها: fonts/Shabnam.woff2 و fonts/Shabnam-Bold.woff2 */
+@font-face {
+  font-family: 'Shabnam';
+  src: url('../../fonts/Shabnam.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+FB50-FDFF, U+FE70-FEFF;
+}
+@font-face {
+  font-family: 'Shabnam';
+  src: url('../../fonts/Shabnam-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+/* ── فونت نیمه‌دست‌نویس برای مقادیر پر شده ──
    فایل: fonts/Mikhak-Bold.woff2 */
 @font-face {
   font-family: 'FormHand';
@@ -16,7 +35,7 @@
 
 /* ── پایه ── */
 .form-sheet.fs, .form-sheet .fs {
-  font-family: 'Vazirmatn', Tahoma, sans-serif;
+  font-family: 'Shabnam', 'Vazirmatn', Tahoma, sans-serif;
   direction: rtl;
   color: #000;
   font-size: 13.5px;
@@ -143,9 +162,9 @@
 .form-sheet .fs-hand,
 .form-sheet .fs-val,
 .form-sheet .fs-dots:not(:empty) {
-  font-family: 'FormHand', 'Mikhak', 'Vazirmatn', Tahoma, sans-serif;
+  font-family: 'FormHand', 'Mikhak', 'Shabnam', 'Vazirmatn', Tahoma, sans-serif;
   font-weight: 700;
-  font-size: 1.35em;       /* ← ۳۵٪ بزرگ‌تر از متن پایه (13.5 → حدود 18px) */
+  font-size: 1.35em;
   line-height: 1.45;
   letter-spacing: 0;
 }
@@ -159,7 +178,11 @@
 
 /* مقادیر خالی → فونت عادی (اندازه‌ی پایه) */
 .form-sheet .fs-dots:empty,
-.form-sheet .fs-dots:has(> :only-child) { font-family: inherit; font-weight: inherit; font-size: inherit; }
+.form-sheet .fs-dots:has(> :only-child) {
+  font-family: inherit;
+  font-weight: inherit;
+  font-size: inherit;
+}
 
 /* ── چاپ ── */
 @media print {
