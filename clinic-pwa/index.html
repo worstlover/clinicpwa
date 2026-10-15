@@ -18,6 +18,7 @@
 <link href="lib/bootstrap-icons.min.css" rel="stylesheet">
 <link href="styles/main.css" rel="stylesheet">
 <link href="js/forms/print.css" rel="stylesheet">
+<link href="js/forms/forms-theme.css" rel="stylesheet">
 <link href="js/process/process.css" rel="stylesheet">
 
 <style>
@@ -25,190 +26,6 @@
   .screen.active { display: block !important; }
   #screenLoading { display: none; }
   #screenLoading.active { display: block !important; }
-
-  /* ═══════════════════════════════════════════════════════
-     صفحه‌ی لودینگ
-     ═══════════════════════════════════════════════════════ */
-  .loading-wrapper {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #f0fdfa 100%);
-  }
-  .loading-content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    max-width: 340px;
-    width: 100%;
-    text-align: center;
-  }
-  .loading-logo,
-  .login-logo-modern {
-    width: 84px;
-    height: 84px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #0d6efd, #6610f2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 12px 32px rgba(13, 110, 253, 0.35);
-    margin-bottom: 14px;
-  }
-  .cross-logo {
-    color: #fff;
-    font-size: 3rem;
-    font-weight: 200;
-    line-height: 1;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    margin-top: -4px;
-  }
-  .loading-title {
-    font-size: 1.35rem;
-    font-weight: 800;
-    color: #0f172a;
-    margin: 6px 0 4px;
-  }
-  .loading-subtitle {
-    font-size: 0.82rem;
-    color: #64748b;
-    margin: 0 0 20px;
-  }
-  .beating-heart {
-    display: inline-flex;
-    animation: heartBeat 1.2s ease-in-out infinite;
-    margin: 4px 0 18px;
-  }
-  @keyframes heartBeat {
-    0%, 100% { transform: scale(1); }
-    15%      { transform: scale(1.18); }
-    30%      { transform: scale(0.98); }
-    45%      { transform: scale(1.08); }
-    60%      { transform: scale(1); }
-  }
-  .loading-text {
-    font-size: 0.92rem;
-    color: #334155;
-    font-weight: 600;
-    margin: 0 0 16px;
-  }
-  .loading-text .dots::after {
-    content: '';
-    animation: dots 1.4s steps(4, end) infinite;
-  }
-  @keyframes dots {
-    0%   { content: ''; }
-    25%  { content: '.'; }
-    50%  { content: '..'; }
-    75%  { content: '...'; }
-    100% { content: ''; }
-  }
-  .progress-container {
-    width: 100%;
-    height: 8px;
-    background: #e2e8f0;
-    border-radius: 100px;
-    overflow: hidden;
-    box-shadow: inset 0 1px 3px rgba(0,0,0,0.06);
-  }
-  .progress-bar {
-    height: 100%;
-    width: 0%;
-    background: linear-gradient(90deg, #0d6efd, #6610f2);
-    border-radius: 100px;
-    transition: width 0.3s ease-out;
-  }
-  .progress-percent {
-    font-size: 0.78rem;
-    color: #64748b;
-    font-weight: 700;
-    margin-top: 8px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* ═══════════════════════════════════════════════════════
-     صفحه‌ی لاگین مدرن
-     ═══════════════════════════════════════════════════════ */
-  .modern-login {
-    background: #fff;
-    border-radius: 22px;
-    padding: 32px 24px 26px;
-    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.12), 0 4px 12px rgba(15, 23, 42, 0.05);
-    text-align: center;
-  }
-  .login-title {
-    font-size: 1.25rem;
-    font-weight: 800;
-    color: #0f172a;
-    margin: 4px 0 4px;
-  }
-  .login-subtitle {
-    font-size: 0.78rem;
-    color: #64748b;
-    margin: 0 0 22px;
-  }
-  .input-with-icon {
-    position: relative;
-    width: 100%;
-  }
-  .input-with-icon > i {
-    position: absolute;
-    top: 50%;
-    right: 14px;
-    transform: translateY(-50%);
-    color: #94a3b8;
-    font-size: 1.1rem;
-    pointer-events: none;
-    z-index: 2;
-  }
-  .input-with-icon .form-control {
-    padding-right: 42px;
-    height: 50px;
-    border-radius: 12px;
-    border: 1.5px solid #e2e8f0;
-    background: #f8fafc;
-    font-size: 0.95rem;
-    transition: all 0.15s ease;
-  }
-  .input-with-icon .form-control:focus {
-    border-color: #0d6efd;
-    background: #fff;
-    box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.12);
-  }
-  .modern-login-btn {
-    height: 52px;
-    border-radius: 12px;
-    font-weight: 700;
-    font-size: 1rem;
-    background: linear-gradient(135deg, #0d6efd, #6610f2);
-    border: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    box-shadow: 0 8px 22px rgba(13, 110, 253, 0.35);
-    transition: transform 0.1s ease;
-  }
-  .modern-login-btn:active {
-    transform: scale(0.98);
-  }
-  .login-footer-text {
-    font-size: 0.72rem;
-    color: #94a3b8;
-    margin: 18px 0 0;
-    line-height: 1.6;
-  }
-  .modern-login label.form-label {
-    text-align: right;
-    display: block;
-    font-weight: 600;
-    font-size: 0.85rem;
-    color: #334155;
-    margin-bottom: 6px;
-  }
 </style>
 </head>
 <body>
@@ -217,26 +34,21 @@
 <div id="screenLoading" class="screen active">
   <div class="loading-wrapper">
     <div class="loading-content">
-      <!-- لوگو -->
       <div class="loading-logo">
         <div class="cross-logo">+</div>
       </div>
 
-      <!-- عنوان -->
       <h2 class="loading-title">کلینیک گندله سازی بهاباد</h2>
       <p class="loading-subtitle">سامانه مدیریت کلینیک صنعتی</p>
 
-      <!-- قلب تپنده -->
       <div class="beating-heart">
         <svg viewBox="0 0 24 24" width="64" height="64">
           <path fill="#ef4444" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
         </svg>
       </div>
 
-      <!-- متن -->
       <p class="loading-text">در حال بارگذاری<span class="dots"></span></p>
 
-      <!-- نوار پیشرفت واقعی -->
       <div class="progress-container">
         <div class="progress-bar" id="loadingProgressBar"></div>
       </div>
@@ -249,7 +61,6 @@
 <div id="screenLogin" class="screen">
   <div class="login-wrapper">
     <div class="login-card modern-login">
-      <!-- لوگو -->
       <div class="login-logo-modern">
         <div class="cross-logo">+</div>
       </div>
@@ -323,116 +134,138 @@
   </div>
 </div>
 
-<!-- ═════════════ منوی اصلی ═════════════ -->
+<!-- ═════════════ منوی اصلی (Home) ═════════════ -->
 <div id="screenHome" class="screen">
-  <div class="menu-grid">
+  <div class="home-container">
 
-    <div class="text-center mb-4 mt-2">
-      <div style="font-size:1.6rem;">سلام 👋</div>
-      <small class="muted" id="userEmail"></small>
+    <!-- سلام + ایمیل -->
+    <div class="home-greeting">
+      <div class="home-greeting-text">سلام 👋</div>
+      <div class="home-greeting-email" id="userEmail"></div>
     </div>
 
-    <button id="btnQuickIncident" class="quick-incident-btn">
-      <i class="bi bi-exclamation-triangle-fill"></i>
-      <div>
-        <div style="font-weight:800;font-size:1.05rem;">اعلام حادثه سریع</div>
-        <div style="font-size:0.72rem;opacity:0.9;">هشدار فوری به کل تیم درمان</div>
+    <!-- اعلام حادثه سریع -->
+    <button id="btnQuickIncident" class="home-incident-btn">
+      <div class="home-incident-icon">
+        <i class="bi bi-exclamation-triangle-fill"></i>
       </div>
+      <div class="home-incident-body">
+        <div class="home-incident-title">اعلام حادثه سریع</div>
+        <div class="home-incident-sub">برای ارسال سریع اطلاعات حادثه</div>
+      </div>
+      <svg class="home-incident-ecg" viewBox="0 0 200 60" preserveAspectRatio="none">
+        <polyline points="0,30 30,30 40,30 50,10 60,50 70,25 80,30 120,30 130,15 140,45 150,30 200,30"
+                  fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="2"/>
+      </svg>
     </button>
 
-    <div class="menu-section-title">
-      <i class="bi bi-heart-pulse-fill"></i> بخش بالینی
-    </div>
-    <div class="row g-3">
-      <div class="col-6">
-        <button class="menu-card" data-nav="visits">
-          <div class="icon-bg" style="background:#fce7f3;color:#db2777;">
+    <!-- بخش بالینی -->
+    <div class="home-section">
+      <div class="home-section-title">
+        <span class="home-section-dot"></span>
+        بخش بالینی
+      </div>
+      <div class="home-cards-2col">
+        <button class="home-card" data-nav="visits">
+          <div class="home-card-icon" style="background:#fce7f3;color:#db2777;">
             <i class="bi bi-clipboard2-pulse-fill"></i>
           </div>
-          <div class="label">ویزیت‌ها</div>
-          <div class="sub">ثبت و مشاهده</div>
+          <div class="home-card-label">ویزیت‌ها</div>
+          <div class="home-card-sub">مشاهده و مدیریت ویزیت‌های بیماران</div>
+          <i class="bi bi-chevron-left home-card-arrow"></i>
         </button>
-      </div>
-      <div class="col-6">
-        <button class="menu-card" data-nav="occupational">
-          <div class="icon-bg" style="background:#cffafe;color:#0891b2;">
-            <i class="bi bi-clipboard2-pulse"></i>
+
+        <button class="home-card" data-nav="occupational">
+          <div class="home-card-icon" style="background:#dbeafe;color:#2563eb;">
+            <i class="bi bi-briefcase-fill"></i>
           </div>
-          <div class="label">طب کار</div>
-          <div class="sub">معاینات دوره‌ای</div>
+          <div class="home-card-label">طب کار</div>
+          <div class="home-card-sub">معاینات، تست‌ها و گواهی‌ها</div>
+          <i class="bi bi-chevron-left home-card-arrow"></i>
         </button>
       </div>
     </div>
 
-    <div class="menu-section-title" style="margin-top:24px;">
-      <i class="bi bi-capsule"></i> مدیریت دارو
-    </div>
-    <div class="row g-3">
-      <div class="col-12">
-        <button class="menu-card menu-card-wide" data-nav="pharmacy">
-          <div class="icon-bg" style="background:#d1fae5;color:#059669;">
-            <i class="bi bi-prescription2"></i>
-          </div>
-          <div class="label">داروخانه</div>
-          <div class="sub">انبار، دریافت، خروج منقضی</div>
-          <i class="bi bi-chevron-left" style="position:absolute;left:20px;top:50%;transform:translateY(-50%);font-size:1.5rem;color:#94a3b8;"></i>
-        </button>
+    <!-- مدیریت دارو -->
+    <div class="home-section">
+      <div class="home-section-title">
+        <span class="home-section-dot"></span>
+        مدیریت دارو
       </div>
+      <button class="home-card home-card-wide" data-nav="pharmacy">
+        <div class="home-card-icon" style="background:#d1fae5;color:#059669;">
+          <i class="bi bi-capsule-pill"></i>
+        </div>
+        <div class="home-card-body">
+          <div class="home-card-label">داروخانه کلینیک</div>
+          <div class="home-card-sub">مدیریت داروها، موجودی و نسخه‌ها</div>
+          <div class="home-card-action">
+            مدیریت داروها
+            <i class="bi bi-chevron-left"></i>
+          </div>
+        </div>
+      </button>
     </div>
 
-    <div class="menu-section-title" style="margin-top:24px;">
-      <i class="bi bi-diagram-3"></i> راهنما و فرم‌ها
-    </div>
-    <div class="row g-3">
-      <div class="col-6">
-        <button class="menu-card" data-nav="guide">
-          <div class="icon-bg" style="background:#e0e7ff;color:#4f46e5;">
-            <i class="bi bi-diagram-3-fill"></i>
-          </div>
-          <div class="label">راهنمای فرآیندها</div>
-          <div class="sub">مراحل + فرم‌ها</div>
-        </button>
+    <!-- راهنما و فرم‌ها -->
+    <div class="home-section">
+      <div class="home-section-title">
+        <span class="home-section-dot"></span>
+        راهنما و فرم‌ها
       </div>
-      <div class="col-6">
-        <button class="menu-card" data-nav="forms">
-          <div class="icon-bg" style="background:#fef3c7;color:#d97706;">
+      <div class="home-cards-2col">
+        <button class="home-card" data-nav="guide">
+          <div class="home-card-icon" style="background:#dbeafe;color:#2563eb;">
+            <i class="bi bi-book-fill"></i>
+          </div>
+          <div class="home-card-label">راهنمای کاربری</div>
+          <div class="home-card-sub">آموزش استفاده از بخش‌های اپلیکیشن</div>
+          <i class="bi bi-chevron-left home-card-arrow"></i>
+        </button>
+
+        <button class="home-card" data-nav="forms">
+          <div class="home-card-icon" style="background:#ede9fe;color:#7c3aed;">
             <i class="bi bi-file-earmark-text-fill"></i>
           </div>
-          <div class="label">فرم‌ها</div>
-          <div class="sub">چاپ و آرشیو</div>
+          <div class="home-card-label">فرم‌ها</div>
+          <div class="home-card-sub">دانلود و تکمیل فرم‌های مورد نیاز</div>
+          <i class="bi bi-chevron-left home-card-arrow"></i>
         </button>
       </div>
     </div>
 
-    <div class="menu-section-title" style="margin-top:24px;">
-      <i class="bi bi-three-dots"></i> سایر
-    </div>
-    <div class="row g-3">
-      <div class="col-6">
-        <button class="menu-card" data-nav="report">
-          <div class="icon-bg info"><i class="bi bi-graph-up"></i></div>
-          <div class="label">گزارش‌ها</div>
-          <div class="sub">موجودی و هشدارها</div>
-        </button>
+    <!-- سایر -->
+    <div class="home-section">
+      <div class="home-section-title">
+        <span class="home-section-dot"></span>
+        سایر
       </div>
-      <div class="col-6">
-        <button class="menu-card" data-nav="profile">
-          <div class="icon-bg" style="background:#e0e7ff;color:#4f46e5;">
+      <div class="home-cards-2col">
+        <button class="home-card" data-nav="report">
+          <div class="home-card-icon" style="background:#fef3c7;color:#d97706;">
+            <i class="bi bi-graph-up"></i>
+          </div>
+          <div class="home-card-label">گزارش‌ها</div>
+          <div class="home-card-sub">موجودی و هشدارها</div>
+          <i class="bi bi-chevron-left home-card-arrow"></i>
+        </button>
+        <button class="home-card" data-nav="profile">
+          <div class="home-card-icon" style="background:#e0e7ff;color:#4f46e5;">
             <i class="bi bi-person-circle"></i>
           </div>
-          <div class="label">پروفایل</div>
-          <div class="sub">حساب کاربری</div>
+          <div class="home-card-label">پروفایل</div>
+          <div class="home-card-sub">حساب کاربری</div>
+          <i class="bi bi-chevron-left home-card-arrow"></i>
         </button>
       </div>
     </div>
 
-    <button id="btnInstallPWA" style="display:none;width:100%;margin-top:16px;
-      background:linear-gradient(135deg,#0d6efd,#6610f2);color:#fff;border:none;border-radius:14px;
-      padding:14px;font-weight:700;font-size:0.95rem;box-shadow:0 8px 20px rgba(13,110,253,.4);
-      align-items:center;justify-content:center;gap:8px;cursor:pointer;font-family:inherit;"
-      onclick="window._triggerInstall()">
-      <i class="bi bi-download"></i> نصب اپ روی صفحه اصلی
+    <!-- نصب PWA -->
+    <button id="btnInstallPWA" class="home-install-btn" onclick="window._triggerInstall()">
+      <i class="bi bi-download"></i>
+      نصب اپ روی صفحه اصلی
     </button>
+
   </div>
 </div>
 
@@ -572,7 +405,7 @@
 
 <script src="lib/bootstrap.bundle.min.js"></script>
 
-<!-- Firebase از CDN - باید قبل از app.js باشد -->
+<!-- Firebase از CDN -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
 
