@@ -2032,3 +2032,52 @@ body {
   font-size: 0.72rem; color: #64748b; margin-top: 3px;
 }
 .fr-item-loc i { color: #94a3b8; }
+/* ═══════════════════════════════════════════════════════
+   اسکنر ZXing - استایل‌های تکمیلی
+   ═══════════════════════════════════════════════════════ */
+.scanner-wrap {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  z-index: 9999;
+  display: none;
+  flex-direction: column;
+}
+.scanner-wrap.active {
+  display: flex !important;
+}
+
+#reader {
+  width: 100% !important;
+  height: 100% !important;
+}
+#reader video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+/* پاپ‌آپ انتخاب دوربین */
+#cameraPopup {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.95);
+  padding: 12px;
+  border-radius: 14px;
+  min-width: 240px;
+  max-width: 300px;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+#cameraPopup .camera-option:active {
+  opacity: 0.7;
+}
+
+/* دکمه انتخاب دوربین وقتی پاپ‌آپ بازه */
+#btnCameraSelect.active {
+  background: rgba(13, 110, 253, 0.5);
+}
