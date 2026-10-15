@@ -15,6 +15,8 @@ import { openForms } from './forms/engine.js';
 import { openGuide } from './process/guide.js';
 import { openFormsMenu } from './modules/forms-menu.js';
 import { openFormsArchive } from './modules/forms-archive.js';
+import { openVisitReports } from './modules/visit-reports.js';
+import { openFineReward } from './modules/fine-reward.js';
 import { initFCM } from './fcm.js';
 
 console.log('[APP] module loaded');
@@ -87,7 +89,7 @@ if (userEmailEl) {
 }
 
 // ═══════════════════════════════════════════════════════
-// ناوبری — نسخه‌ی مقاوم
+// ناوبری
 // ═══════════════════════════════════════════════════════
 document.querySelectorAll('[data-nav]').forEach(el => {
   el.addEventListener('click', e => {
@@ -109,6 +111,8 @@ document.querySelectorAll('[data-nav]').forEach(el => {
       else if (n === 'formsMenu') openFormsMenu();
       else if (n === 'formsArchive') openFormsArchive();
       else if (n === 'guide') openGuide();
+      else if (n === 'visitReports') openVisitReports();
+      else if (n === 'fineReward') openFineReward();
       else console.warn('[NAV] unknown target:', n);
     } catch (err) {
       console.error('[NAV] error for', n, ':', err);
@@ -158,13 +162,8 @@ window._triggerInstall = async () => {
 // راه‌اندازی اولیه
 // ═══════════════════════════════════════════════════════
 (async () => {
-  try {
-    await checkAuth();
-  } catch (e) { console.error('[APP] checkAuth:', e); }
-
-  try {
-    await initFCM();
-  } catch (e) { console.error('[APP] initFCM:', e); }
+  try { await checkAuth(); } catch (e) { console.error('[APP] checkAuth:', e); }
+  try { await initFCM(); }   catch (e) { console.error('[APP] initFCM:', e); }
 })();
 
 // ═══════════════════════════════════════════════════════
