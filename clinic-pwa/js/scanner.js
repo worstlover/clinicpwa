@@ -5,7 +5,7 @@ let codeReader = null;
 let controls = null;
 let currentDeviceId = null;
 let onScanCallback = null;
-let cachedDevices = [];  // کش لیست دوربین‌ها
+let cachedDevices = [];
 
 // ═══════════════════════════════════════════════════════
 // راه‌اندازی دکمه‌ها
@@ -35,26 +35,40 @@ export function initScannerButtons() {
 }
 
 // ═══════════════════════════════════════════════════════
-// ⭐ درخواست اجازه + کش کردن لیست دوربین‌ها
+// ⭐ درخواست اجازه + گرفتن استریم + لیست دوربین‌ها
 // ═══════════════════════════════════════════════════════
-async function requestCameraPermission() {
+async function acquireStream() {
   try {
-    // ⭐ constraints آزاد - همه‌ی دوربین‌ها رو قبول می‌کنه
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    // ⭐ constraints آزاد: روی دسکتاپ و موبایل کار می‌کنه
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: false,
+    });
 
-    // ⭐ در حین فعال بودن استریم، لیست دوربین‌ها رو بگیر
-    // (labels فقط وقتی استریم فعاله پر می‌شن)
-    const allDevices = await navigator.mediaDevices.enumerateDevices();
-    cachedDevices = allDevices.filter(d => d.kind === 'videoinput');
-    console.log('[SCANNER] cached devices:', cachedDevices);
+    // ⭐ در حین فعال بودن استریم، لیست دوربین‌ها رو کش کن
+    try {
+      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      cachedDevices = allDevices.filter(d => d.kind === 'videoinput');
+      console.log('[SCANNER] cached devices:', cachedDevices);
+    } catch (e) {
+      console.warn('[SCANNER] enumerate failed:', e);
+    }
 
-    // ⭐ حالا استریم رو ببند
-    stream.getTracks().forEach(t => t.stop());
+    // ⭐ ذخیره deviceId فعلی
+    const track = stream.getVideoTracks()[0];
+    if (track) {
+      const settings = track.getSettings();
+      currentDeviceId = settings.deviceId;
+      console.log('[SCANNER] current device:', currentDeviceId);
+    }
 
-    return cachedDevices.length > 0;
+    return stream;
   } catch (err) {
-    console.warn('[SCANNER] permission request failed:', err);
-    return false;
+    console.warn('[SCANNER] acquire stream failed:', err);
+    return null;
   }
 }
 
@@ -82,7 +96,7 @@ function createVideoElement() {
 }
 
 // ═══════════════════════════════════════════════════════
-// انتخاب بک‌کمرا (اگه وجود داشت)
+// ⭐ انتخاب بک‌کمرا
 // ═══════════════════════════════════════════════════════
 function pickBestCamera(devices) {
   if (!devices || !devices.length) return null;
@@ -94,8 +108,6 @@ function pickBestCamera(devices) {
   });
 
   if (backDevice) return backDevice.deviceId;
-
-  // اگه دوربین بک‌کمرا نبود (مثل دسکتاپ)، اولی رو انتخاب کن
   return devices[0].deviceId;
 }
 
@@ -119,30 +131,22 @@ export async function startScanner(callback) {
       return;
     }
 
-    // ⭐ اجازه بگیر + لیست دوربین‌ها رو کش کن
-    if (statusEl) statusEl.textContent = 'درخواست دسترسی به دوربین...';
-    const hasPermission = await requestCameraPermission();
+    // ⭐ آزاد کردن استریم قبلی (اگه هست)
+    await releaseCurrentStream();
 
-    if (!hasPermission || cachedDevices.length === 0) {
+    // ⭐ گرفتن استریم جدید
+    if (statusEl) statusEl.textContent = 'درخواست دسترسی به دوربین...';
+    const stream = await acquireStream();
+
+    if (!stream) {
       if (statusEl) statusEl.textContent = 'دسترسی به دوربین رد شد';
       toast('برای اسکن، اجازه دسترسی به دوربین را بدهید', 'danger');
       setTimeout(() => closeScanner(), 2500);
       return;
     }
 
-    // ⭐ انتخاب بهترین دوربین
-    const deviceId = pickBestCamera(cachedDevices);
-    console.log('[SCANNER] selected device:', deviceId, cachedDevices);
-
-    if (!deviceId) {
-      if (statusEl) statusEl.textContent = 'دوربینی یافت نشد';
-      toast('دوربینی روی دستگاه پیدا نشد', 'danger');
-      return;
-    }
-
-    await startDecodeWithDevice(deviceId, statusEl);
-    currentDeviceId = deviceId;
-
+    // ⭐ شروع دیکود با همون استریم
+    await startDecodeWithStream(stream, statusEl);
     if (statusEl) statusEl.textContent = 'آماده اسکن...';
 
   } catch (err) {
@@ -155,23 +159,39 @@ export async function startScanner(callback) {
 export const openScanner = startScanner;
 
 // ═══════════════════════════════════════════════════════
-// شروع دیکود با deviceId
+// ⭐ آزاد کردن استریم فعلی
 // ═══════════════════════════════════════════════════════
-async function startDecodeWithDevice(deviceId, statusEl) {
+async function releaseCurrentStream() {
   if (controls) {
-    try { controls.stop(); } catch (e) {}
+    try {
+      controls.stop();
+    } catch (e) {
+      console.warn('[SCANNER] controls.stop failed:', e);
+    }
     controls = null;
   }
+  // یه وقفه کوچیک برای آزاد شدن دوربین
+  await new Promise(r => setTimeout(r, 250));
+}
 
+// ═══════════════════════════════════════════════════════
+// ⭐ شروع دیکود با استریم موجود
+// ═══════════════════════════════════════════════════════
+async function startDecodeWithStream(stream, statusEl) {
   const videoEl = createVideoElement();
   if (!videoEl) throw new Error('reader element not found');
+
+  // وصل کردن stream به video
+  videoEl.srcObject = stream;
 
   if (!codeReader) {
     codeReader = new ZXing.BrowserMultiFormatReader();
   }
 
-  controls = await codeReader.decodeFromVideoDevice(
-    deviceId,
+  // ⭐ استفاده از decodeFromStream (نه decodeFromVideoDevice)
+  // چون استریم از قبل داریم، ZXing نمی‌خواد دوربین رو دوباره باز کنه
+  controls = await codeReader.decodeFromStream(
+    stream,
     videoEl,
     (result) => {
       if (result) {
@@ -200,7 +220,7 @@ function handleStartError(err, statusEl) {
   } else if (err.name === 'NotFoundError' || err.message?.includes('not found')) {
     msg = 'دوربینی روی دستگاه پیدا نشد';
   } else if (err.name === 'NotReadableError' || err.message?.includes('could not start')) {
-    msg = 'دوربین در حال استفاده توسط برنامه دیگر است.';
+    msg = 'دوربین در حال استفاده است. لطفاً چند لحظه صبر کنید یا برنامه‌های دیگر را ببندید.';
   } else if (err.name === 'OverconstrainedError') {
     msg = 'تنظیمات دوربین با دستگاه سازگار نیست';
   } else {
@@ -216,7 +236,7 @@ function handleStartError(err, statusEl) {
 // ═══════════════════════════════════════════════════════
 // بستن
 // ═══════════════════════════════════════════════════════
-export function closeScanner() {
+export async function closeScanner() {
   const wrap = $('scannerWrap');
   if (wrap) wrap.classList.remove('active');
 
@@ -238,13 +258,12 @@ export function closeScanner() {
 }
 
 // ═══════════════════════════════════════════════════════
-// ⭐ انتخاب دوربین — با استفاده از کش
+// ⭐ لیست دوربین‌ها (با استفاده از کش)
 // ═══════════════════════════════════════════════════════
 async function showCameraPicker() {
   const popup = $('cameraPopup');
   if (!popup) return;
 
-  // اگه بازه، ببند
   if (popup.style.display === 'block') {
     popup.style.display = 'none';
     return;
@@ -254,13 +273,12 @@ async function showCameraPicker() {
   popup.innerHTML = '<div style="color:#fff;font-size:0.8rem;text-align:center;padding:8px;">در حال بارگذاری...</div>';
 
   try {
-    // اگه کش خالیه، دوباره لیست بگیر
+    // اگه کش خالیه، دوباره enumerate کن
     if (!cachedDevices.length) {
       const allDevices = await navigator.mediaDevices.enumerateDevices();
       cachedDevices = allDevices.filter(d => d.kind === 'videoinput');
     }
 
-    // اگه هنوز خالیه، خطا بده
     if (!cachedDevices.length) {
       popup.innerHTML = `
         <div style="color:#fff;font-size:0.8rem;text-align:center;padding:12px;">
@@ -270,7 +288,6 @@ async function showCameraPicker() {
       return;
     }
 
-    // نمایش لیست
     popup.innerHTML = cachedDevices.map((d, i) => `
       <div class="camera-option" data-id="${d.deviceId}" style="
         padding: 10px 12px;
@@ -305,20 +322,47 @@ async function showCameraPicker() {
 }
 
 // ═══════════════════════════════════════════════════════
-// تغییر دوربین
+// ⭐ تغییر دوربین
 // ═══════════════════════════════════════════════════════
 async function switchCamera(deviceId) {
   const statusEl = $('scannerStatus');
   if (statusEl) statusEl.textContent = 'در حال تغییر دوربین...';
 
   try {
-    await startDecodeWithDevice(deviceId, statusEl);
+    // ⭐ آزاد کردن استریم قبلی با تاخیر
+    await releaseCurrentStream();
+
+    // ⭐ گرفتن استریم از دوربین جدید
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        deviceId: { exact: deviceId },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: false,
+    });
+
+    // شروع دیکود با استریم جدید
+    await startDecodeWithStream(stream, statusEl);
     currentDeviceId = deviceId;
     if (statusEl) statusEl.textContent = 'آماده اسکن...';
+
   } catch (e) {
     console.error('[SCANNER] switch error:', e);
-    toast('خطا در تغییر دوربین', 'danger');
-    if (statusEl) statusEl.textContent = 'خطا';
+
+    let msg = 'خطا در تغییر دوربین';
+    if (e.name === 'NotReadableError') {
+      msg = 'دوربین آزاد نشد. چند ثانیه صبر کنید و دوباره امتحان کنید.';
+    } else if (e.name === 'NotAllowedError') {
+      msg = 'دسترسی به دوربین رد شد';
+    } else if (e.name === 'OverconstrainedError') {
+      msg = 'این دوربین در دسترس نیست';
+    } else {
+      msg += ': ' + e.message;
+    }
+    toast(msg, 'danger');
+
+    if (statusEl) statusEl.textContent = 'خطا — دوباره تلاش کنید';
   }
 }
 
