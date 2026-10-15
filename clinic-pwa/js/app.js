@@ -15,14 +15,12 @@ import { openForms } from './forms/engine.js';
 import { openGuide } from './process/guide.js';
 import { openFormsMenu } from './modules/forms-menu.js';
 import { openFormsArchive } from './modules/forms-archive.js';
-
-// ═══════════════════════════════════════════════════════
-// FCM
-// ═══════════════════════════════════════════════════════
 import { initFCM } from './fcm.js';
 
+console.log('[APP] module loaded');
+
 // ═══════════════════════════════════════════════════════
-// انیمیشن نوار پیشرفت لودینگ
+// انیمیشن نوار پیشرفت
 // ═══════════════════════════════════════════════════════
 function startLoadingProgress() {
   const bar = document.getElementById('loadingProgressBar');
@@ -41,30 +39,43 @@ function startLoadingProgress() {
   }, 280);
 }
 
-if (document.getElementById('screenLoading')?.classList.contains('active')) {
-  startLoadingProgress();
-}
+try {
+  if (document.getElementById('screenLoading')?.classList.contains('active')) {
+    startLoadingProgress();
+  }
+} catch (e) { console.error('[APP] loading progress:', e); }
 
-initQtyModal();
-initSearchModal();
-initScannerButtons();
+// ═══════════════════════════════════════════════════════
+// راه‌اندازی ماژول‌ها (هرکدوم جدا، خطای یکی بقیه رو متوقف نمی‌کنه)
+// ═══════════════════════════════════════════════════════
+try { initQtyModal(); }        catch (e) { console.error('[APP] initQtyModal:', e); }
+try { initSearchModal(); }     catch (e) { console.error('[APP] initSearchModal:', e); }
+try { initScannerButtons(); }  catch (e) { console.error('[APP] initScannerButtons:', e); }
 
 // ═══════════════════════════════════════════════════════
 // لاگین
 // ═══════════════════════════════════════════════════════
-$('btnLogin').onclick = doLogin;
-$('loginPass').addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    doLogin();
-  }
-});
+const btnLogin = $('btnLogin');
+if (btnLogin) btnLogin.onclick = doLogin;
+
+const loginPass = $('loginPass');
+if (loginPass) {
+  loginPass.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      doLogin();
+    }
+  });
+}
 
 // ═══════════════════════════════════════════════════════
 // هدر
 // ═══════════════════════════════════════════════════════
-$('btnBack').onclick = () => showScreen('Home');
-$('btnLogout').onclick = doLogout;
+const btnBack = $('btnBack');
+if (btnBack) btnBack.onclick = () => showScreen('Home');
+
+const btnLogout = $('btnLogout');
+if (btnLogout) btnLogout.onclick = doLogout;
 
 const btnProfile = $('btnProfile');
 if (btnProfile) btnProfile.onclick = () => openProfile();
@@ -76,26 +87,32 @@ if (userEmailEl) {
 }
 
 // ═══════════════════════════════════════════════════════
-// ناوبری
+// ناوبری — نسخه‌ی مقاوم
 // ═══════════════════════════════════════════════════════
 document.querySelectorAll('[data-nav]').forEach(el => {
   el.addEventListener('click', e => {
     e.preventDefault();
     const n = el.dataset.nav;
+    console.log('[NAV] clicked:', n);
 
-    if (n === 'home') showScreen('Home');
-    else if (n === 'pharmacy') showScreen('Pharmacy');
-    else if (n === 'visits') openVisits();
-    else if (n === 'inventory') openInventory();
-    else if (n === 'receive') openReceive();
-    else if (n === 'disposal') openDisposal();
-    else if (n === 'report') openReport();
-    else if (n === 'profile') openProfile();
-    else if (n === 'occupational') openOccupational();
-    else if (n === 'forms') openForms();
-    else if (n === 'formsMenu') openFormsMenu();
-    else if (n === 'formsArchive') openFormsArchive();
-    else if (n === 'guide') openGuide();
+    try {
+      if (n === 'home') showScreen('Home');
+      else if (n === 'pharmacy') showScreen('Pharmacy');
+      else if (n === 'visits') openVisits();
+      else if (n === 'inventory') openInventory();
+      else if (n === 'receive') openReceive();
+      else if (n === 'disposal') openDisposal();
+      else if (n === 'report') openReport();
+      else if (n === 'profile') openProfile();
+      else if (n === 'occupational') openOccupational();
+      else if (n === 'forms') openForms();
+      else if (n === 'formsMenu') openFormsMenu();
+      else if (n === 'formsArchive') openFormsArchive();
+      else if (n === 'guide') openGuide();
+      else console.warn('[NAV] unknown target:', n);
+    } catch (err) {
+      console.error('[NAV] error for', n, ':', err);
+    }
   });
 });
 
@@ -141,8 +158,13 @@ window._triggerInstall = async () => {
 // راه‌اندازی اولیه
 // ═══════════════════════════════════════════════════════
 (async () => {
-  await checkAuth();
-  await initFCM();
+  try {
+    await checkAuth();
+  } catch (e) { console.error('[APP] checkAuth:', e); }
+
+  try {
+    await initFCM();
+  } catch (e) { console.error('[APP] initFCM:', e); }
 })();
 
 // ═══════════════════════════════════════════════════════
