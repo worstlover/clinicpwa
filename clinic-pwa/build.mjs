@@ -11,7 +11,9 @@ const SKIP = new Set([
   'node_modules', 'dist', '.git', '.github', '.wrangler',
   'package.json', 'package-lock.json', 'build.mjs',
   'wrangler.toml', 'wrangler.json', 'wrangler.jsonc',
-  '.gitignore', 'README.md'
+  '.gitignore', 'README.md',
+  // ⚠️ پوشه lib/firebase باید حذف شده باشد. اگر هنوز هست، اینجا اضافه‌اش کن:
+  // 'lib/firebase',
 ]);
 
 async function walk(dir, base = dir) {
@@ -41,9 +43,14 @@ await build({
   format: 'esm',
   target: 'es2020',
   minify: true,
-  external: ['https://*', 'http://*'],
+  external: [
+    'https://*',
+    'http://*',
+    'firebase',
+    '@firebase/*'
+  ],
   define: {
-    'firebase': 'window.firebase'  // ← firebase را به window.firebase نگاشت می‌کند
+    'firebase': 'window.firebase'
   },
   logLevel: 'info'
 });
