@@ -24,28 +24,48 @@ console.log('[APP] module loaded');
 // ═══════════════════════════════════════════════════════
 // انیمیشن نوار پیشرفت
 // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// انیمیشن نوار پیشرفت صفحه‌ی لودینگ
+// ═══════════════════════════════════════════════════════
 function startLoadingProgress() {
   const bar = document.getElementById('loadingProgressBar');
   const percent = document.getElementById('loadingPercent');
   if (!bar || !percent) return;
 
+  // ریست مقادیر قبلی
+  bar.style.width = '0%';
+  percent.textContent = '0%';
+
+  // پاک کردن interval قدیمی (اگر بود) تا دوتایی اجرا نشه
+  if (window.__loadingInterval) {
+    clearInterval(window.__loadingInterval);
+    window.__loadingInterval = null;
+  }
+
   let value = 0;
-  const interval = setInterval(() => {
+  window.__loadingInterval = setInterval(() => {
     value += Math.random() * 12 + 4;
     if (value >= 95) {
       value = 95;
-      clearInterval(interval);
+      clearInterval(window.__loadingInterval);
+      window.__loadingInterval = null;
     }
     bar.style.width = value + '%';
     percent.textContent = Math.floor(value) + '%';
   }, 280);
 }
 
+// ⭐ expose برای استفاده از auth.js
+window.startLoadingProgress = startLoadingProgress;
+
+// اجرای اولیه در بارگذاری صفحه
 try {
   if (document.getElementById('screenLoading')?.classList.contains('active')) {
     startLoadingProgress();
   }
-} catch (e) { console.error('[APP] loading progress:', e); }
+} catch (e) {
+  console.error('[APP] loading progress:', e);
+}
 
 // ═══════════════════════════════════════════════════════
 // راه‌اندازی ماژول‌ها (هرکدوم جدا، خطای یکی بقیه رو متوقف نمی‌کنه)
