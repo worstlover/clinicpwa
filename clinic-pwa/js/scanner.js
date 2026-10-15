@@ -16,7 +16,12 @@ export function initScannerButtons() {
 
   if (btnClose) btnClose.onclick = () => closeScanner();
   if (btnPaste) btnPaste.onclick = () => pasteFromClipboard();
-  if (btnCamera) btnCamera.onclick = (e) => { e.stopPropagation(); showCameraPicker(); };
+  if (btnCamera) {
+    btnCamera.onclick = (e) => {
+      e.stopPropagation();
+      showCameraPicker();
+    };
+  }
 
   const wrap = $('scannerWrap');
   if (wrap) {
@@ -29,7 +34,24 @@ export function initScannerButtons() {
 }
 
 // ═══════════════════════════════════════════════════════
-// شروع اسکن — نسخه مقاوم
+// درخواست اجازه‌ی دسترسی به دوربین
+// ═══════════════════════════════════════════════════════
+async function requestCameraPermission() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }
+    });
+    // بستن فوری استریم (فقط برای گرفتن اجازه)
+    stream.getTracks().forEach(t => t.stop());
+    return true;
+  } catch (err) {
+    console.warn('[SCANNER] permission request failed:', err);
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// شروع اسکن
 // ═══════════════════════════════════════════════════════
 export async function startScanner(callback) {
   onScanCallback = callback;
@@ -48,10 +70,18 @@ export async function startScanner(callback) {
       return;
     }
 
-    // ساخت خواننده
-    codeReader = new ZXing.BrowserMultiFormatReader();
+    // ⭐ اول اجازه بگیر (خیلی مهم!)
+    if (statusEl) statusEl.textContent = 'درخواست دسترسی به دوربین...';
+    const hasPermission = await requestCameraPermission();
+    if (!hasPermission) {
+      if (statusEl) statusEl.textContent = 'دسترسی به دوربین رد شد';
+      toast('برای اسکن، اجازه دسترسی به دوربین را بدهید', 'danger');
+      setTimeout(() => closeScanner(), 2000);
+      return;
+    }
 
-    // گرفتن لیست دوربین‌ها
+    // حالا لیست دوربین‌ها پر می‌شه
+    if (statusEl) statusEl.textContent = 'در حال شناسایی دوربین‌ها...';
     let devices = [];
     try {
       devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
@@ -60,33 +90,30 @@ export async function startScanner(callback) {
       console.warn('[SCANNER] list devices failed:', e);
     }
 
-    // اگه هیچ دوربینی نبود
+    // اگه لیست خالیه، با constraints مستقیم امتحان کن
     if (!devices || devices.length === 0) {
-      if (statusEl) statusEl.textContent = 'دوربینی یافت نشد';
-      toast('دوربینی روی دستگاه پیدا نشد', 'danger');
+      console.warn('[SCANNER] no devices from list, trying constraints directly');
+      await startWithConstraints(statusEl);
       return;
     }
 
-    // انتخاب دوربین: ترجیحاً بک‌کمرا
-    let deviceId = null;
+    // انتخاب دوربین بک‌کمرا
     const backKeywords = ['back', 'rear', 'environment', 'پشت', 'عقب'];
     const backDevice = devices.find(d => {
       const label = (d.label || '').toLowerCase();
       return backKeywords.some(k => label.includes(k));
     });
 
+    let deviceId;
     if (backDevice) {
       deviceId = backDevice.deviceId;
     } else if (devices.length > 1) {
-      // آخرین دوربین (معمولاً بک‌کمرا)
       deviceId = devices[devices.length - 1].deviceId;
     } else {
       deviceId = devices[0].deviceId;
     }
 
     console.log('[SCANNER] selected device:', deviceId);
-
-    // شروع دیکود
     await startDecodeWithDevice(deviceId, statusEl);
 
     currentDeviceId = deviceId;
@@ -94,34 +121,15 @@ export async function startScanner(callback) {
 
   } catch (err) {
     console.error('[SCANNER] start error:', err);
-    if (statusEl) statusEl.textContent = 'خطا در راه‌اندازی دوربین';
-
-    let userMessage = 'خطا در دسترسی به دوربین: ';
-    if (err.name === 'NotAllowedError' || err.message?.includes('Permission')) {
-      userMessage = 'دسترسی به دوربین رد شد. از تنظیمات مرورگر اجازه دهید.';
-    } else if (err.name === 'NotFoundError' || err.message?.includes('not found')) {
-      userMessage = 'دوربینی پیدا نشد';
-    } else if (err.name === 'NotReadableError' || err.message?.includes('could not start')) {
-      userMessage = 'دوربین در حال استفاده توسط برنامه دیگر است. برنامه‌های دیگر را ببندید.';
-    } else if (err.name === 'OverconstrainedError') {
-      userMessage = 'تنظیمات دوربین با دستگاه سازگار نیست';
-    } else {
-      userMessage += err.message;
-    }
-
-    toast(userMessage, 'danger');
-
-    if (err.name === 'NotAllowedError' || err.name === 'NotFoundError') {
-      setTimeout(() => closeScanner(), 1500);
-    }
+    handleStartError(err, statusEl);
   }
 }
 
-// ⭐ alias برای ماژول‌های دیگر
+// ⭐ alias برای سازگاری با ماژول‌های قدیمی
 export const openScanner = startScanner;
 
 // ═══════════════════════════════════════════════════════
-// شروع دیکود با deviceId مشخص
+// شروع با deviceId مشخص
 // ═══════════════════════════════════════════════════════
 async function startDecodeWithDevice(deviceId, statusEl) {
   // اگه قبلی بازه، ببندش
@@ -134,7 +142,11 @@ async function startDecodeWithDevice(deviceId, statusEl) {
   const reader = $('reader');
   if (reader) reader.innerHTML = '';
 
-  // استفاده از decodeFromVideoDevice با deviceId مشخص
+  // ساخت codeReader اگه نبود
+  if (!codeReader) {
+    codeReader = new ZXing.BrowserMultiFormatReader();
+  }
+
   controls = await codeReader.decodeFromVideoDevice(
     deviceId,
     'reader',
@@ -147,11 +159,70 @@ async function startDecodeWithDevice(deviceId, statusEl) {
         if (onScanCallback) onScanCallback(text);
         closeScanner();
       }
-      // error رو نادیده بگیر چون ZXing برای هر فریم خطا می‌ده وقتی چیزی نمی‌بینه
+      // error رو نادیده بگیر چون ZXing برای هر فریم خطا می‌ده
     }
   );
 
   return controls;
+}
+
+// ⭐ شروع با constraints (وقتی listVideoInputDevices خالیه)
+async function startWithConstraints(statusEl) {
+  const reader = $('reader');
+  if (reader) reader.innerHTML = '';
+
+  if (controls) {
+    try { controls.stop(); } catch (e) {}
+    controls = null;
+  }
+
+  if (!codeReader) {
+    codeReader = new ZXing.BrowserMultiFormatReader();
+  }
+
+  try {
+    controls = await codeReader.decodeFromConstraints(
+      { video: { facingMode: { ideal: 'environment' } } },
+      'reader',
+      (result) => {
+        if (result) {
+          const text = result.getText();
+          console.log('[SCANNER] scanned:', text);
+          if (statusEl) statusEl.textContent = '✅ اسکن شد';
+          if (navigator.vibrate) navigator.vibrate(100);
+          if (onScanCallback) onScanCallback(text);
+          closeScanner();
+        }
+      }
+    );
+    if (statusEl) statusEl.textContent = 'آماده اسکن...';
+  } catch (e) {
+    console.error('[SCANNER] constraints fallback failed:', e);
+    throw e;
+  }
+}
+
+// ⭐ مدیریت خطا به فارسی
+function handleStartError(err, statusEl) {
+  if (statusEl) statusEl.textContent = 'خطا در راه‌اندازی دوربین';
+
+  let msg = 'خطا در دسترسی به دوربین: ';
+  if (err.name === 'NotAllowedError' || err.message?.includes('Permission')) {
+    msg = 'دسترسی به دوربین رد شد. از تنظیمات مرورگر اجازه دهید.';
+  } else if (err.name === 'NotFoundError' || err.message?.includes('not found')) {
+    msg = 'دوربینی روی دستگاه پیدا نشد';
+  } else if (err.name === 'NotReadableError' || err.message?.includes('could not start')) {
+    msg = 'دوربین در حال استفاده توسط برنامه دیگر است. برنامه‌های دیگر را ببندید.';
+  } else if (err.name === 'OverconstrainedError') {
+    msg = 'تنظیمات دوربین با دستگاه سازگار نیست';
+  } else {
+    msg += err.message;
+  }
+  toast(msg, 'danger');
+
+  if (err.name === 'NotAllowedError' || err.name === 'NotFoundError') {
+    setTimeout(() => closeScanner(), 2000);
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -265,6 +336,8 @@ async function pasteFromClipboard() {
     closeScanner();
   } catch (e) {
     console.error('[SCANNER] paste error:', e);
+    toast('دسترسی به کلیپ‌بورد ممکن نیست', 'warning');
+    // روش دستی
     const manual = prompt('کد را وارد کنید:');
     if (manual && manual.trim()) {
       if (onScanCallback) onScanCallback(manual.trim());
