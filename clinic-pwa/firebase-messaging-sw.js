@@ -1,4 +1,3 @@
-
 // firebase-messaging-sw.js
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
@@ -52,29 +51,29 @@ messaging.onBackgroundMessage((payload) => {
   const title = data.title || (type === 'incident' ? '🚨 اعلام حادثه' : '📩 ویزیت ارجاعی');
   const body = data.body || (
     type === 'incident'
-      ? (data.triggered_name 
+      ? (data.triggered_name
           ? `توسط ${data.triggered_name}${data.location ? ' - ' + data.location : ''}`
           : 'اعلام حادثه جدید')
-      : (data.referred_by_name 
+      : (data.referred_by_name
           ? `از طرف ${data.referred_by_name}`
           : 'ویزیت جدید برای شما')
   );
 
   const options = {
-  body: body,
-  icon: './icons/icon-192.png',
-  badge: '/icons/icon-mono.png',      // ← این کاما اضافه شد
-  tag: dedupKey,
-  renotify: true,
-  requireInteraction: true,
-  silent: false,
-  vibrate: [500, 200, 500, 200, 500],
-  data: data,
-  actions: [
-    { action: 'open', title: 'مشاهده' },
-    { action: 'close', title: 'بستن' }
-  ]
-};
+    body: body,
+    icon: '/icons/icon-192.png',       // ✅ مسیر اصلاح شد (با / شروع شود)
+    badge: '/icons/icon-mono.png',     // ✅ مسیر اصلاح شد
+    tag: dedupKey,
+    renotify: true,
+    requireInteraction: true,
+    silent: false,
+    vibrate: [500, 200, 500, 200, 500],
+    data: data,
+    actions: [
+      { action: 'open', title: 'مشاهده' },
+      { action: 'close', title: 'بستن' }
+    ]
+  };
 
   return self.registration.showNotification(title, options);
 });
