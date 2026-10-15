@@ -12,9 +12,29 @@ export function showScreen(screenName) {
     'Profile':      'screenProfile',
     'Occupational': 'screenOccupational',
     'Forms':        'screenForms',
-    'FormsMenu':    'screenFormsMenu',      // ← اضافه شد
-    'FormsArchive': 'screenFormsArchive',   // ← اضافه شد
+    'FormsMenu':    'screenFormsMenu',
+    'FormsArchive': 'screenFormsArchive',
     'Guide':        'screenGuide',
+    'VisitReports': 'screenVisitReports',
+    'FineReward':   'screenFineReward',
+  };
+
+  const titles = {
+    'Home':         'کلینیک',
+    'Pharmacy':     'داروخانه',
+    'Visit':        'ویزیت‌ها',
+    'Inventory':    'انبارگردانی',
+    'Receive':      'دریافت دارو',
+    'Disposal':     'خروج منقضی',
+    'Report':       'گزارش‌ها',
+    'Profile':      'پروفایل',
+    'Occupational': 'طب کار',
+    'Forms':        'فرم‌ها',
+    'FormsMenu':    'فرآیندها و فرم‌ها',
+    'FormsArchive': 'آرشیو فرم‌ها',
+    'Guide':        'راهنمای فرآیندها',
+    'VisitReports': 'گزارش ویزیت‌ها',
+    'FineReward':   'جریمه و تشویقی',
   };
 
   const targetId = screens[screenName];
@@ -24,7 +44,6 @@ export function showScreen(screenName) {
   }
 
   document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
-
   const target = document.getElementById(targetId);
   if (target) target.classList.add('active');
 
@@ -41,21 +60,6 @@ export function showScreen(screenName) {
     if (bottomNav) bottomNav.classList.remove('hidden');
   }
 
-  const titles = {
-    'Home':         'کلینیک',
-    'Pharmacy':     'داروخانه',
-    'Visit':        'ویزیت‌ها',
-    'Inventory':    'انبارگردانی',
-    'Receive':      'دریافت دارو',
-    'Disposal':     'خروج منقضی',
-    'Report':       'گزارش‌ها',
-    'Profile':      'پروفایل',
-    'Occupational': 'طب کار',
-    'Forms':        'فرم‌ها',
-    'FormsMenu':    'فرآیندها و فرم‌ها',    // ← اضافه شد
-    'FormsArchive': 'آرشیو فرم‌ها',         // ← اضافه شد
-    'Guide':        'راهنمای فرآیندها',
-  };
   if (headerTitle) headerTitle.textContent = titles[screenName] || 'کلینیک';
 
   if (btnBack) {
