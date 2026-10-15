@@ -15,9 +15,9 @@ import { openForms } from './forms/engine.js';
 import { openGuide } from './process/guide.js';
 
 // ═══════════════════════════════════════════════════════
-// FCM: ثبت توکن و گوش دادن به پیام‌ها
+// FCM: استفاده از توابع موجود در js/fcm.js
 // ═══════════════════════════════════════════════════════
-import { registerFCMToken, initFCMMessaging } from './fcm.js';
+import { initFCM } from './fcm.js';
 
 initQtyModal();
 initSearchModal();
@@ -102,9 +102,9 @@ window._triggerInstall = async () => {
 (async () => {
   await checkAuth();
 
-  // بعد از لاگین موفق، توکن FCM را ثبت کن
-  await registerFCMToken();
-  await initFCMMessaging();
+  // بعد از لاگین موفق، FCM را راه‌اندازی کن
+  // initFCM خودش توکن را می‌گیرد و در Supabase ذخیره می‌کند
+  await initFCM();
 })();
 
 if ('serviceWorker' in navigator) {
