@@ -1,7 +1,6 @@
 // js/fcm.js
 import { sb } from './sb.js';
-import { getMessagingInstance, VAPID_KEY } from './firebase.js';
-import { getToken, onMessage } from '../lib/firebase/firebase-messaging.js';
+import { getMessagingInstance, VAPID_KEY, firebase } from './firebase.js';
 import { toast } from './utils.js';
 
 let currentToken = null;
@@ -9,7 +8,7 @@ let messageUnsubscribe = null;
 let visibilityBound = false;
 
 // ═══════════════════════════════════════════════════════
-// initFCM - هر بار که اپ باز می‌شه یا foreground میاد
+// initFCM
 // ═══════════════════════════════════════════════════════
 export async function initFCM() {
   try {
@@ -26,7 +25,6 @@ export async function initFCM() {
   }
 }
 
-// 🌟 هر بار اپ برمی‌گرده، دوباره init کن
 function bindVisibilityRefresh() {
   if (visibilityBound) return;
   visibilityBound = true;
@@ -104,7 +102,7 @@ async function _doInitFCM() {
 
   let token;
   try {
-    token = await getToken(messaging, {
+    token = await messaging.getToken({
       vapidKey: VAPID_KEY,
       serviceWorkerRegistration: swRegistration,
     });
@@ -126,7 +124,7 @@ async function _doInitFCM() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🌟 ذخیره با UPSERT (بدون حذف توکن‌های دیگر)
+// ذخیره با UPSERT
 // ═══════════════════════════════════════════════════════
 async function saveTokenToSupabase(token) {
   try {
@@ -142,7 +140,7 @@ async function saveTokenToSupabase(token) {
       last_seen: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }, {
-      onConflict: 'token',   // 🌟 فقط بر اساس token یکتا
+      onConflict: 'token',
     });
 
     if (error) {
@@ -156,11 +154,11 @@ async function saveTokenToSupabase(token) {
 }
 
 // ═══════════════════════════════════════════════════════
-// Foreground listener
+// Foreground listener (compat)
 // ═══════════════════════════════════════════════════════
-async function setupForegroundListener(messaging) {
+function setupForegroundListener(messaging) {
   if (messageUnsubscribe) messageUnsubscribe();
-  messageUnsubscribe = onMessage(messaging, (payload) => {
+  messageUnsubscribe = messaging.onMessage((payload) => {
     console.log('[FCM] 📩 Foreground:', payload);
     window.dispatchEvent(new CustomEvent('fcm-message', {
       detail: payload.data || {}
@@ -184,19 +182,18 @@ export function getPermissionStatus() {
   return Notification.permission;
 }
 
-// 🌟 گرفتن وضعیت توکن برای صفحه تنظیمات
 export async function getTokenStatus() {
   try {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return { saved: false, lastSeen: null, count: 0 };
-    
+
     const { data } = await sb.from('fcm_tokens')
       .select('token, last_seen')
       .eq('user_id', user.id)
       .order('last_seen', { ascending: false });
-    
+
     const currentMatches = data?.find(t => t.token === currentToken);
-    
+
     return {
       saved: !!currentMatches,
       lastSeen: currentMatches?.last_seen || data?.[0]?.last_seen || null,
