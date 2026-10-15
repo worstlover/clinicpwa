@@ -136,20 +136,22 @@
 .form-sheet .fs-para { text-align: justify; line-height: 2.35; font-size: 13.5px; }
 .form-sheet .fs-para.bold { font-weight: 800; font-size: 14.5px; }
 
-/* ── مقادیر پرشده (دست‌نویس + کمی بزرگ‌تر و بولدتر از متن ثابت) ── */
+/* ── مقادیر پرشده (دست‌نویس) ──
+   نکته: روی فونت‌های cursive/nastaliq نباید font-weight بولد، letter-spacing
+   یا -webkit-text-stroke اعمال کرد چون حروف به هم می‌چسبن. فقط با بزرگ‌تر
+   کردن font-size از متن ثابت متمایز می‌کنیم. */
 .form-sheet .fs-hand,
 .form-sheet .fs-val,
 .form-sheet .fs-dots:not(:empty) {
   font-family: 'FormHand', 'IranNastaliq', 'B Nazanin', 'Vazirmatn', Tahoma, cursive;
-  font-weight: 900;
-  font-size: 1.08em;
-  letter-spacing: 0.3px;
-  -webkit-text-stroke: 0.15px currentColor;
+  font-weight: 400;
+  font-size: 1.15em;
+  letter-spacing: 0;
 }
 
 /* مقادیر خالی → فونت عادی */
 .form-sheet .fs-dots:empty,
-.form-sheet .fs-dots:has(> :only-child) { font-family: inherit; font-weight: inherit; }
+.form-sheet .fs-dots:has(> :only-child) { font-family: inherit; font-weight: inherit; font-size: inherit; }
 
 /* ── چاپ ── */
 @media print {
