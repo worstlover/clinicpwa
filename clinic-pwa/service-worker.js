@@ -1,6 +1,5 @@
 // service-worker.js
-// ⚠️ این فایل به عنوان "قالب" استفاده می‌شود. مقادیر __BUILD__ و __ASSETS__
-// توسط build.mjs جایگزین می‌شوند.
+// ⚠️ این فایل به عنوان قالب استفاده می‌شود. build.mjs دو Placeholder زیر را پر می‌کند.
 const CACHE = 'clinic-drugs-__BUILD__';
 
 const ASSETS = __ASSETS__;
@@ -33,7 +32,7 @@ self.addEventListener('activate', e => {
 });
 
 // ═══════════════════════════════════════════════════════
-// fetch — ساده و امن (بدون Response.error)
+// fetch
 // ═══════════════════════════════════════════════════════
 self.addEventListener('fetch', e => {
   const req = e.request;
@@ -42,7 +41,6 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
 
-  // Pages: network-first، فقط برای navigation
   if (req.mode === 'navigate') {
     e.respondWith((async () => {
       try {
@@ -61,7 +59,6 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // بقیه فایل‌ها: network-first با cache fallback
   e.respondWith((async () => {
     try {
       const res = await fetch(req);
