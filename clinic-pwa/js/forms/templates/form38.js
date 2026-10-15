@@ -55,4 +55,47 @@ export function render(d) {
       </tr>
       <tr>
         <td colspan="5" class="fs-small">
-          ${lbl('خودرو آمبولانس (وضعیت کلی، وجود مورد خاص، سطح سوخت، کیلومتر تحویلی، نظافت و
+          ${lbl('خودرو آمبولانس (وضعیت کلی، وجود مورد خاص، سطح سوخت، کیلومتر تحویلی، نظافت و...):')}
+          <span class="fs-hand sm">${e(g('ambulanceStatus'))}</span>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="5" class="fs-small">
+          ${lbl('پیگیری های معاینات شغلی:')} <span class="fs-hand sm">${e(g('occupationalFollowup'))}</span>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="5" class="fs-small">
+          ${lbl('هشدارها:')} <span class="fs-hand sm">${e(g('alerts'))}</span>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="5" class="fs-small">
+          ${lbl('بروشورها یا پیام های بهداشتی:')} <span class="fs-hand sm">${e(g('healthMessages'))}</span>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="5" class="fs-small">
+          ${lbl('بازدید های بهداشتی (آب، رستوران، خوابگاه، محیط کار و....):')}
+          <span class="fs-hand sm">${e(g('healthInspections'))}</span>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="5" class="fs-small">
+          ${lbl('نیازمندی‌های شناسایی شده:')} <span class="fs-hand sm">${e(g('requirements'))}</span>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="3" class="fs-small">${lbl('پرستار/ فوریت های پزشکی (نظرات، امضاء):')}</td>
+        <td colspan="2" class="fs-small">${lbl('سرپرست بهداشت و فوریت های پزشکی: (نظرات، امضاء)')}</td>
+      </tr>
+      <tr>
+        <td colspan="5" class="fs-small">${lbl('رئیس HSE (اظهار نظر، امضاء):')}</td>
+      </tr>
+    </table>
+  `);
+}
+
+// ⚠️ fields و load دست‌نخورده باقی بمانند
+export const fields = /* ... */;
+export async function load(id) { /* ... */ }
