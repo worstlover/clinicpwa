@@ -17,12 +17,12 @@ import { openFormsMenu } from './modules/forms-menu.js';
 import { openFormsArchive } from './modules/forms-archive.js';
 
 // ═══════════════════════════════════════════════════════
-// FCM: استفاده از توابع موجود در js/fcm.js
+// FCM
 // ═══════════════════════════════════════════════════════
 import { initFCM } from './fcm.js';
 
 // ═══════════════════════════════════════════════════════
-// انیمیشن نوار پیشرفت صفحه‌ی لودینگ
+// انیمیشن نوار پیشرفت لودینگ
 // ═══════════════════════════════════════════════════════
 function startLoadingProgress() {
   const bar = document.getElementById('loadingProgressBar');
@@ -138,13 +138,10 @@ window._triggerInstall = async () => {
 };
 
 // ═══════════════════════════════════════════════════════
-// راه‌اندازی اولیه: Auth + FCM
+// راه‌اندازی اولیه
 // ═══════════════════════════════════════════════════════
 (async () => {
   await checkAuth();
-
-  // بعد از لاگین موفق، FCM را راه‌اندازی کن
-  // initFCM خودش توکن را می‌گیرد و در Supabase ذخیره می‌کند
   await initFCM();
 })();
 
