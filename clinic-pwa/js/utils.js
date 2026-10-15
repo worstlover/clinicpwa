@@ -53,20 +53,55 @@ export const jalaliToGregorian = (str) => {
 };
 
 export const parseGS1 = (raw) => {
-  const r = { gtin: null, exp: null, batch: null };
+  const r = { gtin: null, exp: null, batch: null, serial: null };
   if (!raw) return r;
-  const s = String(raw).replace(/\]C1/g, '').trim();
-  const g = s.match(/01(\d{14})/);
-  r.gtin = g ? g[1] : s;
-  const b = s.match(/10([^\x1d]+)/);
-  if (b) r.batch = b[1].trim();
-  const e = s.match(/17(\d{6})/);
-  if (e) {
-    const ds = e[1];
-    const yy = parseInt(ds.substring(0, 2), 10);
-    const year = yy < 70 ? 2000 + yy : 1900 + yy;
-    r.exp = `${year}-${ds.substring(2,4)}-${ds.substring(4,6)}`;
+
+  // پاک کردن پیشوندهای رایج
+  let s = String(raw).replace(/^\]C1/, '').replace(/\x1d/g, '|').trim();
+
+  // پارس ترتیبی از چپ به راست
+  let i = 0;
+  while (i < s.length) {
+    // AI دو رقمی
+    const ai = s.substr(i, 2);
+
+    if (ai === '01' && i + 16 <= s.length) {          // GTIN - ۱۴ رقم ثابت
+      r.gtin = s.substr(i + 2, 14);
+      i += 16;
+    }
+    else if (ai === '17' && i + 8 <= s.length) {      // تاریخ انقضا - ۶ رقم ثابت
+      // فقط اگر هنوز تاریخ نگرفته باشیم (اولین ۱۷ معتبر)
+      if (!r.exp) {
+        const ds = s.substr(i + 2, 6);
+        const yy = parseInt(ds.substring(0, 2), 10);
+        const year = yy < 70 ? 2000 + yy : 1900 + yy;
+        r.exp = `${year}-${ds.substring(2, 4)}-${ds.substring(4, 6)}`;
+      }
+      i += 8;
+    }
+    else if (ai === '10') {                           // Batch - طول متغیر
+      i += 2;
+      let end = s.indexOf('|', i);                    // تا جداکننده
+      if (end === -1) end = s.length;
+      r.batch = s.substring(i, end).trim();
+      i = end + (s[end] === '|' ? 1 : 0);
+    }
+    else if (ai === '21') {                           // Serial - طول متغیر
+      i += 2;
+      let end = s.indexOf('|', i);
+      if (end === -1) end = s.length;
+      r.serial = s.substring(i, end).trim();
+      i = end + (s[end] === '|' ? 1 : 0);
+    }
+    else {
+      // AI ناشناخته → یک کاراکتر جلو برو تا گیر نکنه
+      i += 1;
+    }
   }
+
+  // اگر GTIN پیدا نشد، کل رشته رو به‌عنوان fallback بذار
+  if (!r.gtin) r.gtin = s.replace(/\|/g, '');
+
   return r;
 };
 
