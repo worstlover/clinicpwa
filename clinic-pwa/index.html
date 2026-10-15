@@ -37,18 +37,14 @@
       <div class="loading-logo">
         <div class="cross-logo">+</div>
       </div>
-
       <h2 class="loading-title">کلینیک گندله سازی بهاباد</h2>
       <p class="loading-subtitle">سامانه مدیریت کلینیک صنعتی</p>
-
       <div class="beating-heart">
         <svg viewBox="0 0 24 24" width="64" height="64">
           <path fill="#ef4444" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
         </svg>
       </div>
-
       <p class="loading-text">در حال بارگذاری<span class="dots"></span></p>
-
       <div class="progress-container">
         <div class="progress-bar" id="loadingProgressBar"></div>
       </div>
@@ -64,12 +60,9 @@
       <div class="login-logo-modern">
         <div class="cross-logo">+</div>
       </div>
-
       <h3 class="login-title">کلینیک گندله سازی بهاباد</h3>
       <p class="login-subtitle">سامانه مدیریت کلینیک صنعتی</p>
-
       <div id="loginMsg"></div>
-
       <div class="mb-3">
         <label class="form-label">نام کاربری</label>
         <div class="input-with-icon">
@@ -77,7 +70,6 @@
           <input type="text" id="loginEmail" class="form-control" placeholder="نام کاربری خود را وارد کنید" dir="ltr" autocomplete="username">
         </div>
       </div>
-
       <div class="mb-4">
         <label class="form-label">رمز عبور</label>
         <div class="input-with-icon">
@@ -85,15 +77,11 @@
           <input type="password" id="loginPass" class="form-control" dir="ltr" placeholder="••••••••" autocomplete="current-password">
         </div>
       </div>
-
       <button class="btn btn-primary w-100 btn-lg modern-login-btn" id="btnLogin" type="button">
         <i class="bi bi-box-arrow-in-left"></i>
         ورود به سامانه
       </button>
-
-      <p class="login-footer-text">
-        امن و مطمئن | دسترسی محدود به کاربران مجاز
-      </p>
+      <p class="login-footer-text">امن و مطمئن | دسترسی محدود به کاربران مجاز</p>
     </div>
   </div>
 </div>
@@ -138,13 +126,11 @@
 <div id="screenHome" class="screen">
   <div class="home-container">
 
-    <!-- سلام + ایمیل -->
     <div class="home-greeting">
       <div class="home-greeting-text">سلام 👋</div>
       <div class="home-greeting-email" id="userEmail"></div>
     </div>
 
-    <!-- اعلام حادثه سریع -->
     <button id="btnQuickIncident" class="home-incident-btn">
       <div class="home-incident-icon">
         <i class="bi bi-exclamation-triangle-fill"></i>
@@ -171,7 +157,7 @@
             <i class="bi bi-clipboard2-pulse-fill"></i>
           </div>
           <div class="home-card-label">ویزیت‌ها</div>
-          <div class="home-card-sub">مشاهده و مدیریت ویزیت‌های بیماران</div>
+          <div class="home-card-sub">مشاهده و مدیریت ویزیت بیماران</div>
           <i class="bi bi-chevron-left home-card-arrow"></i>
         </button>
 
@@ -207,59 +193,85 @@
       </button>
     </div>
 
+    <!-- ایمنی و پرسنل -->
+    <div class="home-section">
+      <div class="home-section-title">
+        <span class="home-section-dot"></span>
+        ایمنی و پرسنل
+      </div>
+      <div class="home-cards-2col">
+        <button class="home-card" data-nav="fineReward">
+          <div class="home-card-icon" style="background:#fee2e2;color:#dc2626;">
+            <i class="bi bi-shield-exclamation"></i>
+          </div>
+          <div class="home-card-label">جریمه و تشویقی</div>
+          <div class="home-card-sub">ثبت و مشاهده سوابق ایمنی</div>
+          <i class="bi bi-chevron-left home-card-arrow"></i>
+        </button>
+
+        <button class="home-card" data-nav="visitReports">
+          <div class="home-card-icon" style="background:#fef3c7;color:#d97706;">
+            <i class="bi bi-file-earmark-bar-graph"></i>
+          </div>
+          <div class="home-card-label">گزارش ویزیت‌ها</div>
+          <div class="home-card-sub">گزارش جامع با فیلتر تاریخ</div>
+          <i class="bi bi-chevron-left home-card-arrow"></i>
+        </button>
+      </div>
+    </div>
+
     <!-- فرآیندها و فرم‌ها -->
     <div class="home-section">
       <div class="home-section-title">
         <span class="home-section-dot"></span>
         فرآیندها و فرم‌ها
       </div>
-      <div class="home-cards-2col">
-        <button class="home-card" data-nav="formsMenu">
-          <div class="home-card-icon" style="background:#ede9fe;color:#7c3aed;">
-            <i class="bi bi-file-earmark-text-fill"></i>
-          </div>
+      <button class="home-card home-card-wide" data-nav="formsMenu">
+        <div class="home-card-icon" style="background:#ede9fe;color:#7c3aed;">
+          <i class="bi bi-file-earmark-text-fill"></i>
+        </div>
+        <div class="home-card-body">
           <div class="home-card-label">فرآیندها و فرم‌ها</div>
           <div class="home-card-sub">فرم‌ها، راهنما و آرشیو</div>
-          <i class="bi bi-chevron-left home-card-arrow"></i>
-        </button>
+          <div class="home-card-action">
+            مدیریت فرم‌ها
+            <i class="bi bi-chevron-left"></i>
+          </div>
+        </div>
+      </button>
+    </div>
 
+    <!-- سایر -->
+    <div class="home-section">
+      <div class="home-section-title">
+        <span class="home-section-dot"></span>
+        سایر
+      </div>
+      <div class="home-cards-2col">
         <button class="home-card" data-nav="report">
-          <div class="home-card-icon" style="background:#fef3c7;color:#d97706;">
+          <div class="home-card-icon" style="background:#cffafe;color:#0891b2;">
             <i class="bi bi-graph-up"></i>
           </div>
-          <div class="home-card-label">گزارش‌ها</div>
+          <div class="home-card-label">گزارش دارو</div>
           <div class="home-card-sub">موجودی و هشدارها</div>
           <i class="bi bi-chevron-left home-card-arrow"></i>
         </button>
-      </div>
-    </div>
-     <div id="screenVisitReports" class="screen"><div class="content" id="visitReportsContent"></div></div>
-<div id="screenFineReward" class="screen"><div class="content" id="fineRewardContent"></div></div>
-        <!-- سایر -->
-    <div class="home-section">
-      <div class="home-section-title"><span class="home-section-dot"></span>سایر</div>
-      <div class="home-cards-2col">
+
         <button class="home-card" data-nav="profile">
-          <div class="home-card-icon" style="background:#e0e7ff;color:#4f46e5;"><i class="bi bi-person-circle"></i></div>
+          <div class="home-card-icon" style="background:#e0e7ff;color:#4f46e5;">
+            <i class="bi bi-person-circle"></i>
+          </div>
           <div class="home-card-label">پروفایل</div>
           <div class="home-card-sub">حساب کاربری</div>
           <i class="bi bi-chevron-left home-card-arrow"></i>
         </button>
-        <button class="home-card" data-nav="report">
-          <div class="home-card-icon" style="background:#fef3c7;color:#d97706;"><i class="bi bi-graph-up"></i></div>
-          <div class="home-card-label">گزارش‌ها</div>
-          <div class="home-card-sub">موجودی و هشدارها</div>
-          <i class="bi bi-chevron-left home-card-arrow"></i>
-        </button>
       </div>
     </div>
 
-    <!-- نصب PWA -->
     <button id="btnInstallPWA" class="home-install-btn" onclick="window._triggerInstall()">
       <i class="bi bi-download"></i>
       نصب اپ روی صفحه اصلی
     </button>
-
   </div>
 </div>
 
@@ -313,6 +325,8 @@
 <div id="screenFormsMenu"      class="screen"><div class="content" id="formsMenuContent"></div></div>
 <div id="screenFormsArchive"   class="screen"><div class="content" id="formsArchiveContent"></div></div>
 <div id="screenGuide"          class="screen"><div class="content" id="guideContent"></div></div>
+<div id="screenVisitReports"   class="screen"><div class="content" id="visitReportsContent"></div></div>
+<div id="screenFineReward"     class="screen"><div class="content" id="fineRewardContent"></div></div>
 
 <!-- ═════════════ نوار پایین ═════════════ -->
 <div class="bottom-nav hidden" id="bottomNav">
@@ -400,11 +414,8 @@
 <div id="formPrintArea"></div>
 
 <script src="lib/bootstrap.bundle.min.js"></script>
-
-<!-- Firebase از CDN -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
-
 <script type="module" src="js/app.js"></script>
 </body>
 </html>
