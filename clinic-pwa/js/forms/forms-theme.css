@@ -3,10 +3,7 @@
    ═══════════════════════════════════════════════════════════════ */
 @font-face {
   font-family: 'FormHand';
-  src: url('../../fonts/FormHand.woff2') format('woff2'),
-       url('../../fonts/FormHand.woff') format('woff'),
-       url('../../fonts/FormHand.ttf') format('truetype'),
-       url('../../fonts/IranNastaliq.ttf') format('truetype');
+  src: url('../../fonts/IranNastaliq.ttf') format('truetype');
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
