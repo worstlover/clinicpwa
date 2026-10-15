@@ -1,254 +1,72 @@
 // js/forms/templates/form37.js
-import { escapeHtml, gregorianToJalali } from '../../utils.js';
-import {
-  loadVisitFull, buildSummaryText, buildMedicalHistoryText, buildVitalsSummary,
-  formatTehranTime, tehranJalali, isIncidentVisit,
-  isDispatchTreatment, isReferralTreatment
-} from '../visit-data.js';
-
-export const fields = [
-  { key: 'rowNumber', label: 'شماره ردیف فرم ثبت مراجعات', editable: true, col: 6 },
-  { key: 'birthPlace', label: 'محل تولد', editable: true, col: 6,
-    persist: { table: 'patient_extra', column: 'birth_place' } },
-  { key: 'summaryText', label: 'خلاصه شرح حال و مراقبت‌های پزشکی', type: 'textarea', rows: 3, editable: true, col: 12 },
-  { key: 'medicalHistoryText', label: 'خلاصه سوابق پزشکی', type: 'textarea', rows: 2, editable: true, col: 12 },
-  { key: 'companionNeeded', label: 'نیاز به همراه', type: 'select', editable: true, col: 6,
-    options: [{ value: 'no', label: 'ندارد' }, { value: 'yes', label: 'دارد' }],
-    persist: { table: 'visit_extra', column: 'companion_needed' } },
-  { key: 'companionName', label: 'نام همراه', editable: true, col: 6,
-    persist: { table: 'visit_extra', column: 'companion_name' } },
-  { key: 'companionPhone', label: 'شماره تماس همراه', editable: true, col: 6,
-    persist: { table: 'visit_extra', column: 'companion_phone' } },
-  { key: 'transportType', label: 'نحوه ارجاع (غیر از آمبولانس)', type: 'select', editable: true, col: 6,
-    options: [
-      { value: '', label: '—' },
-      { value: 'agency', label: 'آژانس' },
-      { value: 'personal', label: 'وسیله شخصی' },
-      { value: 'transport', label: 'ترانسپورت' },
-      { value: 'other', label: 'سایر' }
-    ],
-    persist: { table: 'visit_extra', column: 'transport_type' } },
-  { key: 'hospitalEmergency', label: 'اورژانس بیمارستان (نام)', editable: true, col: 12 },
-  { key: 'copyCount', label: 'تعداد نسخه چاپ', type: 'select', editable: true, col: 6,
-    options: [
-      { value: '1', label: '۱ نسخه' },
-      { value: '2', label: '۲ نسخه' }
-    ]
-  }
-];
-
-export async function load({ visitId }) {
-  if (!visitId) throw new Error('visitId لازم است');
-  const d = await loadVisitFull(visitId);
-  const v = d.visit;
-  const e = d.extra || {};
-  const pe = d.patientExtra || {};
-  const isInc = isIncidentVisit(v);
-  const isDispatch = isDispatchTreatment(v.treatment_result_id);
-  const isReferral = isReferralTreatment(v.treatment_result_id);
-
-  const sTime = isInc ? e.incident_at : e.symptom_onset_at;
-  const gcsTotal = (v.gcs_eye && v.gcs_verbal && v.gcs_motor)
-    ? Number(v.gcs_eye) + Number(v.gcs_verbal) + Number(v.gcs_motor)
-    : '';
-
-  return {
-    data: {
-      rowNumber: String(v.id),
-      birthPlace: pe.birth_place || '',
-      summaryText: buildSummaryText(d),
-      medicalHistoryText: buildMedicalHistoryText(d),
-      companionNeeded: e.companion_needed ? 'yes' : 'no',
-      companionName: e.companion_name || '',
-      companionPhone: e.companion_phone || '',
-      transportType: isReferral ? (e.transport_type || '') : '',
-      hospitalEmergency: v.dispatch_destination || '',
-      copyCount: '2',
-      _patientName: `${d.patient.first_name || ''} ${d.patient.last_name || ''}`.trim(),
-      _fatherName: d.patient.father_name || '',
-      _nationalCode: d.patient.is_foreign_national
-        ? (d.patient.passport_number || '')
-        : (d.patient.national_code || ''),
-      _dob: d.patient.date_of_birth ? gregorianToJalali(d.patient.date_of_birth) : '',
-      _phone: d.patient.phone_number || '',
-      _personnelNumber: d.patient.personnel_number || '',
-      _symptomTime: sTime ? formatTehranTime(sTime) : '',
-      _visitTime: formatTehranTime(v.visit_date),
-      _visitDate: tehranJalali(v.visit_date),
-      _unitContractor: [pe.work_unit, d.company?.name].filter(Boolean).join('/'),
-      _bp: v.blood_pressure || '',
-      _pr: v.heart_rate || '',
-      _rr: e.rr || '',
-      _spo2: v.spo2 || '',
-      _gcsE: v.gcs_eye || '',
-      _gcsV: v.gcs_verbal || '',
-      _gcsM: v.gcs_motor || '',
-      _gcsTotal: gcsTotal,
-      _vitalsSummary: buildVitalsSummary(d),
-      _isDispatch: isDispatch,
-      _isReferral: isReferral
-    },
-    meta: { isIncident: isInc, isDispatch, isReferral }
-  };
-}
-
-function line(v, w) {
-  return `<span style="display:inline-block;min-width:${w || 120}px;border-bottom:1px dotted #000;padding:0 4px;">${escapeHtml(v || '')}</span>`;
-}
-function emptyLine() {
-  return `<div style="border-bottom:1px dotted #000;min-height:22px;margin-bottom:4px;"></div>`;
-}
-const cbox = (checked) =>
-  `<span style="display:inline-block;width:12px;height:12px;border:1.2px solid #000;text-align:center;line-height:10px;vertical-align:middle;">${checked ? '✓' : ''}</span>`;
-
-function buildOneCopy(d) {
-  const get = (k, def = '') => d[k] ?? def;
-  const isDispatch = d._isDispatch;
-  const isReferral = d._isReferral;
-  const companionNeeded = d.companionNeeded === 'yes';
-  const transportMap = { agency: 'آژانس', personal: 'وسیله شخصی', transport: 'ترانسپورت', other: 'سایر' };
-
-  return `
-    <div style="font-family:Vazirmatn,Tahoma,sans-serif;direction:rtl;font-size:10px;line-height:1.9;color:#000;">
-      <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
-        <tr>
-          <td style="border:1.2px solid #000;padding:4px 6px;width:110px;text-align:center;font-size:9px;" dir="ltr">BR-FR-HS-37-00</td>
-          <td style="border:1.2px solid #000;padding:4px 6px;text-align:center;font-weight:800;font-size:12px;">فرم اعزام / ارجاع به مرکز درمانی</td>
-          <td style="border:1.2px solid #000;padding:4px 6px;width:60px;text-align:center;">
-            <img src="icons/logo-form.png" style="max-width:50px;max-height:50px;" onerror="this.style.display='none'">
-          </td>
-        </tr>
-      </table>
-
-      <div style="font-weight:800;margin:6px 0 4px;">مشخصات مراجعه کننده:</div>
-      <div style="margin-bottom:3px;">
-        نام و نام خانوادگی: ${line(get('_patientName'), 140)}
-        نام پدر: ${line(get('_fatherName'), 90)}
-        کد ملی: ${line(get('_nationalCode'), 90)}
-      </div>
-      <div style="margin-bottom:3px;">
-        تاریخ تولد: ${line(get('_dob'), 80)}
-        محل تولد: ${line(get('birthPlace'), 90)}
-        شماره تماس: ${line(get('_phone'), 100)}
-      </div>
-      <div style="margin-bottom:3px;">
-        کدپرسنلی: ${line(get('_personnelNumber'), 80)}
-        ساعت وقوع علائم بیماری/حادثه: ${line(get('_symptomTime'), 60)}
-      </div>
-      <div style="margin-bottom:3px;">
-        شماره ردیف فرم ثبت مراجعات: ${line(get('rowNumber'), 70)}
-        نام واحد/پیمانکار: ${line(get('_unitContractor'), 130)}
-      </div>
-      <div style="margin-bottom:6px;">
-        ساعت مراجعه به بهداری: ${line(get('_visitTime'), 60)}
-        تاریخ: ${line(get('_visitDate'), 80)}
-      </div>
-
-      <div style="border:1.2px solid #000;padding:6px;margin-bottom:6px;">
-        <div style="text-align:center;font-weight:800;border-bottom:1px solid #000;padding-bottom:3px;margin-bottom:5px;">نظریه پزشکی</div>
-
-        <div style="font-weight:700;">خلاصه ای از شرح حال و مراقبت های پزشکی:</div>
-        <div style="min-height:50px;border-bottom:1px dotted #000;padding:3px 2px;margin-bottom:4px;">${escapeHtml(get('summaryText'))}</div>
-
-        <div style="font-weight:700;">خلاصه سوابق پزشکی (معاینات دوره ای):</div>
-        <div style="min-height:40px;border-bottom:1px dotted #000;padding:3px 2px;margin-bottom:4px;">${escapeHtml(get('medicalHistoryText'))}</div>
-
-        <div style="font-weight:700;">خلاصه ای از علائم حیاتی:</div>
-        <div style="min-height:30px;border-bottom:1px dotted #000;padding:3px 2px;margin-bottom:4px;">${escapeHtml(get('_vitalsSummary'))}</div>
-
-        <div style="margin:4px 0;">
-          PR: ${line(get('_pr'), 40)}
-          BP: ${line(get('_bp'), 60)}
-          RR: ${line(get('_rr'), 40)}
-          SPO₂: ${line(get('_spo2'), 40)}
-        </div>
-        <div style="margin:4px 0;">
-          GCS: E ${line(get('_gcsE'), 25)} V ${line(get('_gcsV'), 25)} M ${line(get('_gcsM'), 25)} T ${line(get('_gcsTotal'), 25)}
-        </div>
-
-        <div style="margin:6px 0;">
-          نیاز به همراه دارد ${cbox(companionNeeded)} ندارد ${cbox(!companionNeeded)}
-          نام و نام خانوادگی همراه: ${line(get('companionName'), 130)}
-          شماره تماس: ${line(get('companionPhone'), 100)}
-        </div>
-
-        <div style="margin:6px 0;">
-          نحوه اعزام/ ارجاع:
-          با آمبولانس ${cbox(isDispatch)}
-          سایر
-          ${isReferral && d.transportType
-            ? `(${escapeHtml(transportMap[d.transportType] || d.transportType)})`
-            : '...................................................'}
-        </div>
-
-        <div style="margin-top:16px;text-align:left;">
-          مهر و امضاء: ${line('', 180)}
-        </div>
-        <div style="text-align:left;font-size:9px;">تکنسین فوریت های پزشکی</div>
-      </div>
-
-      <div style="border:1.2px solid #000;padding:6px;margin-bottom:6px;">
-        <div style="text-align:center;font-weight:800;border-bottom:1px solid #000;padding-bottom:3px;margin-bottom:5px;">اعزام به بیمارستان</div>
-
-        <div style="margin-bottom:3px;">
-          ساعت خروج از شرکت: ${line('', 45)} : ${line('', 45)}
-          ساعت حضور در بیمارستان: ${line('', 45)} : ${line('', 45)}
-        </div>
-        <div style="margin-bottom:3px;">
-          ساعت خروج از بیمارستان: ${line('', 45)} : ${line('', 45)}
-          ساعت حضور در شرکت: ${line('', 45)} : ${line('', 45)}
-        </div>
-
-        <div style="margin-top:6px;font-weight:700;">اقدامات صورت پذیرفته در مسیر بیمارستان و وضعیت بیمار (علائم حیاتی) در زمان تحویل:</div>
-        ${emptyLine()}${emptyLine()}
-
-        <div style="margin-top:6px;">
-          Vital Signs
-          BP: ${line('', 50)} PR: ${line('', 40)} RR: ${line('', 40)} GCS: ${line('', 40)} Tem: ${line('', 40)} SPO₂: ${line('', 40)}
-        </div>
-
-        <div style="margin-top:8px;">
-          نام و نام خانوادگی و امضاء تکنسین فوریت های پزشکی: ${line('', 140)}
-        </div>
-        <div style="margin-top:4px;">
-          نام و نام خانوادگی و امضاء راننده: ${line('', 160)}
-        </div>
-
-        <div style="margin-top:6px;font-weight:700;">توضیحات:</div>
-        ${emptyLine()}
-
-        <div style="margin-top:8px;font-weight:700;">تائیدیه تحویل بیمار به پزشک:</div>
-        <div style="margin-top:4px;">اورژانس بیمارستان: ${line(get('hospitalEmergency'), 180)}</div>
-        <div style="margin-top:10px;text-align:left;">
-          مهر و امضا: ${line('', 180)}
-        </div>
-      </div>
-
-      <div style="margin-top:8px;">
-        بدینوسیله تائید می گردد فرم اعزام به بیمارستان آقای
-        ${line(get('_patientName'), 130)}
-        در مورخه: ${line('', 70)} ساعت: ${line('', 50)}
-        به رویت و تائید اینجانب ${line('', 130)} رسید.
-      </div>
-
-      <div style="text-align:left;margin-top:8px;font-size:9px;">
-        امضاء رئیس ایمنی، بهداشت و محیط زیست: ${line('', 180)}
-      </div>
-
-      <div style="text-align:center;font-size:9px;margin-top:10px;border-top:1px dashed #666;padding-top:5px;">
-        توزیع نسخ: نسخه اول: واحد بهداری — نسخه دوم: پرونده بیمارستان
-      </div>
-    </div>
-  `;
-}
+import { wrap, head, lbl, val, e, ltr, dots, opt, dline } from '../fs.js';
 
 export function render(d) {
   d = d || {};
-  const copies = Number(d.copyCount) === 1 ? 1 : 2;
-  const one = buildOneCopy(d);
-  if (copies === 1) return one;
-  return `
-    <div class="page-break-after">${one}</div>
-    <div>${one}</div>
-  `;
+  const g = (k) => d[k] ?? '';
+
+  return wrap(`
+    ${head({ code: 'BR-FR-HS-37-00', title: 'فرم اعزام / ارجاع به مرکز درمانی' })}
+    <table class="fs-grid">
+      <tr>
+        <td class="fs-side" rowspan="4"><span>مشخصات مراجعه کننده</span></td>
+        <td>${lbl('نام و نام خانوادگی:')} ${val(g('_patientName'))}</td>
+        <td>${lbl('نام پدر:')} ${val(g('fatherName'))}</td>
+        <td>${lbl('کد ملی:')} ${val(g('_nationalCode'), { ltr: true })}</td>
+      </tr>
+      <tr>
+        <td>${lbl('تاریخ تولد:')} ${val(g('_birthDate'), { ltr: true })}</td>
+        <td>${lbl('محل تولد:')} ${val(g('birthPlace'))}</td>
+        <td>${lbl('شماره تماس:')} ${val(g('_phone'), { ltr: true })}</td>
+      </tr>
+      <tr>
+        <td>${lbl('کدپرسنلی:')} ${val(g('_personnelNumber'), { ltr: true })}</td>
+        <td>${lbl('ساعت وقوع علائم بیماری/حادثه:')} ${dots(g('_symptomTime'), 'w60')}</td>
+        <td>${lbl('شماره ردیف فرم ثبت مراجعات:')} ${val(g('rowNumber'), { ltr: true })}</td>
+      </tr>
+      <tr>
+        <td>${lbl('نام واحد/پیمانکار:')} ${val(g('_unitContractor'))}</td>
+        <td>${lbl('ساعت مراجعه به بهداری:')} ${dots(g('_visitTime'), 'w60')}</td>
+        <td>${lbl('تاریخ:')} ${val(g('_date'), { ltr: true })}</td>
+      </tr>
+      <tr>
+        <td class="fs-side" rowspan="2"><span>نظریه پزشکی</span></td>
+        <td colspan="3" class="fs-mid">
+          <div>${lbl('خلاصه شرح حال:')}</div>
+          <div class="fs-dline fs-hand">${e(g('summaryText'))}</div>
+          <div>${lbl('خلاصه سوابق پزشکی (معاینات دوره ای):')}</div>
+          <div class="fs-dline fs-hand">${e(g('medicalHistory'))}</div>
+          <div>${lbl('خلاصه علائم حیاتی:')} PR: ${dots(g('pr'), 'w40')} BP: ${dots(g('bp'), 'w40')} RR: ${dots(g('rr'), 'w40')} SPO₂: ${dots(g('spo2'), 'w40')}</div>
+          <div>${lbl('GCS:')} E4 ${dots('', 'w40')} V5 ${dots('', 'w40')} M6 ${dots('', 'w40')} T15 ${dots('', 'w40')}</div>
+          <div>${lbl('نیاز به همراه:')} ${opt(g('needsCompanion') === 'yes', 'دارد')} ${opt(g('needsCompanion') === 'no', 'ندارد')} ${lbl('نام و شماره تماس همراه:')} ${val(g('companionContact'), { ltr: true })}</div>
+          <div>${lbl('نحوه اعزام/ ارجاع:')} ${opt(g('mechanism') === 'ambulance', 'با آمبولانس')} ${lbl('سایر:')} ${dots(g('mechanismOther'), 'w120')}</div>
+          <div class="fs-sign">مهر و امضاء / تکنسین فوریت های پزشکی</div>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="3" class="fs-mid">
+          <div>${lbl('ساعت خروج از شرکت:')} ${dots(g('_exitCompany'), 'w60')}</div>
+          <div>${lbl('ساعت حضور در بیمارستان:')} ${dots(g('_arriveHospital'), 'w60')}</div>
+          <div>${lbl('ساعت خروج از بیمارستان:')} ${dots(g('_exitHospital'), 'w60')}</div>
+          <div>${lbl('ساعت حضور در شرکت:')} ${dots(g('_arriveCompany'), 'w60')}</div>
+          <div>${lbl('اقدامات صورت پذیرفته در مسیر بیمارستان و وضعیت بیمار (علائم حیاتی) در زمان تحویل:')}</div>
+          <div class="fs-hand sm">${e(g('transferActions'))}</div>
+          <div>${lbl('Vital Signs:')} BP: ${dots(g('bp2'), 'w40')} PR: ${dots(g('pr2'), 'w40')} RR: ${dots(g('rr2'), 'w40')} GCS: ${dots(g('gcs'), 'w40')} Tem: ${dots(g('tem'), 'w40')} SPO₂: ${dots(g('spo2'), 'w40')}</div>
+          <div>${lbl('امضای تکنسین:')} ${dots('', 'w120')} ${lbl('امضای راننده:')} ${dots('', 'w120')}</div>
+          <div>${lbl('توضیحات:')} <span class="fs-hand sm">${e(g('notes'))}</span></div>
+          <div>${lbl('تائیدیه تحویل بیمار به پزشک — اورژانس بیمارستان:')} ${dots('', 'w160')}</div>
+          <div class="fs-sign">مهر و امضا</div>
+          <div class="fs-para" style="font-size:10px;line-height:1.9">
+            بدینوسیله تائید می گردد فرم اعزام به بیمارستان آقای ${dots(g('_patientName'), 'w160')}
+          </div>
+          <div class="fs-sign">امضاء رئیس ایمنی، بهداشت و محیط زیست</div>
+        </td>
+      </tr>
+    </table>
+    <div class="fs-note">توزیع نسخ: نسخه اول: واحد بهداری — نسخه دوم: پرونده بیمارستان</div>
+  `, { compact: true });
 }
+
+// ⚠️ fields و load دست‌نخورده باقی بمانند
+export const fields = /* ... */;
+export async function load(id) { /* ... */ }
