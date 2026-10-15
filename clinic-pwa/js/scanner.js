@@ -6,7 +6,101 @@ let onScanCallback = null;
 let isScanning = false;
 let currentCameraId = null;
 let camerasCache = [];
+let currentPreset = localStorage.getItem('scannerPreset') || 'classic';
 
+// ═══════════════════════════════════════════════════════
+// پریست‌های اسکن (از فایل‌های خودت + یکی قوی)
+// ═══════════════════════════════════════════════════════
+const PRESETS = {
+  // دقیقاً همون چیزی که توی add_drug_from_qr و receive_drug_form بود
+  classic: {
+    name: 'کلاسیک (کار کرده)',
+    desc: 'fps:10 • باکس ۲۵۰×۲۵۰',
+    config: {
+      fps: 10,
+      qrbox: { width: 250, height: 250 },
+      aspectRatio: 1.0,
+      disableFlip: false,
+    },
+    formats: null, // همه فرمت‌ها
+    videoConstraints: { facingMode: 'environment' }
+  },
+
+  // نسخه تهاجمی با نیتیو + اولویت Data Matrix
+  native: {
+    name: 'نیتیو + DataMatrix',
+    desc: 'سریع‌ترین روی کروم اندروید',
+    config: {
+      fps: 15,
+      qrbox: function (w, h) {
+        const size = Math.floor(Math.min(w, h) * 0.82);
+        return { width: size, height: size };
+      },
+      aspectRatio: 1.0,
+      disableFlip: false,
+    },
+    formats: [
+      Html5QrcodeSupportedFormats.DATA_MATRIX,
+      Html5QrcodeSupportedFormats.QR_CODE,
+      Html5QrcodeSupportedFormats.CODE_128,
+      Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E,
+    ],
+    videoConstraints: {
+      facingMode: 'environment',
+      width:  { ideal: 1920, min: 1280 },
+      height: { ideal: 1080, min: 720 },
+    }
+  },
+
+  // کل صفحه رو اسکن می‌کنه (کندتر ولی مطمئن‌تر)
+  full: {
+    name: 'کل صفحه (مطمئن)',
+    desc: 'بدون محدودیت باکس',
+    config: {
+      fps: 12,
+      // بدون qrbox = کل فریم
+      aspectRatio: 1.0,
+      disableFlip: false,
+    },
+    formats: [
+      Html5QrcodeSupportedFormats.DATA_MATRIX,
+      Html5QrcodeSupportedFormats.QR_CODE,
+      Html5QrcodeSupportedFormats.CODE_128,
+      Html5QrcodeSupportedFormats.CODE_39,
+    ],
+    videoConstraints: { facingMode: 'environment' }
+  },
+
+  // مخصوص کدهای کوچک دارویی
+  pharma: {
+    name: 'دارویی کوچک',
+    desc: 'باکس کوچک‌تر + رزولوشن بالا',
+    config: {
+      fps: 12,
+      qrbox: { width: 220, height: 220 },
+      aspectRatio: 1.0,
+      disableFlip: false,
+    },
+    formats: [
+      Html5QrcodeSupportedFormats.DATA_MATRIX,
+      Html5QrcodeSupportedFormats.QR_CODE,
+      Html5QrcodeSupportedFormats.CODE_128,
+    ],
+    videoConstraints: {
+      facingMode: 'environment',
+      width:  { ideal: 1920 },
+      height: { ideal: 1080 },
+    }
+  }
+};
+
+// ═══════════════════════════════════════════════════════
+// دکمه‌ها
+// ═══════════════════════════════════════════════════════
 export function initScannerButtons() {
   const btnCamera = $('btnCameraSelect');
   const btnPaste  = $('btnScanPaste');
@@ -21,15 +115,44 @@ export function initScannerButtons() {
     };
   }
 
+  // دکمه انتخاب پریست
+  ensurePresetButton();
+
   const wrap = $('scannerWrap');
   if (wrap) {
     wrap.addEventListener('click', (e) => {
       if (e.target === wrap) closeScanner();
     });
   }
-  console.log('[SCANNER] ready (native-first + DataMatrix)');
+  console.log('[SCANNER] ready | preset:', currentPreset);
 }
 
+function ensurePresetButton() {
+  // اگر قبلاً ساخته شده، کاری نکن
+  if (document.getElementById('btnScannerPreset')) return;
+
+  const controls = document.querySelector('.scanner-controls');
+  if (!controls) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'btnScannerPreset';
+  btn.className = 'scan-btn';
+  btn.title = 'تغییر حالت اسکن';
+  btn.innerHTML = `<i class="bi bi-sliders"></i>`;
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    showPresetPicker();
+  };
+
+  // قبل از دکمه بستن قرار بده
+  const closeBtn = $('btnScanClose');
+  if (closeBtn) controls.insertBefore(btn, closeBtn);
+  else controls.appendChild(btn);
+}
+
+// ═══════════════════════════════════════════════════════
+// شروع اسکن با پریست انتخاب‌شده
+// ═══════════════════════════════════════════════════════
 export async function startScanner(callback) {
   onScanCallback = callback;
   const wrap = $('scannerWrap');
@@ -49,38 +172,29 @@ export async function startScanner(callback) {
     const reader = $('reader');
     if (reader) reader.innerHTML = '';
 
-    // 🔥 نیتیو اولویت اول + فرمت‌های دارویی
-    html5QrCode = new Html5Qrcode('reader', {
-      verbose: false,
-      useBarCodeDetectorIfSupported: true,   // ← نیتیو کروم اندروید اول
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.DATA_MATRIX,  // اولویت ۱ (دارو)
-        Html5QrcodeSupportedFormats.QR_CODE,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.AZTEC,
-        Html5QrcodeSupportedFormats.PDF_417,
-      ]
-    });
+    const preset = PRESETS[currentPreset] || PRESETS.classic;
 
-    // چک کن نیتیو فعاله یا نه
+    const constructorConfig = {
+      verbose: false,
+      useBarCodeDetectorIfSupported: true, // همیشه نیتیو اول
+    };
+    if (preset.formats) {
+      constructorConfig.formatsToSupport = preset.formats;
+    }
+
+    html5QrCode = new Html5Qrcode('reader', constructorConfig);
+
     const isNative = 'BarcodeDetector' in window;
-    console.log('[SCANNER] native BarcodeDetector:', isNative);
+    console.log('[SCANNER] native:', isNative, '| preset:', currentPreset);
 
     const devices = await Html5Qrcode.getCameras();
     camerasCache = devices || [];
-
     if (!camerasCache.length) {
       toast('دوربین پیدا نشد', 'danger');
       setTimeout(() => closeScanner(), 2000);
       return;
     }
 
-    // دوربین پشتی
     const backCam = camerasCache.find(d => {
       const l = (d.label || '').toLowerCase();
       return l.includes('back') || l.includes('rear') || l.includes('environment') ||
@@ -89,43 +203,28 @@ export async function startScanner(callback) {
     const cameraId = backCam ? backCam.id : camerasCache[0].id;
     currentCameraId = cameraId;
 
-    // کانفیگ تهاجمی برای Data Matrix کوچک
-    const config = {
-      fps: 15,                    // بالاتر برای سرعت
-      qrbox: function (w, h) {
-        // ناحیه بزرگ‌تر تا کد کامل داخلش باشه
-        const size = Math.floor(Math.min(w, h) * 0.85);
-        return { width: size, height: size };
-      },
-      aspectRatio: 1.0,
-      disableFlip: false,
-      // رزولوشن بالاتر برای کدهای کوچک دارویی
-      videoConstraints: {
-        facingMode: 'environment',
-        width:  { ideal: 1920, min: 1280 },
-        height: { ideal: 1080, min: 720 },
-      }
+    const startConfig = {
+      ...preset.config,
+      videoConstraints: preset.videoConstraints || { facingMode: 'environment' }
     };
 
     await html5QrCode.start(
       cameraId,
-      config,
+      startConfig,
       (decodedText, decodedResult) => {
-        console.log('[SCANNER] SUCCESS:', decodedText, decodedResult);
+        console.log('[SCANNER] SUCCESS:', decodedText);
         if (statusEl) statusEl.textContent = '✅ اسکن شد';
         if (navigator.vibrate) navigator.vibrate([70, 30, 70]);
         playBeep();
         if (onScanCallback) onScanCallback(decodedText);
         closeScanner();
       },
-      () => {} // خطاهای فریم رو نادیده بگیر
+      () => {}
     );
 
     isScanning = true;
     if (statusEl) {
-      statusEl.textContent = isNative
-        ? 'نیتیو فعال • آماده اسکن Data Matrix'
-        : 'آماده اسکن...';
+      statusEl.textContent = `${preset.name} • آماده اسکن`;
     }
 
   } catch (err) {
@@ -136,6 +235,94 @@ export async function startScanner(callback) {
 
 export const openScanner = startScanner;
 
+// ═══════════════════════════════════════════════════════
+// انتخاب پریست
+// ═══════════════════════════════════════════════════════
+function showPresetPicker() {
+  // اگر پاپ‌آپ قبلی هست حذفش کن
+  const old = document.getElementById('presetPopup');
+  if (old) {
+    old.remove();
+    return;
+  }
+
+  const popup = document.createElement('div');
+  popup.id = 'presetPopup';
+  popup.style.cssText = `
+    position: absolute;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.95);
+    padding: 12px;
+    border-radius: 14px;
+    min-width: 260px;
+    max-width: 90vw;
+    z-index: 120;
+    color: #fff;
+  `;
+
+  popup.innerHTML = `
+    <div style="font-size:0.85rem;margin-bottom:10px;opacity:0.8;text-align:center;">
+      حالت اسکن را انتخاب کنید
+    </div>
+    ${Object.entries(PRESETS).map(([key, p]) => `
+      <div class="preset-option" data-preset="${key}" style="
+        padding: 11px 14px;
+        border-radius: 10px;
+        margin-bottom: 6px;
+        cursor: pointer;
+        background: ${key === currentPreset ? '#0d6efd' : 'rgba(255,255,255,0.1)'};
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      ">
+        <div style="font-weight:600;font-size:0.9rem;">${p.name}</div>
+        <div style="font-size:0.75rem;opacity:0.75;">${p.desc}</div>
+      </div>
+    `).join('')}
+  `;
+
+  document.querySelector('.scanner-controls')?.appendChild(popup);
+
+  popup.querySelectorAll('.preset-option').forEach(el => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
+      const key = el.dataset.preset;
+      if (key === currentPreset) {
+        popup.remove();
+        return;
+      }
+      currentPreset = key;
+      localStorage.setItem('scannerPreset', key);
+      popup.remove();
+      toast(`حالت «${PRESETS[key].name}» فعال شد`, 'info');
+
+      // اگر الان اسکنر بازه، ری‌استارت کن
+      if (isScanning) {
+        const cb = onScanCallback;
+        await closeScanner();
+        // کمی صبر کن تا دوربین آزاد بشه
+        setTimeout(() => startScanner(cb), 400);
+      }
+    };
+  });
+
+  // بستن با کلیک بیرون
+  setTimeout(() => {
+    const closeHandler = (e) => {
+      if (!popup.contains(e.target) && e.target.id !== 'btnScannerPreset') {
+        popup.remove();
+        document.removeEventListener('click', closeHandler);
+      }
+    };
+    document.addEventListener('click', closeHandler);
+  }, 50);
+}
+
+// ═══════════════════════════════════════════════════════
+// بقیه توابع (بدون تغییر اساسی)
+// ═══════════════════════════════════════════════════════
 export async function closeScanner() {
   const wrap = $('scannerWrap');
   if (wrap) wrap.classList.remove('active');
@@ -146,6 +333,8 @@ export async function closeScanner() {
   if (statusEl) statusEl.textContent = 'آماده اسکن...';
   const popup = $('cameraPopup');
   if (popup) popup.style.display = 'none';
+  const presetPopup = document.getElementById('presetPopup');
+  if (presetPopup) presetPopup.remove();
   isScanning = false;
 }
 
@@ -153,7 +342,7 @@ async function stopInternal() {
   if (html5QrCode && isScanning) {
     try {
       await html5QrCode.stop();
-      await html5QrCode.clear();
+      await html5Qrcode.clear?.();
     } catch (e) {}
   }
   html5QrCode = null;
@@ -167,16 +356,9 @@ async function switchCamera(deviceId) {
 
   try {
     await html5QrCode.stop();
-    const config = {
-      fps: 15,
-      qrbox: (w, h) => {
-        const size = Math.floor(Math.min(w, h) * 0.85);
-        return { width: size, height: size };
-      },
-      aspectRatio: 1.0,
-      disableFlip: false,
-    };
-    await html5QrCode.start(deviceId, config,
+    const preset = PRESETS[currentPreset] || PRESETS.classic;
+    const startConfig = { ...preset.config };
+    await html5QrCode.start(deviceId, startConfig,
       (text) => {
         if (navigator.vibrate) navigator.vibrate([70, 30, 70]);
         playBeep();
