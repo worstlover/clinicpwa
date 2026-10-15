@@ -62,7 +62,13 @@
   font-weight: 400;
   text-align: right;
 }
-.form-sheet .fs-lbl { font-weight: 800; }
+
+/* ── عنوان‌های داخل کادر (برچسب‌ها): ۲ پله بزرگ‌تر + بولد ── */
+.form-sheet .fs-lbl {
+  font-size: 16px;
+  font-weight: 800;
+}
+
 .form-sheet .fs-val { font-weight: 400; }
 .form-sheet .fs-grid td.fs-tall  { height: 330px; }
 .form-sheet .fs-grid td.fs-mid   { height: 90px; }
@@ -91,12 +97,12 @@
   letter-spacing: 0;
 }
 
-/* ── نوار عنوان بخش ── */
+/* ── نوار عنوان بخش: ۲ پله بزرگ‌تر + بولد ── */
 .form-sheet .fs-bar {
   background: #d9d9d9;
   font-weight: 800;
   text-align: center !important;
-  font-size: 14px;
+  font-size: 17px;
 }
 
 /* ── خط‌چین و چک‌باکس ── */
@@ -155,14 +161,14 @@
 .form-sheet .fs-para { text-align: justify; line-height: 2.35; font-size: 13.5px; }
 .form-sheet .fs-para.bold { font-weight: 800; font-size: 14.5px; }
 
-/* ── مقادیر پرشده (نیمه‌دست‌نویس) ── */
+/* ── مقادیر پرشده (نیمه‌دست‌نویس) — ۱.۵ پله کوچک‌تر از نسخه‌ی قبل ── */
 .form-sheet .fs-hand,
 .form-sheet .fs-val,
 .form-sheet .fs-dots:not(:empty) {
   font-family: 'FormHand', 'Mikhak', 'Shabnam', 'Vazirmatn', Tahoma, sans-serif;
   font-weight: 700;
-  font-size: 1.35em;
-  line-height: 1.45;
+  font-size: 1.2em;       /* ← از 1.35em به 1.2em */
+  line-height: 1.5;
   letter-spacing: 0;
 }
 
@@ -198,3 +204,7 @@
 .form-sheet .fs.compact .fs-head .fs-logo img { width: 58px; height: 58px; }
 .form-sheet .fs.compact .fs-head .fs-title { font-size: 16px; }
 .form-sheet .fs.compact .fs-dline { min-height: 24px; }
+
+/* در حالت فشرده هم برچسب‌ها بزرگ‌تر بمانند */
+.form-sheet .fs.compact .fs-lbl { font-size: 15px; font-weight: 800; }
+.form-sheet .fs.compact .fs-bar { font-size: 16px; font-weight: 800; }
