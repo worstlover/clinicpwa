@@ -13,6 +13,8 @@ import { openOccupational } from './modules/occupational.js';
 import { openVisits } from './modules/visit/index.js';
 import { openForms } from './forms/engine.js';
 import { openGuide } from './process/guide.js';
+import { openFormsMenu } from './modules/forms-menu.js';
+import { openFormsArchive } from './modules/forms-archive.js';
 
 // ═══════════════════════════════════════════════════════
 // FCM: استفاده از توابع موجود در js/fcm.js
@@ -29,7 +31,7 @@ function startLoadingProgress() {
 
   let value = 0;
   const interval = setInterval(() => {
-    value += Math.random() * 12 + 4; // سرعت تصادفی واقعی‌تر
+    value += Math.random() * 12 + 4;
     if (value >= 95) {
       value = 95;
       clearInterval(interval);
@@ -39,7 +41,6 @@ function startLoadingProgress() {
   }, 280);
 }
 
-// اجرا به‌محض بارگذاری صفحه (اسکریپت در انتهای body است، پس DOM آماده است)
 if (document.getElementById('screenLoading')?.classList.contains('active')) {
   startLoadingProgress();
 }
@@ -48,7 +49,9 @@ initQtyModal();
 initSearchModal();
 initScannerButtons();
 
+// ═══════════════════════════════════════════════════════
 // لاگین
+// ═══════════════════════════════════════════════════════
 $('btnLogin').onclick = doLogin;
 $('loginPass').addEventListener('keydown', e => {
   if (e.key === 'Enter') {
@@ -57,7 +60,9 @@ $('loginPass').addEventListener('keydown', e => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
 // هدر
+// ═══════════════════════════════════════════════════════
 $('btnBack').onclick = () => showScreen('Home');
 $('btnLogout').onclick = doLogout;
 
@@ -77,6 +82,7 @@ document.querySelectorAll('[data-nav]').forEach(el => {
   el.addEventListener('click', e => {
     e.preventDefault();
     const n = el.dataset.nav;
+
     if (n === 'home') showScreen('Home');
     else if (n === 'pharmacy') showScreen('Pharmacy');
     else if (n === 'visits') openVisits();
@@ -87,30 +93,40 @@ document.querySelectorAll('[data-nav]').forEach(el => {
     else if (n === 'profile') openProfile();
     else if (n === 'occupational') openOccupational();
     else if (n === 'forms') openForms();
+    else if (n === 'formsMenu') openFormsMenu();
+    else if (n === 'formsArchive') openFormsArchive();
     else if (n === 'guide') openGuide();
   });
 });
 
+// ═══════════════════════════════════════════════════════
+// ESC → بستن اسکنر
+// ═══════════════════════════════════════════════════════
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && $('scannerWrap')?.classList.contains('active')) {
     closeScanner();
   }
 });
 
+// ═══════════════════════════════════════════════════════
 // نصب PWA
+// ═══════════════════════════════════════════════════════
 let deferredInstallPrompt = null;
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
   const btn = document.getElementById('btnInstallPWA');
   if (btn) btn.style.display = 'flex';
 });
+
 window.addEventListener('appinstalled', () => {
   deferredInstallPrompt = null;
   const btn = document.getElementById('btnInstallPWA');
   if (btn) btn.style.display = 'none';
   alert('✅ اپ با موفقیت نصب شد!');
 });
+
 window._triggerInstall = async () => {
   if (!deferredInstallPrompt) {
     alert('مرورگر شما از نصب خودکار پشتیبانی نمی‌کند.\n\nلطفاً از منوی مرورگر:\n• Android Chrome: منو ⋮ → Install app\n• iOS Safari: Share → Add to Home Screen');
@@ -132,6 +148,9 @@ window._triggerInstall = async () => {
   await initFCM();
 })();
 
+// ═══════════════════════════════════════════════════════
+// Service Worker
+// ═══════════════════════════════════════════════════════
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./service-worker.js', { scope: './' }).catch(console.error);
 }
