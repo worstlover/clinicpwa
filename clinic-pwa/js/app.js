@@ -14,6 +14,11 @@ import { openVisits } from './modules/visit/index.js';
 import { openForms } from './forms/engine.js';
 import { openGuide } from './process/guide.js';
 
+// ═══════════════════════════════════════════════════════
+// FCM: ثبت توکن و گوش دادن به پیام‌ها
+// ═══════════════════════════════════════════════════════
+import { registerFCMToken, initFCMMessaging } from './fcm.js';
+
 initQtyModal();
 initSearchModal();
 initScannerButtons();
@@ -91,7 +96,16 @@ window._triggerInstall = async () => {
   deferredInstallPrompt = null;
 };
 
-(async () => { await checkAuth(); })();
+// ═══════════════════════════════════════════════════════
+// راه‌اندازی اولیه: Auth + FCM
+// ═══════════════════════════════════════════════════════
+(async () => {
+  await checkAuth();
+
+  // بعد از لاگین موفق، توکن FCM را ثبت کن
+  await registerFCMToken();
+  await initFCMMessaging();
+})();
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./service-worker.js', { scope: './' }).catch(console.error);
