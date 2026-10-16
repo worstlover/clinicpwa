@@ -3,7 +3,7 @@ import { sb } from '../sb.js';
 import { $, toast, escapeHtml, faNum, faToEn, gregorianToJalali, jalaliToGregorian } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { FORMS } from '../forms/registry.js';
-
+import { fitAndPrint } from '../forms/print-fit.js';
 // ═══════════════════════════════════════════════════════
 // نقشه‌ی نام فرم‌ها (fallback)
 // ═══════════════════════════════════════════════════════
@@ -662,6 +662,10 @@ function openArchiveItem(it) {
   }
 }
 
+// ⚠️ بالای فایل، کنار بقیه‌ی importها این خط را اضافه کن:
+import { fitAndPrint } from '../forms/print-fit.js';
+
+// ⭐ تابع reprintForm را با این جایگزین کن:
 function reprintForm(item) {
   if (item.source === 'core_dailyreport') {
     toast('گزارش‌های قدیمی از این طریق چاپ نمی‌شوند', 'info');
@@ -672,16 +676,19 @@ function reprintForm(item) {
     toast('امکان چاپ مجدد این فرم وجود ندارد', 'warning');
     return;
   }
+
   let area = document.getElementById('formPrintArea');
-  if (!area) { area = document.createElement('div'); area.id = 'formPrintArea'; document.body.appendChild(area); }
-  try {
-    area.innerHTML = `<div class="form-sheet">${form.render(item.data) || ''}</div>`;
-  } catch (e) {
-    toast('خطا در ساخت فرم برای چاپ', 'danger');
-    return;
+  if (!area) {
+    area = document.createElement('div');
+    area.id = 'formPrintArea';
+    document.body.appendChild(area);
   }
-  setTimeout(() => {
-    window.print();
-    setTimeout(() => { area.innerHTML = ''; }, 1500);
-  }, 100);
+
+  // ⭐ اگر render خودش form-sheet تولید کرد، دوباره wrap نکن
+  const rendered = form.render(item.data) || '';
+  const hasSheet = /class=["'][^"']*form-sheet/.test(rendered);
+  area.innerHTML = hasSheet ? rendered : `<div class="form-sheet">${rendered}</div>`;
+
+  // ⭐ اتو-فیت + چاپ
+  fitAndPrint(area, { delay: 150 });
 }
