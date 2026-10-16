@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   js/forms/forms-theme.css — طراحی مشترک فرم‌ها (مطابق فرم‌های اصلی شرکت)
+   js/forms/forms-theme.css — طراحی مشترک فرم‌ها
    ترکیب فونت: Shabnam (متن ثابت) + Mikhak (مقادیر پرشده)
    فونت‌ها: clinic-pwa/lib/fonts/
    ═══════════════════════════════════════════════════════════════ */
@@ -30,6 +30,33 @@
   font-style: normal;
   font-display: swap;
   unicode-range: U+0600-06FF, U+0750-077F, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   A4 Page Setup
+   ═══════════════════════════════════════════════════════════ */
+@page {
+  size: A4;
+  margin: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   شیت A4 — ظرف بیرونی هر فرم
+   ═══════════════════════════════════════════════════════════ */
+.form-sheet {
+  width: 210mm;
+  min-height: 297mm;
+  background: #fff;
+  box-sizing: border-box;
+  padding: 8mm 8mm 6mm;
+  margin: 0 auto;
+  position: relative;
+  overflow: hidden;
+  direction: rtl;
+  color: #000;
+  font-family: 'Shabnam', 'Vazirmatn', Tahoma, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.95;
 }
 
 /* ── پایه ── */
@@ -63,7 +90,7 @@
   text-align: right;
 }
 
-/* ── عنوان‌های داخل کادر (برچسب‌ها): ۲ پله بزرگ‌تر + بولد ── */
+/* ── عنوان‌های داخل کادر (برچسب‌ها) ── */
 .form-sheet .fs-lbl {
   font-size: 16px;
   font-weight: 800;
@@ -97,7 +124,7 @@
   letter-spacing: 0;
 }
 
-/* ── نوار عنوان بخش: ۲ پله بزرگ‌تر + بولد ── */
+/* ── نوار عنوان بخش ── */
 .form-sheet .fs-bar {
   background: #d9d9d9;
   font-weight: 800;
@@ -161,41 +188,28 @@
 .form-sheet .fs-para { text-align: justify; line-height: 2.35; font-size: 13.5px; }
 .form-sheet .fs-para.bold { font-weight: 800; font-size: 14.5px; }
 
-/* ── مقادیر پرشده (نیمه‌دست‌نویس) — ۱.۵ پله کوچک‌تر از نسخه‌ی قبل ── */
+/* ── مقادیر پرشده (نیمه‌دست‌نویس) ── */
 .form-sheet .fs-hand,
 .form-sheet .fs-val,
 .form-sheet .fs-dots:not(:empty) {
   font-family: 'FormHand', 'Mikhak', 'Shabnam', 'Vazirmatn', Tahoma, sans-serif;
   font-weight: 700;
-  font-size: 1.2em;       /* ← از 1.35em به 1.2em */
+  font-size: 1.2em;
   line-height: 1.5;
   letter-spacing: 0;
 }
 
-/* اعداد/کدها/تاریخ‌های داخل <bdi> هم بزرگ‌تر بشن */
 .form-sheet .fs-hand bdi,
 .form-sheet .fs-val bdi,
 .form-sheet .fs-dots bdi {
   font-size: inherit;
 }
 
-/* مقادیر خالی → فونت عادی */
 .form-sheet .fs-dots:empty,
 .form-sheet .fs-dots:has(> :only-child) {
   font-family: inherit;
   font-weight: inherit;
   font-size: inherit;
-}
-
-/* ── چاپ ── */
-@media print {
-  .form-sheet .fs-grid td.fs-tall { height: 300px; }
-  .form-sheet .fs-side,
-  .form-sheet .fs-bar,
-  .form-sheet .fs-side.gray {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
 }
 
 /* ── حالت فشرده (فرم‌های ۳۴ و ۳۷ و ۴۸) ── */
@@ -204,7 +218,109 @@
 .form-sheet .fs.compact .fs-head .fs-logo img { width: 58px; height: 58px; }
 .form-sheet .fs.compact .fs-head .fs-title { font-size: 16px; }
 .form-sheet .fs.compact .fs-dline { min-height: 24px; }
-
-/* در حالت فشرده هم برچسب‌ها بزرگ‌تر بمانند */
 .form-sheet .fs.compact .fs-lbl { font-size: 15px; font-weight: 800; }
 .form-sheet .fs.compact .fs-bar { font-size: 16px; font-weight: 800; }
+
+/* ═══════════════════════════════════════════════════════════
+   ناحیه چاپ
+   ═══════════════════════════════════════════════════════════ */
+#formPrintArea {
+  width: 210mm;
+  background: #fff;
+  margin: 0 auto;
+  direction: rtl;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   پیش‌نمایش روی صفحه (غیر چاپ)
+   ═══════════════════════════════════════════════════════════ */
+@media screen {
+  #formPrintArea {
+    padding: 20px 0;
+    background: #e2e8f0;
+  }
+  .form-sheet {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+    margin-bottom: 20px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   چاپ
+   ═══════════════════════════════════════════════════════════ */
+@media print {
+  /* پایه */
+  html, body {
+    width: 210mm;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* فقط ناحیه چاپ دیده شود */
+  body > *:not(#formPrintArea) {
+    display: none !important;
+  }
+  #formPrintArea {
+    display: block !important;
+    width: 210mm;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #fff !important;
+  }
+
+  /* شیت‌ها */
+  .form-sheet,
+  .form-sheet-a4 {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    padding: 8mm 8mm 6mm !important;
+    width: 210mm !important;
+    min-height: 0 !important;
+    height: auto !important;
+    page-break-after: always;
+    break-after: page;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* ⭐ آخرین شیت نباید صفحه‌ی اضافه بسازد */
+  #formPrintArea > .form-sheet:last-child,
+  #formPrintArea > .form-sheet-a4:last-child,
+  #formPrintArea > .fs-paper:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  /* عناصر غیرضروری */
+  .no-print,
+  .app-header,
+  .bottom-nav,
+  .form-actions,
+  .wizard-nav,
+  .fs-toolbar,
+  #formPrintArea button {
+    display: none !important;
+  }
+
+  /* جدول‌ها و ردیف‌ها نباید نصف شوند */
+  .fs-grid, .fs-table, table, tr, td, th {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* رنگ‌های پس‌زمینه در چاپ */
+  .form-sheet .fs-side,
+  .form-sheet .fs-bar,
+  .form-sheet .fs-side.gray {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ارتفاع‌های متفاوت در چاپ */
+  .form-sheet .fs-grid td.fs-tall { height: 300px; }
+}
