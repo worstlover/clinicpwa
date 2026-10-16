@@ -1,5 +1,9 @@
+// js/modules/inventory.js
 import { sb } from '../sb.js';
-import { $, faNum, escapeHtml, gregorianToJalali, parseGS1, cleanGTIN, toast, beep, makeBatchNumber } from '../utils.js';
+import {
+  $, faNum, escapeHtml, gregorianToJalali, parseGS1, cleanGTIN,
+  toast, beep, makeBatchNumber
+} from '../utils.js';
 import { showScreen } from '../ui.js';
 import { openScanner } from '../scanner.js';
 import { askQty, openDrugSearch } from '../modals.js';
@@ -54,7 +58,7 @@ async function continueSession() {
   state.session = data;
   const { data: items } = await sb.from('inv_count_items').select('*').eq('session_id', id);
   state.items = (items || []).map(i => ({
-    drug_id: i.drug_id, drug_name: i.drug_name,
+    drug_id: i.drug_id, drug_name: i.drug_name, drug_form: i.drug_form || '',
     batch_number: i.batch_number, expiry_date: i.expiry_date,
     counted_quantity: i.counted_quantity, barcode: i.barcode
   }));
@@ -123,6 +127,7 @@ function renderList() {
     b.onclick = () => editItem(+b.dataset.edit);
   });
 }
+
 async function removeItem(idx) {
   if (!confirm('حذف شود؟')) return;
   const it = state.items[idx];
@@ -134,11 +139,11 @@ async function removeItem(idx) {
   state.items.splice(idx, 1);
   renderScan();
 }
+
 async function editItem(idx) {
   const it = state.items[idx];
   if (!it) return;
 
-  // مودال تعداد با مقادیر فعلی باز می‌شود
   const res = await askQty({
     title: 'ویرایش قلم شمارش‌شده',
     headerClass: 'bg-primary text-white',
@@ -146,12 +151,12 @@ async function editItem(idx) {
     extraInfo: `شماره بچ فعلی: <code dir="ltr">${escapeHtml(it.batch_number || '—')}</code>`,
     defaultQty: it.counted_quantity,
     defaultExpiry: it.expiry_date || '',
-    showExtras: false,   // تاریخ و بچ را کاربر نمی‌تواند تغییر دهد (چون بخشی از هویت بچ است)
+    showExtras: false,
+    hideBatchInput: true,
   });
 
-  if (res.qty === it.counted_quantity) return;   // تغییری نشده
+  if (res.qty === it.counted_quantity) return;
 
-  // اگر تعداد صفر شد، حذف کن
   if (res.qty === 0) {
     if (confirm('تعداد صفر شد. این قلم حذف شود؟')) {
       await removeItem(idx);
@@ -160,10 +165,8 @@ async function editItem(idx) {
     return;
   }
 
-  // آپدیت در state
   it.counted_quantity = res.qty;
 
-  // آپدیت در Supabase
   await sb.from('inv_count_items').upsert({
     session_id: state.session.id,
     drug_id: it.drug_id,
@@ -178,6 +181,7 @@ async function editItem(idx) {
   beep();
   toast(`تعداد به ${faNum(res.qty)} تغییر یافت`, 'success');
 }
+
 async function cancelSession() {
   if (!confirm('کل جلسه حذف شود؟')) return;
   await sb.from('inv_sessions').delete().eq('id', state.session.id);
@@ -187,9 +191,9 @@ async function cancelSession() {
   openInventory();
 }
 
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 // ساخت بچ + بررسی هشدار
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 async function buildBatchAndWarnings(drug, expiryGreg) {
   if (!expiryGreg) return '';
 
@@ -211,7 +215,7 @@ async function buildBatchAndWarnings(drug, expiryGreg) {
   let html = '';
 
   html += `<div style="background:#f1f5f9;border-radius:10px;padding:10px;margin-bottom:10px;">
-    <div style="font-size:0.8rem;color:#64748b;margin-bottom:4px;">شماره بچ ساخته شده:</div>
+    <div style="font-size:0.8rem;color:#64748b;margin-bottom:4px;">شماره بچ ساخته شده (خودکار):</div>
     <code style="font-size:0.95rem;font-weight:700;color:#0d6efd;direction:ltr;display:block;word-break:break-all;">
       ${escapeHtml(computedBatch)}
     </code>
@@ -255,9 +259,9 @@ async function buildBatchAndWarnings(drug, expiryGreg) {
   return html;
 }
 
-// ═══════════════════════════════════════════════════════
-// پردازش بارکد
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// پردازش بارکد — با بازگشت خودکار به اسکنر
+// ═══════════════════════════════════════════════════════════
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
   const gtin = cleanGTIN(parsed.gtin);
@@ -270,11 +274,23 @@ async function handleBarcode(raw) {
     openDrugSearch(`بارکد ${escapeHtml(gtin)} ثبت نشده`, d => addDrug(d, gtin, parsed));
     return;
   }
-  await addDrug(bc.drug, gtin, parsed);
+  const added = await addDrug(bc.drug, gtin, parsed);
+  if (added) reopenScannerAuto();
 }
 
+function reopenScannerAuto() {
+  setTimeout(() => {
+    const wrap = $('scannerWrap');
+    if (!wrap || !wrap.classList.contains('active')) {
+      openScanner(handleBarcode);
+    }
+  }, 350);
+}
+
+// ═══════════════════════════════════════════════════════════
+// افزودن دارو — بچ خودکار + تاریخ انقضا اجباری
+// ═══════════════════════════════════════════════════════════
 async function addDrug(drug, barcode = '', parsed = {}) {
-  // ⭐ ذخیره بارکد در دیتابیس (رفع مشکل ۱)
   if (barcode) {
     try {
       await sb.from('drugs_drugbarcode').upsert({
@@ -291,16 +307,30 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     defaultQty: 1,
     defaultExpiry: parsed?.exp || '',
     showExtras: true,
+    hideBatchInput: true,     // ← پرچم جدید برای modals.js
+    requireExpiry: true,      // ← پرچم جدید برای modals.js
     batchCheckFn: (expiryGreg) => buildBatchAndWarnings(drug, expiryGreg)
   });
-  if (res.qty < 0) return;
+  if (res.qty < 0) return false;
 
+  // ═══ چک اجباری تاریخ انقضا ═══
+  if (!res.expiry_gregorian) {
+    toast('تاریخ انقضا الزامی است — قلم ذخیره نشد', 'danger');
+    beep(300);
+    return false;
+  }
+
+  // ═══ بچ همیشه خودکار ═══
   const computedBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian);
+  if (!computedBatch) {
+    toast('ساخت بچ ناموفق — دوباره تلاش کنید', 'danger');
+    return false;
+  }
 
   const existing = state.items.find(it =>
     it.drug_id === drug.id &&
-    (it.batch_number || '') === (computedBatch || '') &&
-    (it.expiry_date || '') === (res.expiry_gregorian || '')
+    (it.batch_number || '') === computedBatch &&
+    (it.expiry_date || '') === res.expiry_gregorian
   );
   if (existing) {
     existing.counted_quantity += res.qty;
@@ -308,6 +338,7 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     state.items.push({
       drug_id: drug.id,
       drug_name: drug.name,
+      drug_form: drug.form || '',
       batch_number: computedBatch,
       expiry_date: res.expiry_gregorian,
       counted_quantity: res.qty,
@@ -317,8 +348,8 @@ async function addDrug(drug, barcode = '', parsed = {}) {
 
   const row = state.items.find(it =>
     it.drug_id === drug.id &&
-    (it.batch_number || '') === (computedBatch || '') &&
-    (it.expiry_date || '') === (res.expiry_gregorian || '')
+    (it.batch_number || '') === computedBatch &&
+    (it.expiry_date || '') === res.expiry_gregorian
   );
 
   await sb.from('inv_count_items').upsert({
@@ -333,22 +364,21 @@ async function addDrug(drug, barcode = '', parsed = {}) {
 
   renderScan();
   beep();
+  return true;
 }
 
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 // پایان و بررسی مغایرت
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 async function finish() {
   if (!state.items.length) { toast('هنوز قلمی ثبت نشده', 'warning'); return; }
   if (!confirm('پایان شمارش و بررسی مغایرت؟')) return;
 
   $('invContent').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
-  // ⭐ مقایسه در سطح بچ، نه در سطح دارو (رفع مشکل ۲)
   const discrepancies = [];
 
   for (const item of state.items) {
-    // موجودی سیستم برای این بچ خاص
     let sysQty = 0;
     if (item.batch_number) {
       const { data: batch } = await sb.from('drugs_drugbatch')
@@ -375,7 +405,6 @@ async function finish() {
 
   if (discrepancies.length) {
     await sb.from('inv_discrepancies').delete().eq('session_id', state.session.id);
-    // جدول اختلافات باید ستون batch_number و expiry_date داشته باشد
     await sb.from('inv_discrepancies').insert(discrepancies);
   }
 
