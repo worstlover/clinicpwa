@@ -5,8 +5,7 @@ import { showScreen } from '../ui.js';
 import { FORMS } from '../forms/registry.js';
 
 // ═══════════════════════════════════════════════════════
-// ⭐ نقشه‌ی نام فرم‌ها (fallback برای وقتی که registry نام ندارد)
-// ⭐ کلید = کد فرم | مقدار = نام فارسی نمایشی
+// نقشه‌ی نام فرم‌ها (fallback)
 // ═══════════════════════════════════════════════════════
 const FORM_NAMES = {
   'BR-FR-HS-34-00': 'فرم حادثه',
@@ -16,12 +15,8 @@ const FORM_NAMES = {
   'BR-FR-HS-48-00': 'فرم معاینه دوره‌ای',
   'BR-FR-HS-49-00': 'فرم آزمایشگاه',
   'BR-FR-HS-50-00': 'فرم ارجاع',
-  // می‌توانید بقیه‌ی کدها را اینجا اضافه کنید
 };
 
-// ═══════════════════════════════════════════════════════
-// ⭐ نقشه‌ی آیکون فرم‌ها (fallback)
-// ═══════════════════════════════════════════════════════
 const FORM_ICONS = {
   'BR-FR-HS-34-00': { bg:'#fee2e2', color:'#dc2626', icon:'bi-exclamation-triangle-fill' },
   'BR-FR-HS-36-00': { bg:'#dbeafe', color:'#2563eb', icon:'bi-hospital-fill' },
@@ -32,30 +27,21 @@ const FORM_ICONS = {
   'BR-FR-HS-50-00': { bg:'#fce7f3', color:'#db2777', icon:'bi-send-fill' },
 };
 
-// ═══════════════════════════════════════════════════════
-// ⭐ توابع کمکی برای گرفتن نام و آیکون (با اولویت registry)
-// ═══════════════════════════════════════════════════════
 function getFormName(code) {
   if (!code) return 'فرم ناشناس';
-  // ۱) از registry
   const f = FORMS[code];
   if (f && (f.name || f.title)) return f.name || f.title;
-  // ۲) از نقشه‌ی محلی
   if (FORM_NAMES[code]) return FORM_NAMES[code];
-  // ۳) fallback: خود کد
   return code;
 }
 
 function getFormIcon(code) {
   if (!code) return { bg:'#f1f5f9', color:'#475569', icon:'bi-file-earmark-text-fill' };
-  // ۱) از registry (اگر icon دارد)
   const f = FORMS[code];
   if (f && f.icon) {
     return { bg: f.iconBg || '#dbeafe', color: f.iconColor || '#2563eb', icon: f.icon };
   }
-  // ۲) از نقشه‌ی محلی
   if (FORM_ICONS[code]) return FORM_ICONS[code];
-  // ۳) پیش‌فرض
   return { bg:'#f1f5f9', color:'#475569', icon:'bi-file-earmark-text-fill' };
 }
 
@@ -68,6 +54,7 @@ const state = {
   dateFrom: '',
   dateTo: '',
   datePreset: 'all',
+  formTypeFilter: 'all',   // ⭐ فیلتر نوع فرم
   loading: false,
   loaded: false,
   patientFilter: null,
@@ -94,11 +81,13 @@ export async function openFormsArchive() {
   state.dateFrom = '';
   state.dateTo = '';
   state.datePreset = 'all';
+  state.formTypeFilter = 'all';
 
   wrap.innerHTML = renderShell();
   bindShellEvents();
   await loadAll();
   state.loaded = true;
+  renderFormTypeChips();   // ⭐ چیپ‌ها را بعد از بارگذاری بساز
   renderList();
 }
 
@@ -152,6 +141,9 @@ function renderShell() {
         </div>
         <button class="btn btn-primary btn-sm" id="archiveApplyDate">اعمال</button>
       </div>
+
+      <!-- ⭐ چیپ‌های فیلتر نوع فرم -->
+      <div class="archive-form-chips" id="archiveFormChips"></div>
 
       <div id="archiveStats" class="archive-stats"></div>
       <div id="archiveList" class="archive-list"></div>
@@ -216,8 +208,62 @@ function bindShellEvents() {
 
   wrap.querySelector('#archiveRefresh').onclick = async () => {
     await loadAll();
+    renderFormTypeChips();
     renderList();
   };
+}
+
+// ═══════════════════════════════════════════════════════
+// ⭐ چیپ‌های فیلتر نوع فرم — داینامیک از داده‌ها
+// ═══════════════════════════════════════════════════════
+function renderFormTypeChips() {
+  const el = $('archiveFormChips');
+  if (!el) return;
+
+  // شمارش هر نوع فرم
+  const counts = {};
+  state.items.forEach(it => {
+    counts[it.formCode] = (counts[it.formCode] || 0) + 1;
+  });
+
+  const total = state.items.length;
+
+  // مرتب‌سازی: فرم‌هایی که تعداد بیشتری دارند اول
+  const codes = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+
+  el.innerHTML = `
+    <button class="archive-chip ${state.formTypeFilter === 'all' ? 'active' : ''}"
+            data-form="all">
+      <i class="bi bi-grid-fill"></i>
+      <span>همه</span>
+      <span class="archive-chip-count">${faNum(total)}</span>
+    </button>
+    ${codes.map(code => {
+      const icon = getFormIcon(code);
+      const name = getFormName(code);
+      const active = state.formTypeFilter === code;
+      return `
+        <button class="archive-chip ${active ? 'active' : ''}" data-form="${escapeHtml(code)}">
+          <i class="bi ${icon.icon}"></i>
+          <span>${escapeHtml(name)}</span>
+          <span class="archive-chip-count">${faNum(counts[code])}</span>
+        </button>`;
+    }).join('')}
+  `;
+
+  el.querySelectorAll('.archive-chip').forEach(btn => {
+    btn.onclick = () => {
+      const form = btn.dataset.form;
+      if (state.formTypeFilter === form) {
+        // اگر روی چیپ فعال بزنیم، فیلتر پاک می‌شود
+        state.formTypeFilter = 'all';
+      } else {
+        state.formTypeFilter = form;
+      }
+      renderFormTypeChips();
+      renderList();
+    };
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -227,7 +273,6 @@ async function loadAll() {
   state.loading = true;
   state.items = [];
 
-  // ─── form_records ───
   try {
     const { data, error } = await sb.from('form_records')
       .select('id, form_code, process_code, patient_id, visit_id, exam_id, data, created_at, created_by_email')
@@ -242,7 +287,7 @@ async function loadAll() {
         id: r.id,
         source: 'form_records',
         formCode: r.form_code,
-        formName: getFormName(r.form_code),           // ⭐ نام فارسی
+        formName: getFormName(r.form_code),
         processCode: r.process_code || null,
         patientId: r.patient_id || null,
         visitId: r.visit_id || null,
@@ -266,13 +311,13 @@ async function loadAll() {
           <button class="btn btn-sm btn-outline-danger mt-2 d-block" id="archiveRetry">تلاش مجدد</button>
         </div>`;
       const retry = list.querySelector('#archiveRetry');
-      if (retry) retry.onclick = async () => { await loadAll(); renderList(); };
+      if (retry) retry.onclick = async () => { await loadAll(); renderFormTypeChips(); renderList(); };
     }
     state.loading = false;
     return;
   }
 
-  // ─── core_dailyreport (گزارش‌های قدیمی ۳۸) ───
+  // گزارش‌های قدیمی ۳۸
   try {
     const { data, error } = await sb.from('core_dailyreport')
       .select('id, date, shift_type, created_at')
@@ -285,7 +330,7 @@ async function loadAll() {
         id: `daily-${r.id}`,
         source: 'core_dailyreport',
         formCode: 'BR-FR-HS-38-00',
-        formName: getFormName('BR-FR-HS-38-00'),       // ⭐ «گزارش روزانه»
+        formName: getFormName('BR-FR-HS-38-00'),
         processCode: null,
         patientId: null,
         visitId: null,
@@ -352,6 +397,11 @@ function applyFilters() {
   const { start, end } = getDateRange();
 
   return state.items.filter(it => {
+    // ⭐ فیلتر نوع فرم
+    if (state.formTypeFilter !== 'all' && it.formCode !== state.formTypeFilter) {
+      return false;
+    }
+
     if (state.patientFilter) {
       if (String(it.patientId) !== String(state.patientFilter.id)) return false;
     }
@@ -367,7 +417,7 @@ function applyFilters() {
         it.workerName,
         it.personnelNumber,
         it.nationalCode,
-        it.formName,                // ⭐ نام فارسی هم قابل جستجو
+        it.formName,
         it.formCode,
         it.createdBy,
         Object.values(it.data || {}).filter(v => typeof v === 'string').join(' ')
@@ -418,12 +468,37 @@ function renderList() {
 
   const filtered = applyFilters();
 
+  // ⭐ متن خلاصه‌ی فیلترها
+  const filterSummary = [];
+  if (state.formTypeFilter !== 'all') {
+    filterSummary.push(getFormName(state.formTypeFilter));
+  }
+  if (state.patientFilter) {
+    filterSummary.push(`فرد: ${state.patientFilter.name}`);
+  }
+  if (state.datePreset !== 'all') {
+    filterSummary.push({
+      today: 'امروز', week: '۷ روز اخیر', month: '۳۰ روز اخیر', custom: 'بازه دلخواه'
+    }[state.datePreset]);
+  }
+
   if (stats) {
     stats.innerHTML = `
       <div class="archive-stat">
         <i class="bi bi-list-check"></i>
         <span>${faNum(filtered.length)} فرم</span>
-      </div>`;
+      </div>
+      ${filterSummary.length ? `
+        <div class="archive-stat active">
+          <i class="bi bi-funnel-fill"></i>
+          <span>${escapeHtml(filterSummary.join(' • '))}</span>
+          <button class="archive-stat-clear" id="archiveClearAllFilters" title="حذف همه فیلترها">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </div>` : ''}
+    `;
+    const clearAll = stats.querySelector('#archiveClearAllFilters');
+    if (clearAll) clearAll.onclick = clearAllFilters;
   }
 
   if (!filtered.length) {
@@ -474,6 +549,32 @@ function renderList() {
       if (it) openArchiveItem(it);
     };
   });
+}
+
+// ⭐ حذف همه فیلترها
+function clearAllFilters() {
+  state.formTypeFilter = 'all';
+  state.patientFilter = null;
+  state.query = '';
+  state.dateFrom = '';
+  state.dateTo = '';
+  state.datePreset = 'all';
+
+  const wrap = $('formsArchiveContent');
+  if (wrap) {
+    const q = wrap.querySelector('#archiveQuery');
+    if (q) q.value = '';
+    const clearBtn = wrap.querySelector('#archiveClear');
+    if (clearBtn) clearBtn.style.display = 'none';
+    const preset = wrap.querySelector('#archiveDatePreset');
+    if (preset) preset.value = 'all';
+    const custom = wrap.querySelector('#archiveCustomDate');
+    if (custom) custom.style.display = 'none';
+  }
+
+  renderPatientChip();
+  renderFormTypeChips();
+  renderList();
 }
 
 function formatDate(iso) {
