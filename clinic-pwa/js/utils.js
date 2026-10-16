@@ -56,55 +56,82 @@ export const parseGS1 = (raw) => {
   const r = { gtin: null, exp: null, batch: null, serial: null };
   if (!raw) return r;
 
-  // پاک کردن پیشوندهای رایج
-  let s = String(raw).replace(/^\]C1/, '').replace(/\x1d/g, '|').trim();
+  // ═══ پاکسازی ورودی و یکسان‌سازی جداکننده‌ها ═══
+  let s = String(raw)
+    .replace(/^\]C1/, '')            // پیشوند ]C1
+    .replace(/\u001d/g, '|')         // FNC1 واقعی (GS)
+    .replace(/<GS>/gi, '|')          // اگر به شکل متنی آمد
+    .replace(/<FNC1>/gi, '|')
+    .replace(/\u241d/g, '|')         // نمایش نمادین GS
+    .replace(/[\r\n\t]+/g, ' ')      // حذف خط جدید
+    .trim();
 
-  // پارس ترتیبی از چپ به راست
-  let i = 0;
-  while (i < s.length) {
-    // AI دو رقمی
-    const ai = s.substr(i, 2);
+  // اگر هیچ جداکننده‌ای نیست ولی رشته طولانی است، شاید FNC1 حذف شده.
+  // در این حالت از قبل AI های ثابت‌طول را با regex پیدا می‌کنیم.
 
-    if (ai === '01' && i + 16 <= s.length) {          // GTIN - ۱۴ رقم ثابت
-      r.gtin = s.substr(i + 2, 14);
-      i += 16;
-    }
-    else if (ai === '17' && i + 8 <= s.length) {      // تاریخ انقضا - ۶ رقم ثابت
-      // فقط اگر هنوز تاریخ نگرفته باشیم (اولین ۱۷ معتبر)
-      if (!r.exp) {
-        const ds = s.substr(i + 2, 6);
-        const yy = parseInt(ds.substring(0, 2), 10);
-        const year = yy < 70 ? 2000 + yy : 1900 + yy;
-        r.exp = `${year}-${ds.substring(2, 4)}-${ds.substring(4, 6)}`;
-      }
-      i += 8;
-    }
-    else if (ai === '10') {                           // Batch - طول متغیر
-      i += 2;
-      let end = s.indexOf('|', i);                    // تا جداکننده
-      if (end === -1) end = s.length;
-      r.batch = s.substring(i, end).trim();
-      i = end + (s[end] === '|' ? 1 : 0);
-    }
-    else if (ai === '21') {                           // Serial - طول متغیر
-      i += 2;
-      let end = s.indexOf('|', i);
-      if (end === -1) end = s.length;
-      r.serial = s.substring(i, end).trim();
-      i = end + (s[end] === '|' ? 1 : 0);
-    }
-    else {
-      // AI ناشناخته → یک کاراکتر جلو برو تا گیر نکنه
-      i += 1;
+  // ═══ ۱. GTIN (AI=01، ثابت ۱۴ رقم) ═══
+  // اول از ابتدای رشته (استاندارد)، اگر نبود هرجای رشته
+  let m01 = s.match(/(?:^|[^0-9])01(\d{14})/);
+  if (!m01) m01 = s.match(/01(\d{14})/);
+  if (m01) r.gtin = m01[1];
+
+  // ═══ ۲. تاریخ انقضا (AI=17، ثابت ۶ رقم YYMMDD) ═══
+  // این را قبل از AIهای متغیر پیدا می‌کنیم تا اگر FNC1 حذف شده بود،
+  // رشته‌ی بچ آن را نخورد.
+  let m17 = s.match(/(?:^|[^0-9])17(\d{2})(\d{2})(\d{2})/);
+  if (!m17) m17 = s.match(/17(\d{2})(\d{2})(\d{2})/);
+  if (m17) {
+    const yy = parseInt(m17[1], 10);
+    const mm = m17[2];
+    const dd = m17[3];
+    const year = yy < 70 ? 2000 + yy : 1900 + yy;
+    // اعتبارسنجی ساده: ماه ۰۱-۱۲، روز ۰۱-۳۱
+    if (+mm >= 1 && +mm <= 12 && +dd >= 1 && +dd <= 31) {
+      r.exp = `${year}-${mm}-${dd}`;
     }
   }
 
-  // اگر GTIN پیدا نشد، کل رشته رو به‌عنوان fallback بذار
+  // ═══ ۳. AIهای متغیر (10 = بچ، 21 = سریال) با جداکننده '|' ═══
+  // فقط اگر '|' داریم این کار را می‌کنیم تا رشته خراب نشود.
+  if (s.includes('|')) {
+    const parts = s.split('|');
+    for (let k = 0; k < parts.length; k++) {
+      const p = parts[k];
+      // AI=10 : بچ
+      if (/^10/.test(p) && !r.batch) {
+        r.batch = p.slice(2).trim();
+      }
+      // AI=21 : سریال
+      else if (/^21/.test(p) && !r.serial) {
+        r.serial = p.slice(2).trim();
+      }
+    }
+
+    // اگر آخرین بخش بدون جداکننده بود ولی شامل AI=10 یا 21 به‌هم‌چسبیده بود
+    // (مثلاً "...10BATCH|21SER" یا برعکس)
+    const last = parts[parts.length - 1];
+    if (last && !r.batch) {
+      const bm = last.match(/10([^|]*?)(?:17|21|$)/);
+      if (bm) r.batch = bm[1].trim();
+    }
+  } else {
+    // ═══ حالت اضطراری: FNC1 حذف شده و هیچ جداکننده‌ای نیست ═══
+    // فقط می‌توانیم بچ را بعد از AI=10 تا قبل از AI=17 یا AI=21 بگیریم
+    if (!r.batch) {
+      const bm = s.match(/10([^]*?)(?=17\d{6}|21|$)/);
+      if (bm) r.batch = bm[1].replace(/\|/g, '').trim();
+    }
+    if (!r.serial) {
+      const sm = s.match(/21([^]*?)$/);
+      if (sm) r.serial = sm[1].replace(/\|/g, '').trim();
+    }
+  }
+
+  // اگر GTIN پیدا نشد، کل رشته را به‌عنوان fallback بگذار
   if (!r.gtin) r.gtin = s.replace(/\|/g, '');
 
   return r;
 };
-
 export const cleanGTIN = s => String(s || '').replace(/^0+/, '');
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
