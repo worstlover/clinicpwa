@@ -1886,3 +1886,128 @@ body {
   background: rgba(255, 255, 255, 0.25);
   color: #fff;
 }
+/* ═══════════════════════════════════════════════════════
+   چیپ‌های فیلتر — با کد فرم
+   ═══════════════════════════════════════════════════════ */
+.archive-form-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 2px 10px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  margin-bottom: 4px;
+}
+.archive-form-chips::-webkit-scrollbar { display: none; }
+
+.archive-chip {
+  flex: 0 0 auto;
+  min-width: max-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.archive-chip:active { background: #f1f5f9; }
+.archive-chip.active {
+  background: #0d6efd;
+  border-color: #0d6efd;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(13, 110, 253, 0.28);
+}
+.archive-chip > i {
+  font-size: 1.1rem;
+  pointer-events: none;
+}
+.archive-chip-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  pointer-events: none;
+}
+.archive-chip-title {
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.archive-chip-code {
+  font-size: 0.62rem;
+  font-weight: 600;
+  opacity: 0.75;
+  font-family: 'Segoe UI', monospace;
+  letter-spacing: 0.5px;
+}
+.archive-chip.active .archive-chip-code {
+  opacity: 0.9;
+}
+.archive-chip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.68rem;
+  font-weight: 800;
+  pointer-events: none;
+}
+.archive-chip.active .archive-chip-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+/* ═══ کد فرم در آیتم لیست ═══ */
+.archive-item-code-row {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+.archive-item-code {
+  display: inline-block;
+  font-family: 'Segoe UI', Consolas, monospace;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #2563eb;
+  background: #dbeafe;
+  padding: 2px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+}
+
+/* خلاصه فیلترهای فعال */
+.archive-stat.active {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.archive-stat.active i { color: #2563eb; }
+.archive-stat-clear {
+  background: rgba(30, 64, 175, 0.12);
+  border: none;
+  color: #1e40af;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  cursor: pointer;
+  margin-right: 2px;
+}
+.archive-stat-clear:active { background: rgba(30, 64, 175, 0.25); }
