@@ -1770,21 +1770,69 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════
-   چیپ‌های فیلتر نوع فرم در آرشیو
+   چیپ‌های فیلتر نوع فرم — نسخه‌ی سازگار با WebView
    ═══════════════════════════════════════════════════════ */
+
+/* wrapper دکمه‌های اسکرول چپ/راست */
+.archive-form-chips-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+/* دکمه‌های اسکرول */
+.archive-chips-nav {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  z-index: 2;
+  transition: all 0.15s;
+}
+.archive-chips-nav:active { background: #f1f5f9; transform: scale(0.94); }
+.archive-chips-nav:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ناحیه‌ی اسکرول */
 .archive-form-chips {
+  flex: 1;
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding: 4px 2px 10px;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  margin-bottom: 4px;
+  overflow-y: hidden;
+  padding: 4px 2px 8px;
+  margin: 0;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;   /* ⭐ iOS smooth */
+  touch-action: pan-x;                  /* ⭐ WebView: لمس افقی = اسکرول */
+  overscroll-behavior-x: contain;       /* جلوگیری از bounce */
+  scrollbar-width: none;                /* Firefox */
+  -ms-overflow-style: none;             /* IE/Edge */
+  scroll-snap-type: x proximity;        /* ⭐ چسبیدن نرم */
 }
-.archive-form-chips::-webkit-scrollbar { display: none; }
+.archive-form-chips::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
 
+/* چیپ‌ها */
 .archive-chip {
   flex: 0 0 auto;
+  min-width: max-content;              /* ⭐ جلوگیری از فشردگی در WebView */
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1796,18 +1844,30 @@ body {
   font-size: 0.8rem;
   font-weight: 700;
   font-family: inherit;
-  cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  /* ⭐ مهم: حذف transform تا WebView لمس را tap نگیرد */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
-.archive-chip:active { transform: scale(0.96); }
+
+/* ⭐ به‌جای :active transform، فقط رنگ عوض شود */
+.archive-chip:active {
+  background: #f1f5f9;
+}
 .archive-chip.active {
   background: #0d6efd;
   border-color: #0d6efd;
   color: #fff;
   box-shadow: 0 4px 12px rgba(13, 110, 253, 0.28);
 }
-.archive-chip i { font-size: 0.95rem; }
+.archive-chip.active:active {
+  background: #0a58ca;
+}
+.archive-chip i { font-size: 0.95rem; pointer-events: none; }
 .archive-chip-count {
   display: inline-flex;
   align-items: center;
@@ -1820,30 +1880,9 @@ body {
   color: #475569;
   font-size: 0.68rem;
   font-weight: 800;
+  pointer-events: none;
 }
 .archive-chip.active .archive-chip-count {
   background: rgba(255, 255, 255, 0.25);
   color: #fff;
 }
-
-/* خلاصه فیلترهای فعال */
-.archive-stat.active {
-  background: #dbeafe;
-  color: #1e40af;
-}
-.archive-stat.active i { color: #2563eb; }
-.archive-stat-clear {
-  background: rgba(30, 64, 175, 0.12);
-  border: none;
-  color: #1e40af;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.65rem;
-  cursor: pointer;
-  margin-right: 2px;
-}
-.archive-stat-clear:active { background: rgba(30, 64, 175, 0.25); }
