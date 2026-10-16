@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
-   js/forms/forms-theme.css — طراحی مشترک فرم‌ها
-   ترکیب فونت: Shabnam (متن ثابت) + Mikhak (مقادیر پرشده)
-   فونت‌ها: clinic-pwa/lib/fonts/
+   js/forms/forms-theme.css
+   طراحی مشترک فرم‌ها + تنظیمات چاپ A4 یکصفحه‌ای
+   فونت: Shabnam (متن ثابت) + Mikhak (مقادیر پرشده)
    ═══════════════════════════════════════════════════════════════ */
 
 /* ── فونت اصلی (متن ثابت و برچسب‌ها) ── */
@@ -33,30 +33,31 @@
 }
 
 /* ═══════════════════════════════════════════════════════════
-   A4 Page Setup
+   تنظیمات صفحه A4 (حذف حاشیه پیش‌فرض مرورگر)
    ═══════════════════════════════════════════════════════════ */
 @page {
-  size: A4;
+  size: A4 portrait;
   margin: 0;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   شیت A4 — ظرف بیرونی هر فرم
+   شیت A4 — بدون min-height اجباری (منشأ سرریز صفحه دوم)
    ═══════════════════════════════════════════════════════════ */
 .form-sheet {
   width: 210mm;
-  min-height: 297mm;
+  /* ⚠️ min-height حذف شد — ارتفاع را محتوا تعیین می‌کند */
+  height: auto;
   background: #fff;
   box-sizing: border-box;
-  padding: 8mm 8mm 6mm;
+  padding: 6mm 6mm 4mm;
   margin: 0 auto;
   position: relative;
   overflow: hidden;
   direction: rtl;
   color: #000;
   font-family: 'Shabnam', 'Vazirmatn', Tahoma, sans-serif;
-  font-size: 13.5px;
-  line-height: 1.95;
+  font-size: 12.5px;
+  line-height: 1.7;
 }
 
 /* ── پایه ── */
@@ -64,42 +65,79 @@
   font-family: 'Shabnam', 'Vazirmatn', Tahoma, sans-serif;
   direction: rtl;
   color: #000;
-  font-size: 13.5px;
-  line-height: 1.95;
+  font-size: 12.5px;
+  line-height: 1.7;
 }
 .form-sheet .fs * { box-sizing: border-box; }
 
 /* ── سرتیتر: [لوگو | عنوان | کد فرم] ── */
-.form-sheet .fs-head { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 8px; }
-.form-sheet .fs-head td { border: 1.5px solid #000; vertical-align: middle; text-align: center; padding: 5px 8px; }
-.form-sheet .fs-head .fs-logo { width: 19%; padding: 3px; }
-.form-sheet .fs-head .fs-logo img { display: block; margin: 0 auto; width: 68px; height: 68px; object-fit: contain; }
-.form-sheet .fs-head .fs-title { font-size: 18px; font-weight: 800; line-height: 1.6; }
-.form-sheet .fs-head .fs-code { width: 24%; font-size: 12px; font-weight: 700; line-height: 1.6; }
-.form-sheet .fs-head .fs-code bdi { display: block; direction: ltr; font-weight: 800; }
-
-/* ── جدول اصلی ── */
-.form-sheet .fs-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
-.form-sheet .fs-grid + .fs-grid { margin-top: -1.5px; }
-.form-sheet .fs-grid td, .form-sheet .fs-grid th {
-  border: 1.5px solid #000;
-  padding: 5px 8px;
-  vertical-align: top;
-  font-size: 13.5px;
-  font-weight: 400;
-  text-align: right;
+.form-sheet .fs-head {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-bottom: 5px;
+}
+.form-sheet .fs-head td {
+  border: 1.4px solid #000;
+  vertical-align: middle;
+  text-align: center;
+  padding: 3px 6px;
+}
+.form-sheet .fs-head .fs-logo { width: 17%; padding: 2px; }
+.form-sheet .fs-head .fs-logo img {
+  display: block;
+  margin: 0 auto;
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+}
+.form-sheet .fs-head .fs-title {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+.form-sheet .fs-head .fs-code {
+  width: 22%;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.form-sheet .fs-head .fs-code bdi {
+  display: block;
+  direction: ltr;
+  font-weight: 800;
 }
 
-/* ── عنوان‌های داخل کادر (برچسب‌ها) ── */
+/* ── جدول اصلی ── */
+.form-sheet .fs-grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.form-sheet .fs-grid + .fs-grid { margin-top: -1.4px; }
+.form-sheet .fs-grid td,
+.form-sheet .fs-grid th {
+  border: 1.4px solid #000;
+  padding: 3px 6px;
+  vertical-align: top;
+  font-size: 12.5px;
+  font-weight: 400;
+  text-align: right;
+  line-height: 1.65;
+}
+
+/* ── برچسب‌ها (بزرگ‌تر از متن معمولی) ── */
 .form-sheet .fs-lbl {
-  font-size: 16px;
+  font-size: 14.5px;
   font-weight: 800;
 }
 
 .form-sheet .fs-val { font-weight: 400; }
-.form-sheet .fs-grid td.fs-tall  { height: 330px; }
-.form-sheet .fs-grid td.fs-mid   { height: 90px; }
-.form-sheet .fs-grid td.fs-small { height: 52px; }
+
+/* ── ارتفاع‌های فشرده‌شده (کاهش یافته) ── */
+.form-sheet .fs-grid td.fs-tall  { height: 240px; }   /* قبلاً 330 */
+.form-sheet .fs-grid td.fs-mid   { height: 70px; }    /* قبلاً 90 */
+.form-sheet .fs-grid td.fs-small { height: 42px; }    /* قبلاً 52 */
 .form-sheet .fs-grid td.fs-center { text-align: center; vertical-align: middle; }
 .form-sheet .fs-grid td.fs-bottom { vertical-align: bottom; }
 .form-sheet .fs-grid td.fs-left   { text-align: left; }
@@ -107,13 +145,13 @@
 
 /* ── خانه‌ی کنار عمودی ── */
 .form-sheet .fs-side {
-  width: 30px;
+  width: 26px;
   padding: 2px !important;
   text-align: center !important;
   vertical-align: middle !important;
   font-weight: 800;
   background: #d9e2f3;
-  font-size: 12.5px;
+  font-size: 11.5px;
 }
 .form-sheet .fs-side.gray { background: #d9d9d9; }
 .form-sheet .fs-side > span {
@@ -129,64 +167,99 @@
   background: #d9d9d9;
   font-weight: 800;
   text-align: center !important;
-  font-size: 17px;
+  font-size: 15px;
 }
 
 /* ── خط‌چین و چک‌باکس ── */
 .form-sheet .fs-dots {
   display: inline-block;
-  min-width: 70px;
+  min-width: 60px;
   border-bottom: 1px dotted #000;
   padding: 0 4px;
-  line-height: 1.7;
+  line-height: 1.6;
   vertical-align: baseline;
   text-align: center;
 }
-.form-sheet .fs-dots.w40 { min-width: 45px; }
-.form-sheet .fs-dots.w60 { min-width: 65px; }
-.form-sheet .fs-dots.w90 { min-width: 95px; }
-.form-sheet .fs-dots.w120 { min-width: 125px; }
-.form-sheet .fs-dots.w160 { min-width: 165px; }
-.form-sheet .fs-dots.w220 { min-width: 225px; }
+.form-sheet .fs-dots.w40  { min-width: 40px; }
+.form-sheet .fs-dots.w60  { min-width: 58px; }
+.form-sheet .fs-dots.w90  { min-width: 88px; }
+.form-sheet .fs-dots.w120 { min-width: 115px; }
+.form-sheet .fs-dots.w160 { min-width: 150px; }
+.form-sheet .fs-dots.w220 { min-width: 200px; }
 
-.form-sheet .fs-dline { border-bottom: 1px dotted #000; min-height: 26px; padding: 3px 5px; }
+.form-sheet .fs-dline {
+  border-bottom: 1px dotted #000;
+  min-height: 22px;
+  padding: 2px 4px;
+}
 
 .form-sheet .fs-cb {
   display: inline-block;
-  width: 13px;
-  height: 13px;
-  border: 1.3px solid #000;
+  width: 12px;
+  height: 12px;
+  border: 1.2px solid #000;
   vertical-align: middle;
   text-align: center;
-  line-height: 11px;
-  font-size: 11px;
+  line-height: 10px;
+  font-size: 10px;
   font-weight: 800;
   margin: 0 3px;
 }
 .form-sheet .fs-cb.on::before { content: '✓'; }
-.form-sheet .fs-opt { display: inline-flex; align-items: center; gap: 4px; margin-left: 12px; white-space: nowrap; }
+.form-sheet .fs-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  white-space: nowrap;
+}
 
 /* ── امضا و پاورقی ── */
-.form-sheet .fs-sign { text-align: left; font-weight: 700; font-size: 12px; padding-top: 14px; }
-.form-sheet .fs-sign small { display: block; font-weight: 400; text-align: center; }
-.form-sheet .fs-note { text-align: center; font-size: 11.5px; font-weight: 700; margin-top: 8px; }
+.form-sheet .fs-sign {
+  text-align: left;
+  font-weight: 700;
+  font-size: 11px;
+  padding-top: 10px;
+}
+.form-sheet .fs-sign small {
+  display: block;
+  font-weight: 400;
+  text-align: center;
+}
+.form-sheet .fs-note {
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  margin-top: 6px;
+}
 
 /* ── شبکه‌ی شمارنده‌ها (فرم ۳۸) ── */
 .form-sheet .fs-count td {
   border: 1px dotted #000 !important;
   border-left: none !important;
   border-right: none !important;
-  height: 48px;
+  height: 40px;
   vertical-align: middle;
 }
 .form-sheet .fs-count td:first-child { border-right: none !important; }
 
-/* ── قاب بیرونی کل صفحه (فرم ۵۰) ── */
-.form-sheet .fs-frame { border: 1.5px solid #000; padding: 16px 20px; min-height: 980px; }
+/* ── قاب بیرونی (فرم ۵۰) — ارتفاع را محتوا تعیین می‌کند ── */
+.form-sheet .fs-frame {
+  border: 1.4px solid #000;
+  padding: 12px 16px;
+  /* min-height حذف شد */
+}
 
 /* ── متن بند ── */
-.form-sheet .fs-para { text-align: justify; line-height: 2.35; font-size: 13.5px; }
-.form-sheet .fs-para.bold { font-weight: 800; font-size: 14.5px; }
+.form-sheet .fs-para {
+  text-align: justify;
+  line-height: 1.95;
+  font-size: 12.5px;
+}
+.form-sheet .fs-para.bold {
+  font-weight: 800;
+  font-size: 13.5px;
+}
 
 /* ── مقادیر پرشده (نیمه‌دست‌نویس) ── */
 .form-sheet .fs-hand,
@@ -194,8 +267,8 @@
 .form-sheet .fs-dots:not(:empty) {
   font-family: 'FormHand', 'Mikhak', 'Shabnam', 'Vazirmatn', Tahoma, sans-serif;
   font-weight: 700;
-  font-size: 1.2em;
-  line-height: 1.5;
+  font-size: 1.15em;
+  line-height: 1.45;
   letter-spacing: 0;
 }
 
@@ -212,14 +285,18 @@
   font-size: inherit;
 }
 
-/* ── حالت فشرده (فرم‌های ۳۴ و ۳۷ و ۴۸) ── */
-.form-sheet .fs.compact { font-size: 12.5px; line-height: 1.85; }
-.form-sheet .fs.compact .fs-grid td { font-size: 12.5px; padding: 4px 7px; }
-.form-sheet .fs.compact .fs-head .fs-logo img { width: 58px; height: 58px; }
-.form-sheet .fs.compact .fs-head .fs-title { font-size: 16px; }
-.form-sheet .fs.compact .fs-dline { min-height: 24px; }
-.form-sheet .fs.compact .fs-lbl { font-size: 15px; font-weight: 800; }
-.form-sheet .fs.compact .fs-bar { font-size: 16px; font-weight: 800; }
+/* ── حالت فشرده (۳۴ و ۳۷ و ۴۸ و ۵۰) ── */
+.form-sheet .fs.compact { font-size: 11.5px; line-height: 1.65; }
+.form-sheet .fs.compact .fs-grid td { font-size: 11.5px; padding: 3px 5px; }
+.form-sheet .fs.compact .fs-head .fs-logo img { width: 50px; height: 50px; }
+.form-sheet .fs.compact .fs-head .fs-title { font-size: 14px; }
+.form-sheet .fs.compact .fs-dline { min-height: 20px; }
+.form-sheet .fs.compact .fs-lbl { font-size: 13.5px; font-weight: 800; }
+.form-sheet .fs.compact .fs-bar { font-size: 14px; font-weight: 800; }
+.form-sheet .fs.compact .fs-grid td.fs-tall  { height: 200px; }
+.form-sheet .fs.compact .fs-grid td.fs-mid   { height: 60px; }
+.form-sheet .fs.compact .fs-grid td.fs-small { height: 36px; }
+.form-sheet .fs.compact .fs-para { line-height: 1.85; }
 
 /* ═══════════════════════════════════════════════════════════
    ناحیه چاپ
@@ -241,8 +318,8 @@
   }
   .form-sheet {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-    border-radius: 4px;
-    margin-bottom: 20px;
+    border-radius: 3px;
+    margin-bottom: 16px;
   }
 }
 
@@ -250,7 +327,7 @@
    چاپ
    ═══════════════════════════════════════════════════════════ */
 @media print {
-  /* پایه */
+  /* پایه — همه چیز در A4 */
   html, body {
     width: 210mm;
     margin: 0 !important;
@@ -272,26 +349,34 @@
     background: #fff !important;
   }
 
-  /* شیت‌ها */
+  /* شیت‌ها — هر کدام دقیقاً یک صفحه */
   .form-sheet,
   .form-sheet-a4 {
     box-shadow: none !important;
     border-radius: 0 !important;
     margin: 0 !important;
-    padding: 8mm 8mm 6mm !important;
+    padding: 6mm 6mm 4mm !important;
     width: 210mm !important;
-    min-height: 0 !important;
     height: auto !important;
+    min-height: 0 !important;
+    /* ⭐ هر شیت یک صفحه‌ی مستقل */
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
     page-break-after: always;
     break-after: page;
-    page-break-inside: avoid;
-    break-inside: avoid;
+    overflow: hidden;
   }
 
-  /* ⭐ آخرین شیت نباید صفحه‌ی اضافه بسازد */
+  /* ⭐ آخرین شیت — دیگر page-break نمی‌زند (جلوگیری از صفحه‌ی خالی) */
   #formPrintArea > .form-sheet:last-child,
-  #formPrintArea > .form-sheet-a4:last-child,
-  #formPrintArea > .fs-paper:last-child {
+  #formPrintArea > .form-sheet-a4:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  /* ⭐ اگر تنها یک شیت داریم، هیچ page-break نباشد */
+  #formPrintArea > .form-sheet:only-child,
+  #formPrintArea > .form-sheet-a4:only-child {
     page-break-after: auto !important;
     break-after: auto !important;
   }
@@ -313,14 +398,11 @@
     break-inside: avoid;
   }
 
-  /* رنگ‌های پس‌زمینه در چاپ */
+  /* حفظ رنگ‌های پس‌زمینه */
   .form-sheet .fs-side,
   .form-sheet .fs-bar,
   .form-sheet .fs-side.gray {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-
-  /* ارتفاع‌های متفاوت در چاپ */
-  .form-sheet .fs-grid td.fs-tall { height: 300px; }
 }
