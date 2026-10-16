@@ -4,42 +4,89 @@ import { $, toast, escapeHtml, faNum, faToEn, gregorianToJalali, jalaliToGregori
 import { showScreen } from '../ui.js';
 import { FORMS } from '../forms/registry.js';
 
+// ═══════════════════════════════════════════════════════
+// ⭐ نقشه‌ی نام فرم‌ها (fallback برای وقتی که registry نام ندارد)
+// ⭐ کلید = کد فرم | مقدار = نام فارسی نمایشی
+// ═══════════════════════════════════════════════════════
 const FORM_NAMES = {
-  // اگر در پروژه شما مقادیر واقعی جایگزین شده، همان را نگه دارید
+  'BR-FR-HS-34-00': 'فرم حادثه',
+  'BR-FR-HS-36-00': 'فرم بستری',
+  'BR-FR-HS-37-00': 'فرم ویزیت پزشک',
   'BR-FR-HS-38-00': 'گزارش روزانه',
-};
-const FORM_ICONS = {
-  'BR-FR-HS-38-00': { bg:'#dbeafe', color:'#2563eb', icon:'bi-clipboard2-check-fill' },
+  'BR-FR-HS-48-00': 'فرم معاینه دوره‌ای',
+  'BR-FR-HS-49-00': 'فرم آزمایشگاه',
+  'BR-FR-HS-50-00': 'فرم ارجاع',
+  // می‌توانید بقیه‌ی کدها را اینجا اضافه کنید
 };
 
+// ═══════════════════════════════════════════════════════
+// ⭐ نقشه‌ی آیکون فرم‌ها (fallback)
+// ═══════════════════════════════════════════════════════
+const FORM_ICONS = {
+  'BR-FR-HS-34-00': { bg:'#fee2e2', color:'#dc2626', icon:'bi-exclamation-triangle-fill' },
+  'BR-FR-HS-36-00': { bg:'#dbeafe', color:'#2563eb', icon:'bi-hospital-fill' },
+  'BR-FR-HS-37-00': { bg:'#d1fae5', color:'#059669', icon:'bi-clipboard2-pulse-fill' },
+  'BR-FR-HS-38-00': { bg:'#fef3c7', color:'#d97706', icon:'bi-clipboard2-check-fill' },
+  'BR-FR-HS-48-00': { bg:'#e0e7ff', color:'#4f46e5', icon:'bi-person-badge-fill' },
+  'BR-FR-HS-49-00': { bg:'#cffafe', color:'#0891b2', icon:'bi-droplet-fill' },
+  'BR-FR-HS-50-00': { bg:'#fce7f3', color:'#db2777', icon:'bi-send-fill' },
+};
+
+// ═══════════════════════════════════════════════════════
+// ⭐ توابع کمکی برای گرفتن نام و آیکون (با اولویت registry)
+// ═══════════════════════════════════════════════════════
+function getFormName(code) {
+  if (!code) return 'فرم ناشناس';
+  // ۱) از registry
+  const f = FORMS[code];
+  if (f && (f.name || f.title)) return f.name || f.title;
+  // ۲) از نقشه‌ی محلی
+  if (FORM_NAMES[code]) return FORM_NAMES[code];
+  // ۳) fallback: خود کد
+  return code;
+}
+
+function getFormIcon(code) {
+  if (!code) return { bg:'#f1f5f9', color:'#475569', icon:'bi-file-earmark-text-fill' };
+  // ۱) از registry (اگر icon دارد)
+  const f = FORMS[code];
+  if (f && f.icon) {
+    return { bg: f.iconBg || '#dbeafe', color: f.iconColor || '#2563eb', icon: f.icon };
+  }
+  // ۲) از نقشه‌ی محلی
+  if (FORM_ICONS[code]) return FORM_ICONS[code];
+  // ۳) پیش‌فرض
+  return { bg:'#f1f5f9', color:'#475569', icon:'bi-file-earmark-text-fill' };
+}
+
+// ═══════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════
 const state = {
   items: [],
-  category: 'all',
   query: '',
   dateFrom: '',
   dateTo: '',
   datePreset: 'all',
   loading: false,
   loaded: false,
-  patientFilter: null,   // { id, name } - برای فیلتر «همه فرم‌های این فرد»
+  patientFilter: null,
 };
 
-// ⭐ نمایش صفحه بدون وابستگی به ui.js
 function showScreenDirect(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const el = document.getElementById('screen' + name);
   if (el) { el.classList.add('active'); window.scrollTo(0, 0); }
 }
 
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 // ورودی اصلی
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 export async function openFormsArchive() {
   showScreenDirect('FormsArchive');
   const wrap = $('formsArchiveContent');
   if (!wrap) return;
 
-  // هر بار صفحه باز می‌شود، داده دوباره خوانده می‌شود
   state.loaded = false;
   state.items = [];
   state.patientFilter = null;
@@ -55,9 +102,9 @@ export async function openFormsArchive() {
   renderList();
 }
 
-// ═══════════════════════════════════════════════════════════
-// Shell (هدر + جستجو + فیلتر + لیست)
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// Shell
+// ═══════════════════════════════════════════════════════
 function renderShell() {
   return `
     <div class="archive-page">
@@ -73,7 +120,7 @@ function renderShell() {
 
       <div class="archive-search-bar">
         <i class="bi bi-search"></i>
-        <input type="text" id="archiveQuery" placeholder="نام کارگر، کد پرسنلی، کد ملی، نام فرم..." autocomplete="off">
+        <input type="text" id="archiveQuery" placeholder="نام کارگر، کد پرسنلی، کد ملی..." autocomplete="off">
         <button class="archive-clear-btn" id="archiveClear" style="display:none;">
           <i class="bi bi-x-lg"></i>
         </button>
@@ -89,7 +136,7 @@ function renderShell() {
           <option value="month">۳۰ روز اخیر</option>
           <option value="custom">بازه دلخواه</option>
         </select>
-        <button class="archive-filter-btn" id="archiveRefresh">
+        <button class="archive-filter-btn" id="archiveRefresh" title="بارگذاری مجدد">
           <i class="bi bi-arrow-clockwise"></i>
         </button>
       </div>
@@ -119,7 +166,6 @@ function bindShellEvents() {
 
   const backBtn = wrap.querySelector('#archiveBack');
   if (backBtn) backBtn.onclick = () => {
-    // برگشت به منوی فرم‌ها
     import('./forms-menu.js').then(m => m.openFormsMenu()).catch(() => {
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
       const m = document.getElementById('screenFormsMenu');
@@ -137,7 +183,7 @@ function bindShellEvents() {
       state.query = q.value.trim();
       state.patientFilter = null;
       renderPatientChip();
-      applyAndRender();
+      renderList();
     }, 250);
   };
   q.onkeydown = (e) => { if (e.key === 'Enter') q.blur(); };
@@ -148,7 +194,7 @@ function bindShellEvents() {
     state.query = '';
     state.patientFilter = null;
     renderPatientChip();
-    applyAndRender();
+    renderList();
   };
 
   wrap.querySelector('#archiveDatePreset').onchange = (e) => {
@@ -158,30 +204,30 @@ function bindShellEvents() {
     if (state.datePreset !== 'custom') {
       state.dateFrom = '';
       state.dateTo = '';
-      applyAndRender();
+      renderList();
     }
   };
 
   wrap.querySelector('#archiveApplyDate').onclick = () => {
     state.dateFrom = wrap.querySelector('#archiveDateFrom').value.trim();
     state.dateTo = wrap.querySelector('#archiveDateTo').value.trim();
-    applyAndRender();
+    renderList();
   };
 
   wrap.querySelector('#archiveRefresh').onclick = async () => {
     await loadAll();
-    applyAndRender();
+    renderList();
   };
 }
 
-// ═══════════════════════════════════════════════════════════
-// بارگذاری از Supabase  ⭐ اصلی‌ترین اصلاح
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// بارگذاری از Supabase
+// ═══════════════════════════════════════════════════════
 async function loadAll() {
   state.loading = true;
   state.items = [];
 
-  // ─── form_records (با ستون درست: created_by_email) ───
+  // ─── form_records ───
   try {
     const { data, error } = await sb.from('form_records')
       .select('id, form_code, process_code, patient_id, visit_id, exam_id, data, created_at, created_by_email')
@@ -196,7 +242,7 @@ async function loadAll() {
         id: r.id,
         source: 'form_records',
         formCode: r.form_code,
-        formName: FORM_NAMES[r.form_code] || r.form_code,
+        formName: getFormName(r.form_code),           // ⭐ نام فارسی
         processCode: r.process_code || null,
         patientId: r.patient_id || null,
         visitId: r.visit_id || null,
@@ -204,7 +250,6 @@ async function loadAll() {
         data: d,
         createdAt: r.created_at,
         createdBy: r.created_by_email || '',
-        // ⭐ کشیدن نام کارگر از اسنپ‌شات یا فیلدهای استاندارد قالب
         workerName: d._patientName || d.patientName || d.fullName || '',
         personnelNumber: d._personnelNumber || d.personnelNumber || '',
         nationalCode: d._nationalCode || d.nationalCode || '',
@@ -212,7 +257,6 @@ async function loadAll() {
     });
   } catch (e) {
     console.error('[ARCHIVE] form_records failed:', e);
-    // ⭐ خطا را در UI هم نشان بده
     const list = $('archiveList');
     if (list) {
       list.innerHTML = `
@@ -222,12 +266,13 @@ async function loadAll() {
           <button class="btn btn-sm btn-outline-danger mt-2 d-block" id="archiveRetry">تلاش مجدد</button>
         </div>`;
       const retry = list.querySelector('#archiveRetry');
-      if (retry) retry.onclick = async () => { await loadAll(); applyAndRender(); };
+      if (retry) retry.onclick = async () => { await loadAll(); renderList(); };
     }
+    state.loading = false;
+    return;
   }
 
-  // ─── core_dailyreport (گزارش‌های قدیمی فرم ۳۸) ───
-  // اگر می‌خواهید این بخش حذف شود، فقط این بلوک را پاک کنید.
+  // ─── core_dailyreport (گزارش‌های قدیمی ۳۸) ───
   try {
     const { data, error } = await sb.from('core_dailyreport')
       .select('id, date, shift_type, created_at')
@@ -240,7 +285,7 @@ async function loadAll() {
         id: `daily-${r.id}`,
         source: 'core_dailyreport',
         formCode: 'BR-FR-HS-38-00',
-        formName: FORM_NAMES['BR-FR-HS-38-00'] || 'گزارش روزانه (قدیمی)',
+        formName: getFormName('BR-FR-HS-38-00'),       // ⭐ «گزارش روزانه»
         processCode: null,
         patientId: null,
         visitId: null,
@@ -254,7 +299,6 @@ async function loadAll() {
       });
     });
   } catch (e) {
-    // خطای این جدول را نادیده بگیر (اختیاری)
     console.warn('[ARCHIVE] core_dailyreport failed:', e);
   }
 
@@ -262,15 +306,15 @@ async function loadAll() {
   state.loading = false;
 }
 
-// ═══════════════════════════════════════════════════════════
-// فیلتر و نرمال‌سازی
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// نرمال‌سازی و فیلتر
+// ═══════════════════════════════════════════════════════
 function normalize(s) {
   if (!s) return '';
   return faToEn(String(s))
     .replace(/[يى]/g, 'ی')
     .replace(/[ك]/g, 'ک')
-    .replace(/\u200c/g, '')   // نیم‌فاصله
+    .replace(/\u200c/g, '')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
@@ -308,28 +352,24 @@ function applyFilters() {
   const { start, end } = getDateRange();
 
   return state.items.filter(it => {
-    // فیلتر فرد
     if (state.patientFilter) {
       if (String(it.patientId) !== String(state.patientFilter.id)) return false;
     }
 
-    // فیلتر تاریخ
     if (start || end) {
       const d = new Date(it.createdAt || 0);
       if (start && d < start) return false;
       if (end && d > end) return false;
     }
 
-    // جستجو
     if (nq) {
       const hay = [
         it.workerName,
         it.personnelNumber,
         it.nationalCode,
-        it.formName,
+        it.formName,                // ⭐ نام فارسی هم قابل جستجو
         it.formCode,
         it.createdBy,
-        // جستجو در مقادیر متنی داخل data
         Object.values(it.data || {}).filter(v => typeof v === 'string').join(' ')
       ].map(normalize).join(' | ');
       if (!hay.includes(nq)) return false;
@@ -339,13 +379,9 @@ function applyFilters() {
   });
 }
 
-function applyAndRender() {
-  renderList();
-}
-
-// ═══════════════════════════════════════════════════════════
-// نمایش لیست
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// نمایش
+// ═══════════════════════════════════════════════════════
 function renderPatientChip() {
   const el = $('archivePatientChip');
   if (!el) return;
@@ -402,7 +438,7 @@ function renderList() {
   }
 
   list.innerHTML = filtered.slice(0, 200).map(it => {
-    const icon = FORM_ICONS[it.formCode] || { bg:'#f1f5f9', color:'#475569', icon:'bi-file-earmark-text-fill' };
+    const icon = getFormIcon(it.formCode);
     const isLegacy = it.source === 'core_dailyreport';
     return `
       <div class="archive-item" data-id="${escapeHtml(String(it.id))}">
@@ -431,7 +467,6 @@ function renderList() {
     }
   }
 
-  // رویداد کلیک روی آیتم‌ها
   list.querySelectorAll('.archive-item').forEach(el => {
     el.onclick = () => {
       const id = el.dataset.id;
@@ -454,11 +489,11 @@ function formatDate(iso) {
   } catch (e) { return iso; }
 }
 
-// ═══════════════════════════════════════════════════════════
-// جزئیات + چاپ مجدد
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// مودال جزئیات + چاپ مجدد
+// ═══════════════════════════════════════════════════════
 function openArchiveItem(it) {
-  const icon = FORM_ICONS[it.formCode] || { bg:'#f1f5f9', color:'#475569', icon:'bi-file-earmark-text-fill' };
+  const icon = getFormIcon(it.formCode);
   const workerName = it.workerName || '—';
 
   const detailRows = Object.entries(it.data || {})
@@ -526,7 +561,6 @@ function openArchiveItem(it) {
   }
 }
 
-// ⭐ چاپ مجدد فرم با استفاده از data ذخیره‌شده
 function reprintForm(item) {
   if (item.source === 'core_dailyreport') {
     toast('گزارش‌های قدیمی از این طریق چاپ نمی‌شوند', 'info');
