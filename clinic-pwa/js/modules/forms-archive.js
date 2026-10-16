@@ -4,29 +4,153 @@ import { $, toast, escapeHtml, faNum, faToEn, gregorianToJalali, jalaliToGregori
 import { showScreen } from '../ui.js';
 import { FORMS } from '../forms/registry.js';
 import { fitAndPrint } from '../forms/print-fit.js';
+
 // ═══════════════════════════════════════════════════════
-// نقشه‌ی نام فرم‌ها (fallback)
+// نقشه‌ی نام فرم‌ها (مطابق اسناد BR-PR-HS-07-00 و BR-PR-HS-10-00)
 // ═══════════════════════════════════════════════════════
 const FORM_NAMES = {
-  'BR-FR-HS-34-00': 'فرم حادثه',
-  'BR-FR-HS-36-00': 'فرم بستری',
-  'BR-FR-HS-37-00': 'فرم ویزیت پزشک',
-  'BR-FR-HS-38-00': 'گزارش روزانه',
-  'BR-FR-HS-48-00': 'فرم معاینه دوره‌ای',
-  'BR-FR-HS-49-00': 'فرم آزمایشگاه',
-  'BR-FR-HS-50-00': 'فرم ارجاع',
+  // ── BR-PR-HS-07-00 : رسیدگی به مراجعات و مدیریت امور بهداری ──
+  'BR-FR-HS-34-00': 'فرم بستری موقت مراجعه‌کننده',
+  'BR-FR-HS-35-00': 'فرم ثبت اطلاعات مراجعین به بهداری',
+  'BR-FR-HS-36-00': 'فرم گزارش مراجعات حوادث ناشی از کار به بهداری',
+  'BR-FR-HS-37-00': 'فرم اعزام / ارجاع به مرکز درمانی',
+  'BR-FR-HS-38-00': 'فرم گزارش شیفت بهداری',
+  'BR-FR-HS-39-00': 'فرم تحویل پسماند عفونی (Safety box) به بیمارستان',
+  'BR-FR-HS-40-00': 'فرم کنترل موجودی و مدیریت اقلام دارویی و پزشکی',
+
+  // ── BR-PR-HS-10-00 : مدیریت معاینات و آزمایشات ──
+  'BR-FR-HS-47-00': 'فرم معرفی به مرکز معاینات پزشکی و آزمایشات طب کار',
+  'BR-FR-HS-48-00': 'فرم ارجاع به متخصص',
+  'BR-FR-HS-49-00': 'فرم اعلام نتایج معاینات طب کار',
+  'BR-FR-HS-50-00': 'تعهدنامه شروع به کار / ادامه همکاری پرسنل مشروط',
+  'BR-FR-HS-51-00': 'فرم ثبت نتایج معاینات بدو استخدام و دوره‌ای',
+  'BR-FR-HS-52-00': 'فرم برنامه زمانی انجام معاینات پزشکی و آزمایشات ادواری',
 };
 
 const FORM_ICONS = {
-  'BR-FR-HS-34-00': { bg:'#fee2e2', color:'#dc2626', icon:'bi-exclamation-triangle-fill' },
-  'BR-FR-HS-36-00': { bg:'#dbeafe', color:'#2563eb', icon:'bi-hospital-fill' },
-  'BR-FR-HS-37-00': { bg:'#d1fae5', color:'#059669', icon:'bi-clipboard2-pulse-fill' },
+  // ── 07-00 ──
+  'BR-FR-HS-34-00': { bg:'#fee2e2', color:'#dc2626', icon:'bi-hospital-fill' },
+  'BR-FR-HS-35-00': { bg:'#dbeafe', color:'#2563eb', icon:'bi-person-vcard-fill' },
+  'BR-FR-HS-36-00': { bg:'#fce7f3', color:'#db2777', icon:'bi-exclamation-triangle-fill' },
+  'BR-FR-HS-37-00': { bg:'#ede9fe', color:'#7c3aed', icon:'bi-truck-front-fill' },
   'BR-FR-HS-38-00': { bg:'#fef3c7', color:'#d97706', icon:'bi-clipboard2-check-fill' },
-  'BR-FR-HS-48-00': { bg:'#e0e7ff', color:'#4f46e5', icon:'bi-person-badge-fill' },
-  'BR-FR-HS-49-00': { bg:'#cffafe', color:'#0891b2', icon:'bi-droplet-fill' },
-  'BR-FR-HS-50-00': { bg:'#fce7f3', color:'#db2777', icon:'bi-send-fill' },
+  'BR-FR-HS-39-00': { bg:'#d1fae5', color:'#059669', icon:'bi-trash3-fill' },
+  'BR-FR-HS-40-00': { bg:'#cffafe', color:'#0891b2', icon:'bi-boxes' },
+
+  // ── 10-00 ──
+  'BR-FR-HS-47-00': { bg:'#e0e7ff', color:'#4f46e5', icon:'bi-file-earmark-medical-fill' },
+  'BR-FR-HS-48-00': { bg:'#fce7f3', color:'#db2777', icon:'bi-send-fill' },
+  'BR-FR-HS-49-00': { bg:'#cffafe', color:'#0891b2', icon:'bi-clipboard2-pulse-fill' },
+  'BR-FR-HS-50-00': { bg:'#fef3c7', color:'#d97706', icon:'bi-file-earmark-text-fill' },
+  'BR-FR-HS-51-00': { bg:'#dbeafe', color:'#2563eb', icon:'bi-clipboard2-data-fill' },
+  'BR-FR-HS-52-00': { bg:'#d1fae5', color:'#059669', icon:'bi-calendar-week-fill' },
 };
 
+// ═══════════════════════════════════════════════════════
+// برچسب‌های فارسی برای کلیدهای اسنپ‌شات (_xxx)
+// ═══════════════════════════════════════════════════════
+const SNAPSHOT_LABELS = {
+  _patientName: 'نام و نام خانوادگی',
+  _personnelNumber: 'کد پرسنلی',
+  _nationalCode: 'کد ملی',
+  _phone: 'شماره تماس',
+  _fatherName: 'نام پدر',
+  _dob: 'تاریخ تولد',
+  _age: 'سن',
+  _visitDate: 'تاریخ مراجعه',
+  _visitTime: 'ساعت مراجعه',
+  _visitDateTime: 'تاریخ و ساعت مراجعه',
+  _symptomTime: 'ساعت شروع علائم',
+  _incidentLocation: 'محل حادثه',
+  _incidentDateTime: 'تاریخ و ساعت حادثه',
+  _injuries: 'عضو صدمه دیده',
+  _unitContractor: 'واحد / پیمانکار',
+  _workUnit: 'محل کار',
+  _bp: 'فشار خون (BP)',
+  _pr: 'ضربان قلب (PR)',
+  _rr: 'تعداد تنفس (RR)',
+  _tem: 'دمای بدن (Tem)',
+  _spo2: 'اکسیژن خون (SPO₂)',
+  _gcsE: 'GCS - چشم',
+  _gcsV: 'GCS - کلامی',
+  _gcsM: 'GCS - حرکتی',
+  _gcsTotal: 'GCS - مجموع',
+  _dischargeDate: 'تاریخ ترخیص',
+  _dischargeTime: 'ساعت ترخیص',
+  _dispatchDate: 'تاریخ اعزام',
+  _dispatchTime: 'ساعت اعزام',
+  _leftAtDate: 'تاریخ ترک با رضایت',
+  _vitalsSummary: 'خلاصه علائم حیاتی',
+  _isDispatch: 'اعزام با آمبولانس',
+  _isReferral: 'ارجاع به مرکز درمانی',
+  _visitCount: 'تعداد مراجعه',
+};
+
+// ═══════════════════════════════════════════════════════
+// پیدا کردن برچسب فارسی برای هر کلید
+// ═══════════════════════════════════════════════════════
+function getPersianLabel(formCode, key) {
+  if (!key) return '';
+
+  // ۱) کلیدهای اسنپ‌شات (شروع با _)
+  if (key.startsWith('_')) {
+    if (SNAPSHOT_LABELS[key]) return SNAPSHOT_LABELS[key];
+    return key.replace(/^_+/, '').replace(/([A-Z])/g, ' $1').trim();
+  }
+
+  // ۲) از fields فرم در registry
+  const mod = FORMS[formCode];
+  const fields = mod?.fields || [];
+  const f = fields.find(x => x.key === key);
+  if (f?.label) return f.label;
+
+  // ۳) fallback: خود کلید
+  return key;
+}
+
+// ═══════════════════════════════════════════════════════
+// ترجمه‌ی مقدار (yes/no/selects/boolean)
+// ═══════════════════════════════════════════════════════
+function translateValue(formCode, key, value) {
+  if (value === '' || value == null) return '';
+
+  // Boolean
+  if (typeof value === 'boolean') {
+    return value ? '✓ بله' : '✗ خیر';
+  }
+
+  // Select / options → برچسب فارسی
+  const mod = FORMS[formCode];
+  const fields = mod?.fields || [];
+  const f = fields.find(x => x.key === key);
+  if (f?.options) {
+    const opt = f.options.find(o => String(o.value) === String(value));
+    if (opt) return opt.label;
+  }
+
+  // مقادیر خاص بدون options
+  const specialMap = {
+    yes: 'بله',
+    no: 'خیر',
+    true: 'بله',
+    false: 'خیر',
+    ambulance: 'آمبولانس',
+    agency: 'آژانس',
+    personal: 'وسیله شخصی',
+    transport: 'ترانسپورت',
+    other: 'سایر',
+    disease: 'بیماری',
+    incident: 'حادثه',
+  };
+  const s = String(value).toLowerCase();
+  if (specialMap[s]) return specialMap[s];
+
+  return String(value);
+}
+
+// ═══════════════════════════════════════════════════════
+// گرفتن نام و آیکون فرم
+// ═══════════════════════════════════════════════════════
 function getFormName(code) {
   if (!code) return 'فرم ناشناس';
   const f = FORMS[code];
@@ -54,7 +178,7 @@ const state = {
   dateFrom: '',
   dateTo: '',
   datePreset: 'all',
-  formTypeFilter: 'all',   // ⭐ فیلتر نوع فرم
+  formTypeFilter: 'all',
   loading: false,
   loaded: false,
   patientFilter: null,
@@ -87,7 +211,7 @@ export async function openFormsArchive() {
   bindShellEvents();
   await loadAll();
   state.loaded = true;
-  renderFormTypeChips();   // ⭐ چیپ‌ها را بعد از بارگذاری بساز
+  renderFormTypeChips();
   renderList();
 }
 
@@ -142,7 +266,6 @@ function renderShell() {
         <button class="btn btn-primary btn-sm" id="archiveApplyDate">اعمال</button>
       </div>
 
-      <!-- ⭐ چیپ‌های فیلتر نوع فرم -->
       <div class="archive-form-chips" id="archiveFormChips"></div>
 
       <div id="archiveStats" class="archive-stats"></div>
@@ -214,28 +337,25 @@ function bindShellEvents() {
 }
 
 // ═══════════════════════════════════════════════════════
-// ⭐ چیپ‌های فیلتر نوع فرم — داینامیک از داده‌ها
+// چیپ‌های فیلتر نوع فرم
 // ═══════════════════════════════════════════════════════
 function renderFormTypeChips() {
   const el = $('archiveFormChips');
   if (!el) return;
 
-  // شمارش هر نوع فرم
   const counts = {};
   state.items.forEach(it => {
     counts[it.formCode] = (counts[it.formCode] || 0) + 1;
   });
 
   const total = state.items.length;
-
-  // مرتب‌سازی: فرم‌هایی که تعداد بیشتری دارند اول
   const codes = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
 
   el.innerHTML = `
     <button class="archive-chip ${state.formTypeFilter === 'all' ? 'active' : ''}"
-            data-form="all">
+            data-form="all" type="button">
       <i class="bi bi-grid-fill"></i>
-      <span>همه</span>
+      <span class="archive-chip-title">همه</span>
       <span class="archive-chip-count">${faNum(total)}</span>
     </button>
     ${codes.map(code => {
@@ -243,9 +363,14 @@ function renderFormTypeChips() {
       const name = getFormName(code);
       const active = state.formTypeFilter === code;
       return `
-        <button class="archive-chip ${active ? 'active' : ''}" data-form="${escapeHtml(code)}">
+        <button class="archive-chip ${active ? 'active' : ''}"
+                data-form="${escapeHtml(code)}" type="button"
+                title="${escapeHtml(name)} — ${escapeHtml(code)}">
           <i class="bi ${icon.icon}"></i>
-          <span>${escapeHtml(name)}</span>
+          <span class="archive-chip-body">
+            <span class="archive-chip-title">${escapeHtml(name)}</span>
+            <span class="archive-chip-code" dir="ltr">${escapeHtml(code)}</span>
+          </span>
           <span class="archive-chip-count">${faNum(counts[code])}</span>
         </button>`;
     }).join('')}
@@ -255,7 +380,6 @@ function renderFormTypeChips() {
     btn.onclick = () => {
       const form = btn.dataset.form;
       if (state.formTypeFilter === form) {
-        // اگر روی چیپ فعال بزنیم، فیلتر پاک می‌شود
         state.formTypeFilter = 'all';
       } else {
         state.formTypeFilter = form;
@@ -317,7 +441,6 @@ async function loadAll() {
     return;
   }
 
-  // گزارش‌های قدیمی ۳۸
   try {
     const { data, error } = await sb.from('core_dailyreport')
       .select('id, date, shift_type, created_at')
@@ -397,7 +520,6 @@ function applyFilters() {
   const { start, end } = getDateRange();
 
   return state.items.filter(it => {
-    // ⭐ فیلتر نوع فرم
     if (state.formTypeFilter !== 'all' && it.formCode !== state.formTypeFilter) {
       return false;
     }
@@ -430,7 +552,7 @@ function applyFilters() {
 }
 
 // ═══════════════════════════════════════════════════════
-// نمایش
+// نمایش لیست
 // ═══════════════════════════════════════════════════════
 function renderPatientChip() {
   const el = $('archivePatientChip');
@@ -468,7 +590,6 @@ function renderList() {
 
   const filtered = applyFilters();
 
-  // ⭐ متن خلاصه‌ی فیلترها
   const filterSummary = [];
   if (state.formTypeFilter !== 'all') {
     filterSummary.push(getFormName(state.formTypeFilter));
@@ -525,6 +646,9 @@ function renderList() {
             ${escapeHtml(it.formName)}
             ${isLegacy ? '<span class="badge-soft warning ms-1">قدیمی</span>' : ''}
           </div>
+          <div class="archive-item-code-row">
+            <span class="archive-item-code" dir="ltr">${escapeHtml(it.formCode)}</span>
+          </div>
           <div class="archive-item-meta">
             <span><i class="bi bi-calendar3"></i> ${escapeHtml(formatDate(it.createdAt))}</span>
             ${it.workerName ? `<span class="archive-worker-name"><i class="bi bi-person-fill"></i> ${escapeHtml(it.workerName)}</span>` : ''}
@@ -551,7 +675,6 @@ function renderList() {
   });
 }
 
-// ⭐ حذف همه فیلترها
 function clearAllFilters() {
   state.formTypeFilter = 'all';
   state.patientFilter = null;
@@ -591,15 +714,33 @@ function formatDate(iso) {
 }
 
 // ═══════════════════════════════════════════════════════
-// مودال جزئیات + چاپ مجدد
+// مودال جزئیات — با برچسب و مقدار فارسی
 // ═══════════════════════════════════════════════════════
 function openArchiveItem(it) {
   const icon = getFormIcon(it.formCode);
   const workerName = it.workerName || '—';
 
+  const HIDDEN_KEYS = new Set([
+    '_legacy', '_hospitals', '_shiftHistory', '_userOptions',
+    'processCode', 'createdBy',
+  ]);
+
   const detailRows = Object.entries(it.data || {})
-    .filter(([k, v]) => !k.startsWith('_') && v !== '' && v != null && typeof v !== 'object')
-    .map(([k, v]) => `<tr><td class="detail-key">${escapeHtml(k)}</td><td class="detail-val">${escapeHtml(String(v))}</td></tr>`)
+    .filter(([k, v]) => {
+      if (HIDDEN_KEYS.has(k)) return false;
+      if (k.startsWith('__')) return false;
+      if (v === '' || v == null) return false;
+      if (typeof v === 'object') return false;
+      return true;
+    })
+    .map(([k, v]) => {
+      const label = getPersianLabel(it.formCode, k);
+      const val = translateValue(it.formCode, k, v);
+      return `<tr>
+        <td class="detail-key">${escapeHtml(label)}</td>
+        <td class="detail-val">${escapeHtml(val)}</td>
+      </tr>`;
+    })
     .join('');
 
   const sheet = document.createElement('div');
@@ -662,10 +803,9 @@ function openArchiveItem(it) {
   }
 }
 
-// ⚠️ بالای فایل، کنار بقیه‌ی importها این خط را اضافه کن:
-import { fitAndPrint } from '../forms/print-fit.js';
-
-// ⭐ تابع reprintForm را با این جایگزین کن:
+// ═══════════════════════════════════════════════════════
+// چاپ مجدد
+// ═══════════════════════════════════════════════════════
 function reprintForm(item) {
   if (item.source === 'core_dailyreport') {
     toast('گزارش‌های قدیمی از این طریق چاپ نمی‌شوند', 'info');
@@ -684,11 +824,9 @@ function reprintForm(item) {
     document.body.appendChild(area);
   }
 
-  // ⭐ اگر render خودش form-sheet تولید کرد، دوباره wrap نکن
   const rendered = form.render(item.data) || '';
   const hasSheet = /class=["'][^"']*form-sheet/.test(rendered);
   area.innerHTML = hasSheet ? rendered : `<div class="form-sheet">${rendered}</div>`;
 
-  // ⭐ اتو-فیت + چاپ
   fitAndPrint(area, { delay: 150 });
 }
