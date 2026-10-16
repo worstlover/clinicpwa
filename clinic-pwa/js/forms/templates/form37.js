@@ -227,9 +227,14 @@ export function render(d) {
   d = d || {};
   const copies = Number(d.copyCount) === 1 ? 1 : 2;
   const one = buildOneCopy(d);
-  if (copies === 1) return one;
+
+  if (copies === 1) {
+    return `<div class="form-sheet">${one}</div>`;
+  }
+
+  // ⭐ دو شیت A4 مستقل — نه یک شیت با دو محتوا
   return `
-    <div class="page-break-after">${one}</div>
-    <div>${one}</div>
+    <div class="form-sheet">${one}</div>
+    <div class="form-sheet">${one}</div>
   `;
 }
