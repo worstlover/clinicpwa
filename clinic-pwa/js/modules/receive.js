@@ -1,5 +1,9 @@
+// js/modules/receive.js
 import { sb } from '../sb.js';
-import { $, faNum, escapeHtml, parseGS1, cleanGTIN, gregorianToJalali, checkExpiry, toast, beep, makeBatchNumber } from '../utils.js';
+import {
+  $, faNum, escapeHtml, parseGS1, cleanGTIN, gregorianToJalali,
+  checkExpiry, toast, beep, makeBatchNumber
+} from '../utils.js';
 import { showScreen } from '../ui.js';
 import { openScanner } from '../scanner.js';
 import { askQty, openDrugSearch } from '../modals.js';
@@ -192,6 +196,9 @@ function renderList() {
   });
 }
 
+// ═══════════════════════════════════════════════════════════
+// پردازش بارکد — با بازگشت خودکار به اسکنر
+// ═══════════════════════════════════════════════════════════
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
   const gtin = cleanGTIN(parsed.gtin);
@@ -204,11 +211,27 @@ async function handleBarcode(raw) {
     openDrugSearch(`بارکد ${escapeHtml(gtin)} ثبت نشده`, d => addDrug(d, gtin, parsed));
     return;
   }
-  await addDrug(bc.drug, gtin, parsed);
+  const added = await addDrug(bc.drug, gtin, parsed);
+  if (added) reopenScannerAuto();
 }
 
+// ═══════════════════════════════════════════════════════════
+// بازگشت خودکار به اسکنر
+// ═══════════════════════════════════════════════════════════
+function reopenScannerAuto() {
+  setTimeout(() => {
+    const wrap = $('scannerWrap');
+    if (!wrap || !wrap.classList.contains('active')) {
+      openScanner(handleBarcode);
+    }
+  }, 350);
+}
+
+// ═══════════════════════════════════════════════════════════
+// افزودن دارو — بچ همیشه خودکار + تاریخ انقضا اجباری
+// ═══════════════════════════════════════════════════════════
 async function addDrug(drug, barcode = '', parsed = {}) {
-  // ⭐ ذخیره بارکد در دیتابیس
+  // ذخیره بارکد در دیتابیس
   if (barcode) {
     try {
       await sb.from('drugs_drugbarcode').upsert({
@@ -236,6 +259,7 @@ async function addDrug(drug, barcode = '', parsed = {}) {
       <div class="col-4"><div class="badge-soft gray w-100" style="justify-content:center;">فاکتور: <strong>${invoiceQty !== null ? faNum(invoiceQty) : '—'}</strong></div></div>
     </div>`;
 
+  // ⚠️ important: defaultBatch ارسال نمی‌شود — بچ همیشه خودکار ساخته می‌شود
   const res = await askQty({
     title: 'تایید دریافت',
     headerClass: 'bg-warning',
@@ -243,10 +267,20 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     extraInfo,
     defaultQty: 1,
     defaultExpiry: parsed?.exp || '',
-    defaultBatch: parsed?.batch || '',
-    showExtras: true
+    // defaultBatch: حذف شده — کاربر نباید بچ وارد کند
+    showExtras: true,
+    hideBatchInput: true,        // ← پرچم جدید برای modals.js
+    requireExpiry: true,         // ← پرچم جدید برای modals.js
   });
-  if (res.qty < 1) return;
+
+  if (res.qty < 1) return false;   // کاربر انصراف داد
+
+  // ═══ چک اجباری تاریخ انقضا ═══
+  if (!res.expiry_gregorian) {
+    toast('تاریخ انقضا الزامی است — قلم ذخیره نشد', 'danger');
+    beep(300);
+    return false;
+  }
 
   const warnings = [];
   if (ordered > 0 && res.qty < ordered) warnings.push({ level: 'warning', text: `کمتر از سفارش (${faNum(ordered - res.qty)} کسری)` });
@@ -260,13 +294,12 @@ async function addDrug(drug, barcode = '', parsed = {}) {
   if (chk && (chk.level === 'danger' || chk.level === 'expired')) warnings.push({ level: 'danger', text: chk.msg });
   else if (chk && chk.level === 'warning') warnings.push({ level: 'warning', text: chk.msg });
 
-  // ⭐⭐⭐ اگر بچ خالی بود، خودکار از فرمول بساز ⭐⭐⭐
-  let finalBatch = res.batch || '';
-  if (!finalBatch && res.expiry_gregorian) {
-    finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian) || '';
-  }
+  // ═══ بچ همیشه خودکار — هرگز از QR یا ورودی کاربر ═══
+  let finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian);
   if (!finalBatch) {
-    finalBatch = `AUTO-${Date.now()}`;
+    // اگر نام دارو یا تاریخ مشکل داشت
+    toast('ساخت بچ ناموفق — دوباره تلاش کنید', 'danger');
+    return false;
   }
 
   const ex = state.items.find(it => it.drug_id === drug.id && (it.batch || '') === finalBatch);
@@ -274,9 +307,10 @@ async function addDrug(drug, barcode = '', parsed = {}) {
   else state.items.push({
     drug_id: drug.id,
     drug_name: drug.name,
+    drug_form: drug.form || '',
     qty: res.qty,
     batch: finalBatch,
-    expiry: res.expiry_gregorian || '',
+    expiry: res.expiry_gregorian,
     expiry_jalali: res.expiry_jalali || '',
     barcode,
     ordered_qty: ordered,
@@ -286,14 +320,20 @@ async function addDrug(drug, barcode = '', parsed = {}) {
 
   renderList();
   beep();
+  return true;
 }
 
 async function finalize() {
   if (!state.supplierId) { toast('تامین‌کننده را انتخاب کنید', 'warning'); return; }
   if (!state.items.length) { toast('حداقل یک قلم', 'warning'); return; }
-  for (const it of state.items) {
-    if (!it.expiry) { toast(`تاریخ انقضای «${it.drug_name}» الزامی است`, 'warning'); return; }
+
+  // ═══ چک نهایی: همه اقلام باید تاریخ انقضا داشته باشند ═══
+  const noExpiry = state.items.filter(it => !it.expiry);
+  if (noExpiry.length) {
+    toast(`این اقلام تاریخ انقضا ندارند: ${noExpiry.map(i => i.drug_name).join('، ')}`, 'danger');
+    return;
   }
+
   if (!confirm(`ذخیره ${faNum(state.items.length)} قلم؟`)) return;
 
   const btn = $('recvFinalize');
@@ -304,7 +344,7 @@ async function finalize() {
     const today = new Date();
     const code = `RCV-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}-${Date.now().toString().slice(-4)}`;
 
-    // ═══════ ۱. درج سربرگ رسید ═══════
+    // ═══ ۱. سربرگ رسید ═══
     const { data: receipt, error: e1 } = await sb.from('drugs_receipt').insert({
       receipt_number: code,
       supplier_name: state.supplierName || 'نامشخص',
@@ -318,17 +358,14 @@ async function finalize() {
     const errors = [];
     const successes = [];
 
-    // ═══════ ۲. پردازش هر قلم ═══════
+    // ═══ ۲. پردازش هر قلم ═══
     for (const it of state.items) {
-      let batchForDb = it.batch || '';
-      if (!batchForDb && it.expiry) {
-        batchForDb = makeBatchNumber(it.drug_name, '', it.expiry) || '';
-      }
-      if (!batchForDb) {
-        batchForDb = `AUTO-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-      }
+      // بچ همیشه از فرمول (حتی اگر دستی جایی مانده باشد)
+      const batchForDb = makeBatchNumber(it.drug_name, it.drug_form || '', it.expiry)
+                      || it.batch
+                      || `AUTO-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-      // ۲.۱. درج آیتم رسید
+      // ۲.۱. آیتم رسید
       const { error: e2 } = await sb.from('drugs_receiptitem').insert({
         receipt_id: receipt.id,
         drug_id: it.drug_id,
@@ -337,12 +374,9 @@ async function finalize() {
         expiry_date: it.expiry,
         force_close_shortage: false
       });
-      if (e2) {
-        errors.push(`${it.drug_name} (آیتم رسید): ${e2.message}`);
-        continue;
-      }
+      if (e2) { errors.push(`${it.drug_name} (آیتم رسید): ${e2.message}`); continue; }
 
-      // ═══════ ۲.۲. آپدیت یا درج در drugs_drugbatch ═══════
+      // ═══ ۲.۲. بچ: آپدیت یا درج ═══
       try {
         const { data: existing, error: eFind } = await sb.from('drugs_drugbatch')
           .select('id, quantity')
@@ -350,33 +384,18 @@ async function finalize() {
           .eq('batch_number', batchForDb)
           .maybeSingle();
 
-        if (eFind) {
-          errors.push(`${it.drug_name} (جستجوی بچ): ${eFind.message}`);
-          continue;
-        }
+        if (eFind) { errors.push(`${it.drug_name} (جستجوی بچ): ${eFind.message}`); continue; }
 
         if (existing) {
-          // ⭐ آپدیت بچ موجود
           const newQty = (existing.quantity || 0) + it.qty;
           const { error: eUpd, data: updData } = await sb.from('drugs_drugbatch')
-            .update({
-              quantity: newQty,
-              expiry_date: it.expiry
-            })
+            .update({ quantity: newQty, expiry_date: it.expiry })
             .eq('id', existing.id)
             .select();
-
-          if (eUpd) {
-            errors.push(`${it.drug_name} (آپدیت بچ): ${eUpd.message}`);
-            continue;
-          }
-          if (!updData || !updData.length) {
-            errors.push(`${it.drug_name} (آپدیت بچ): دسترسی ندارید یا سطر پیدا نشد`);
-            continue;
-          }
+          if (eUpd) { errors.push(`${it.drug_name} (آپدیت بچ): ${eUpd.message}`); continue; }
+          if (!updData?.length) { errors.push(`${it.drug_name} (آپدیت بچ): دسترسی ندارید`); continue; }
           successes.push(`${it.drug_name}: بچ ${batchForDb} از ${existing.quantity} → ${newQty}`);
         } else {
-          // ⭐ درج بچ جدید
           const { error: eIns, data: insData } = await sb.from('drugs_drugbatch')
             .insert({
               drug_id: it.drug_id,
@@ -389,15 +408,8 @@ async function finalize() {
               is_temporary: false
             })
             .select();
-
-          if (eIns) {
-            errors.push(`${it.drug_name} (درج بچ): ${eIns.message}`);
-            continue;
-          }
-          if (!insData || !insData.length) {
-            errors.push(`${it.drug_name} (درج بچ): دسترسی ندارید`);
-            continue;
-          }
+          if (eIns) { errors.push(`${it.drug_name} (درج بچ): ${eIns.message}`); continue; }
+          if (!insData?.length) { errors.push(`${it.drug_name} (درج بچ): دسترسی ندارید`); continue; }
           successes.push(`${it.drug_name}: بچ جدید ${batchForDb} با ${it.qty} عدد`);
         }
       } catch (e) {
@@ -405,7 +417,7 @@ async function finalize() {
         continue;
       }
 
-      // ═══════ ۲.۳. تخصیص FIFO ═══════
+      // ═══ ۲.۳. تخصیص FIFO ═══
       try {
         const { error: e3 } = await sb.rpc('allocate_to_requests', {
           p_drug_id: it.drug_id,
@@ -418,22 +430,17 @@ async function finalize() {
       }
     }
 
-    // ═══════ ۳. گزارش نهایی ═══════
     console.log('✅ موفق:', successes);
     console.log('❌ خطاها:', errors);
 
     if (errors.length) {
-      alert(
-        '⚠ برخی قلم‌ها ذخیره نشدند:\n\n' +
-        '❌ خطاها:\n' + errors.join('\n\n') +
-        (successes.length ? '\n\n✅ موفق:\n' + successes.join('\n') : '')
-      );
+      alert('⚠ برخی قلم‌ها ذخیره نشدند:\n\n' + '❌ خطاها:\n' + errors.join('\n\n') +
+        (successes.length ? '\n\n✅ موفق:\n' + successes.join('\n') : ''));
     } else {
       toast('✅ رسید ' + code + ' با ' + faNum(successes.length) + ' قلم ثبت شد', 'success');
     }
 
     localStorage.removeItem(AUTOSAVE_KEY);
-
     state.items = [];
     state.supplierId = null;
     state.supplierName = '';
