@@ -39,11 +39,10 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
-// ⭐ فرمت‌بندی دقیق تاریخ و ساعت برای خروجی‌ها
+// فرمت‌بندی دقیق تاریخ و ساعت برای خروجی‌ها
 const formatDateTime = (isoStr) => {
   if (!isoStr) return '—';
   try {
-    // حذف میلی‌ثانیه‌ها برای جلوگیری از خطای پارس در برخی مرورگرها
     const safeStr = String(isoStr).replace(/\.\d+/, '').replace(' ', 'T');
     const d = new Date(safeStr);
     if (isNaN(d)) return '—';
@@ -55,22 +54,25 @@ const formatDateTime = (isoStr) => {
   } catch (e) { return '—'; }
 };
 
-// ⭐ متن پیامک با اسم شخص در ابتدا
+// ⭐ متن پیامک دقیقاً طبق فرمت درخواستی شما
 function buildSmsText(record, customName) {
   const type = record.record_type;
   const amount = fmtMoney(record.amount);
-  const date = record.incident_datetime ? gregorianToJalali(record.incident_datetime.split('T')[0]) : '—';
   const reason = record.reason || '—';
   
-  // اگر اسم نبود، از عبارت کلی استفاده کن
-  const name = customName || 'همکار گرامی'; 
-  const SIGN = '';
+  // استفاده از نام وارد شده، در غیر این صورت عبارت پیش‌فرض
+  const cleanName = customName && customName.trim() !== '' ? customName.trim() : '';
+  const prefix = cleanName ? `آقای ${cleanName}` : 'همکار گرامی';
+  
+  const SIGN = 'واحد ایمنی گندله سازی بهاباد';
 
-  if (type === "fine")
-    return `${name} عزیز، اطلاعیه ایمنی: مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} برای شما منظور گردید. ${SIGN}`;
-  if (type === "reward")
-    return `${name} عزیز، اطلاعیه ایمنی: مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} به عنوان پاداش برای شما منظور گردید. ${SIGN}`;
-  return `${name} عزیز، اخطار ایمنی: در تاریخ ${date} به علت ${reason} اخطار ایمنی برای شما ثبت گردید. ${SIGN}`;
+  if (type === "fine") {
+    return `اطلاعیه ایمنی! ${prefix} مبلغ ${amount} ریال جریمه به علت ${reason} برای شما ثبت گردید. ${SIGN}`;
+  }
+  if (type === "reward") {
+    return `اطلاعیه ایمنی! ${prefix} مبلغ ${amount} ریال پاداش به علت ${reason} برای شما ثبت گردید. ${SIGN}`;
+  }
+  return `${prefix} اخطار ایمنی به علت ${reason} برای شما ثبت گردید. ${SIGN}`;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -134,7 +136,7 @@ async function exportToPDF(title, headers, rows, filename) {
   const tempDiv = document.createElement('div');
   tempDiv.style.position = 'absolute';
   tempDiv.style.top = '0';
-  tempDiv.style.left = '-9999px'; 
+  tempDiv.style.left = '-9999px';
   tempDiv.style.width = '800px';
   tempDiv.style.backgroundColor = '#ffffff';
   tempDiv.style.direction = 'rtl';
@@ -381,7 +383,6 @@ function openDetail(item) {
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ارسال...';
       
-      // ⭐ ارسال اسم شخص به تابع پیامک
       const smsText = buildSmsText(item, name);
       const res = await sendSMS(item.patient?.phone_number, smsText);
       
@@ -653,7 +654,7 @@ async function saveRecord() {
   const input = $('frWorkerSearch');
   const workerId = input.dataset.workerId;
   const phone = input.dataset.phone;
-  const patientName = input.value; // ⭐ گرفتن نام شخص از فیلد
+  const patientName = input.value; // نام شخص برای متن پیامک
   if (!workerId) { toast('ابتدا کارگر را انتخاب کنید', 'warning'); return; }
 
   const reason = $('frReason').value.trim();
@@ -687,7 +688,7 @@ async function saveRecord() {
     const { data: inserted, error } = await sb.from('safety_finereward').insert(record).select().single();
     if (error) throw error;
 
-    // ⭐ ارسال نام شخص به تابع
+    // ارسال نام شخص به تابع ساخت متن
     const smsText = buildSmsText(record, patientName);
     const smsResult = await sendSMS(phone, smsText);
     
@@ -999,7 +1000,7 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل (با ذخیره زمان SendDateTime)
+// ⭐ تابع استعلام وضعیت تحویل
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -1040,7 +1041,6 @@ async function checkAllDeliveries() {
       if (updErr) throw new Error('خطا در ذخیره زمان تحویل در دیتابیس: ' + updErr.message);
     };
 
-    // تلاش برای استعلام گروهی
     const res = await getDeliveries(messageIds);
     
     if (res.success && res.data.Status !== 'Failed') {
