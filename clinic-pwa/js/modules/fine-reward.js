@@ -45,17 +45,12 @@ const formatDateTime = (isoStr) => {
   try {
     const parts = String(isoStr).split('T');
     if (parts.length !== 2) return '—';
-    
     const datePart = parts[0]; // yyyy-mm-dd
     const timePart = parts[1].split('.')[0]; // hh:mm:ss
-    
     const jDate = gregorianToJalali(datePart);
     const hm = timePart.split(':').slice(0, 2).join(':');
-    
     return `${jDate} - ${hm}`;
-  } catch (e) { 
-    return '—'; 
-  }
+  } catch (e) { return '—'; }
 };
 
 // ⭐ متن پیامک دقیقاً طبق فرمت درخواستی شما
@@ -777,7 +772,7 @@ function renderFinanceItem(it) {
 
 async function exportAndMark(records, format) {
   if (!records.length) return;
-  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان تحویل'];
+  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان تحویل', 'هزینه پیامک'];
   const rows = records.map(r => [
     `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
     r.patient?.personnel_number || '', r.patient?.national_code || '', r.patient?.phone_number || '',
@@ -785,7 +780,8 @@ async function exportAndMark(records, format) {
     r.amount || 0, (r.reason || '').replace(/,/g, ' '), (r.location || '').replace(/,/g, ' '),
     r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
     r.sms_is_delivered ? 'تحویل شده' : (r.sms_status === 'sent' ? 'ارسال شده' : (r.sms_status === 'failed' ? 'ناموفق' : 'در انتظار')),
-    formatDateTime(r.sms_delivery_datetime)
+    formatDateTime(r.sms_delivery_datetime),
+    r.sms_cost || 0
   ]);
 
   if (format === 'excel') {
@@ -801,7 +797,7 @@ async function exportAndMark(records, format) {
 }
 
 function exportFinance(records, format) {
-  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان تحویل'];
+  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان تحویل', 'هزینه پیامک'];
   const rows = records.map(r => [
     `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
     r.patient?.personnel_number || '', r.patient?.national_code || '', r.patient?.phone_number || '',
@@ -809,7 +805,8 @@ function exportFinance(records, format) {
     r.amount || 0, (r.reason || '').replace(/,/g, ' '), (r.location || '').replace(/,/g, ' '),
     r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
     r.sms_is_delivered ? 'تحویل شده' : (r.sms_status === 'sent' ? 'ارسال شده' : (r.sms_status === 'failed' ? 'ناموفق' : 'در انتظار')),
-    formatDateTime(r.sms_delivery_datetime)
+    formatDateTime(r.sms_delivery_datetime),
+    r.sms_cost || 0
   ]);
   
   if (format === 'excel') {
@@ -820,7 +817,7 @@ function exportFinance(records, format) {
 }
 
 // ═══════════════════════════════════════════════════════
-// تب پیامک‌ها
+// تب پیامک‌ها (تفکیک، فیلتر و خروجی)
 // ═══════════════════════════════════════════════════════
 async function renderSMSStatus() {
   const body = $('frBody');
@@ -962,7 +959,7 @@ async function loadSMSStatusList() {
     `;
 
     $('frExportFailedExcel').onclick = async () => {
-      const headers = ['نام', 'کد پرسنلی', 'موبایل', 'وضعیت ارسال', 'وضعیت تحویل', 'هزینه', 'زمان تحویل', 'علت خطا', 'تاریخ'];
+      const headers = ['نام', 'کد پرسنلی', 'موبایل', 'وضعیت ارسال', 'وضعیت تحویل', 'هزینه پیامک', 'زمان تحویل', 'علت خطا', 'تاریخ'];
       const rows = list.map(r => [
         `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
         r.patient?.personnel_number || '', r.patient?.phone_number || '',
@@ -1025,7 +1022,7 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل (با منطق دقیق هزینه)
+// ⭐ تابع استعلام وضعیت تحویل (با اصلاح قدر مطلق هزینه)
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -1051,7 +1048,7 @@ async function checkAllDeliveries() {
     const processDelivery = async (del) => {
       const sendTime = del.SendDateTime || null;
       const statusCode = String(del.Status).toLowerCase();
-      const cost = Number(del.Cost) || 0;
+      const cost = Math.abs(Number(del.Cost) || 0); // ⭐ استفاده از قدر مطلق
 
       let isDelivered = false;
       let newSmsStatus = 'sent';
