@@ -39,6 +39,20 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
+// ⭐ تابع کمکی برای فرمت تاریخ و ساعت در خروجی‌ها
+const formatDateTime = (isoStr) => {
+  if (!isoStr) return '—';
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d)) return '—';
+    const g = d.toISOString().slice(0, 10);
+    const j = gregorianToJalali(g);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${j} ${hh}:${mm}`;
+  } catch (e) { return '—'; }
+};
+
 function buildSmsText(record) {
   const type = record.record_type;
   const amount = fmtMoney(record.amount);
@@ -112,25 +126,23 @@ async function exportToPDF(title, headers, rows, filename) {
     return;
   }
 
-  // ایجاد یک کانتینر با استایل امن برای رندر
   const tempDiv = document.createElement('div');
   tempDiv.style.position = 'absolute';
   tempDiv.style.top = '0';
-  tempDiv.style.left = '-9999px'; // انتقال به خارج از صفحه
+  tempDiv.style.left = '-9999px';
   tempDiv.style.width = '800px';
   tempDiv.style.backgroundColor = '#ffffff';
   tempDiv.style.direction = 'rtl';
   tempDiv.style.fontFamily = 'Tahoma, Arial, sans-serif';
   tempDiv.style.padding = '20px';
-  // ⚠️ از opacity: 0 یا display: none استفاده نمی‌کنیم تا html2canvas بتواند آن را ببیند
 
-  const tableRows = rows.map(row => `<tr>${row.map(cell => `<td style="border:1px solid #000; padding:8px; text-align:center;">${cell}</td>`).join('')}</tr>`).join('');
+  const tableRows = rows.map(row => `<tr>${row.map(cell => `<td style="border:1px solid #000; padding:6px; text-align:center; font-size:11px;">${cell}</td>`).join('')}</tr>`).join('');
   
   tempDiv.innerHTML = `
     <h2 style="text-align:center; margin-bottom: 20px;">${title}</h2>
     <p style="text-align:left; font-size:12px;">تاریخ چاپ: ${todayJalali()}</p>
-    <table style="width:100%; border-collapse:collapse; text-align:center; font-size:12px;">
-      <thead><tr style="background:#f3f4f6;">${headers.map(h => `<th style="border:1px solid #000; padding:8px;">${h}</th>`).join('')}</tr></thead>
+    <table style="width:100%; border-collapse:collapse; text-align:center; font-size:11px;">
+      <thead><tr style="background:#f3f4f6;">${headers.map(h => `<th style="border:1px solid #000; padding:6px;">${h}</th>`).join('')}</tr></thead>
       <tbody>${tableRows}</tbody>
     </table>
   `;
@@ -138,15 +150,8 @@ async function exportToPDF(title, headers, rows, filename) {
 
   try {
     toast('در حال آماده‌سازی PDF...', 'info');
-    
-    // صبر کوتاه برای لود کامل استایل‌ها
     await new Promise(r => setTimeout(r, 200));
-
-    const canvas = await window.html2canvas(tempDiv, { 
-      scale: 2, 
-      useCORS: true,
-      logging: false
-    });
+    const canvas = await window.html2canvas(tempDiv, { scale: 2, useCORS: true, logging: false });
     const imgData = canvas.toDataURL('image/png');
 
     const { jsPDF } = window.jspdf;
@@ -156,7 +161,6 @@ async function exportToPDF(title, headers, rows, filename) {
 
     pdf.addImage(imgData, 'PNG', 0, 10, pdfWidth, pdfHeight);
     pdf.save(filename);
-    
     toast('✅ PDF با موفقیت دانلود شد', 'success');
   } catch (err) {
     console.error('PDF Error:', err);
@@ -324,13 +328,13 @@ function renderListItem(item) {
 }
 
 // ═══════════════════════════════════════════════════════
-// مودال جزئیات (با نمایش ساعت تحویل)
+// مودال جزئیات
 // ═══════════════════════════════════════════════════════
 function openDetail(item) {
   const typeFa = { fine: 'جریمه', reward: 'تشویقی', warning: 'اخطار' }[item.record_type] || '—';
   const name = item.patient ? `${item.patient.first_name||''} ${item.patient.last_name||''}`.trim() : '—';
   
-  const deliveryDate = item.sms_delivery_datetime ? new Date(item.sms_delivery_datetime).toLocaleString('fa-IR') : '—';
+  const deliveryDate = formatDateTime(item.sms_delivery_datetime);
 
   const sheet = document.createElement('div');
   sheet.className = 'fr-sheet';
@@ -761,13 +765,15 @@ function renderFinanceItem(it) {
 
 async function exportAndMark(records, format) {
   if (!records.length) return;
-  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ'];
+  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان ارسال'];
   const rows = records.map(r => [
     `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
     r.patient?.personnel_number || '', r.patient?.national_code || '', r.patient?.phone_number || '',
     r.record_type === 'fine' ? 'جریمه' : r.record_type === 'reward' ? 'تشویقی' : 'اخطار',
     r.amount || 0, (r.reason || '').replace(/,/g, ' '), (r.location || '').replace(/,/g, ' '),
     r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
+    r.sms_is_delivered ? 'تحویل شده' : (r.sms_status === 'sent' ? 'ارسال شده' : (r.sms_status === 'failed' ? 'ناموفق' : 'در انتظار')),
+    formatDateTime(r.sms_send_datetime)
   ]);
 
   if (format === 'excel') {
@@ -783,13 +789,15 @@ async function exportAndMark(records, format) {
 }
 
 function exportFinance(records, format) {
-  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ'];
+  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان ارسال'];
   const rows = records.map(r => [
     `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
     r.patient?.personnel_number || '', r.patient?.national_code || '', r.patient?.phone_number || '',
     r.record_type === 'fine' ? 'جریمه' : r.record_type === 'reward' ? 'تشویقی' : 'اخطار',
     r.amount || 0, (r.reason || '').replace(/,/g, ' '), (r.location || '').replace(/,/g, ' '),
     r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
+    r.sms_is_delivered ? 'تحویل شده' : (r.sms_status === 'sent' ? 'ارسال شده' : (r.sms_status === 'failed' ? 'ناموفق' : 'در انتظار')),
+    formatDateTime(r.sms_send_datetime)
   ]);
   
   if (format === 'excel') {
@@ -912,6 +920,7 @@ async function loadSMSStatusList() {
                   ${badge}
                 </div>
                 <div class="fr-item-personnel">موبایل: ${escapeHtml(it.patient?.phone_number||'—')}</div>
+                ${it.sms_delivery_datetime ? `<div class="fr-item-meta small text-success">زمان تحویل: ${formatDateTime(it.sms_delivery_datetime)}</div>` : ''}
                 ${it.sms_error ? `<div class="fr-item-reason text-danger small mt-1">خطا: ${escapeHtml(it.sms_error)}</div>` : ''}
               </div>
             </div>`;
@@ -927,7 +936,7 @@ async function loadSMSStatusList() {
         r.patient?.personnel_number || '', r.patient?.phone_number || '',
         r.sms_status === 'failed' ? 'ناموفق' : 'ارسال شده',
         r.sms_is_delivered ? 'تحویل شده' : 'تحویل نشده',
-        r.sms_delivery_datetime ? new Date(r.sms_delivery_datetime).toLocaleString('fa-IR') : '—',
+        formatDateTime(r.sms_delivery_datetime),
         r.sms_error || '—',
         r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
       ]);
@@ -945,7 +954,7 @@ async function loadSMSStatusList() {
         `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
         r.patient?.phone_number || '—',
         r.sms_status === 'failed' ? 'ناموفق' : (r.sms_is_delivered ? 'تحویل شده' : 'ارسال شده'),
-        r.sms_delivery_datetime ? new Date(r.sms_delivery_datetime).toLocaleString('fa-IR') : '—',
+        formatDateTime(r.sms_delivery_datetime),
         r.sms_error || '—',
       ]);
       exportToPDF('گزارش وضعیت پیامک‌ها', headers, rows, `sms-report-${todayJalali().replace(/\//g,'-')}.pdf`);
@@ -981,7 +990,7 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل (با ذخیره تاریخ/ساعت تحویل)
+// ⭐ تابع استعلام وضعیت تحویل (با ذخیره زمان SendDateTime)
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -1007,15 +1016,18 @@ async function checkAllDeliveries() {
     let invalidCount = 0;
 
     const processDelivery = async (del) => {
-      // ⭐ ذخیره تاریخ و ساعت تحویل همراه با وضعیت
-      const updateData = { 
-        sms_is_delivered: true, 
-        sms_delivery_status: del.Status,
-        sms_status: 'sent', // مجبور کردن سیستم به آپدیت وضعیت اصلی
-        sms_send_datetime: del.SendDateTime ? del.SendDateTime : null,
-        sms_delivery_datetime: del.DeliveryDateTime ? del.DeliveryDateTime : (del.SendDateTime ? del.SendDateTime : null)
-      };
-      await sb.from('safety_finereward').update(updateData).eq('sms_message_id', del.MessageID);
+      // ⭐ آموت فیلد DeliveryDateTime ندارد. از SendDateTime استفاده می‌کنیم.
+      const sendTime = del.SendDateTime || null;
+      
+      await sb.from('safety_finereward')
+        .update({ 
+          sms_is_delivered: true, 
+          sms_delivery_status: del.Status,
+          sms_status: 'sent',
+          sms_send_datetime: sendTime,
+          sms_delivery_datetime: sendTime // زمان تحویل را برابر با زمان ارسال می‌گذاریم
+        })
+        .eq('sms_message_id', del.MessageID);
     };
 
     // تلاش برای استعلام گروهی
