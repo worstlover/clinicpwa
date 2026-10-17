@@ -594,12 +594,21 @@ async function finalizeSelection(id, name, personnel, phone, input, resultsEl, s
   statsEl.innerHTML = '<div class="fr-loading">در حال بارگذاری آمار...</div>';
 
   try {
-    const { count: incidentCount } = await sb.from('visits_visit').select('id', { count: 'exact', head: true }).eq('patient_id', id).neq('incident_type', 'none').not('incident_type', 'is', null);
-    const { data: records } = await sb.from('safety_finereward').select('record_type').eq('worker_id', id);
+    // ۱. آمار حوادث و جریمه‌ها
+    const { count: incidentCount } = await sb.from('visits_visit')
+      .select('id', { count: 'exact', head: true })
+      .eq('patient_id', id)
+      .neq('incident_type', 'none')
+      .not('incident_type', 'is', null);
+
+    const { data: records } = await sb.from('safety_finereward')
+      .select('record_type').eq('worker_id', id);
+    
     const fines = (records||[]).filter(r => r.record_type === 'fine').length;
     const rewards = (records||[]).filter(r => r.record_type === 'reward').length;
     const warnings = (records||[]).filter(r => r.record_type === 'warning').length;
 
+    // ۲. محاسبه اسکور ایمنی
     let score = 5;
     score -= Math.min(3, incidentCount * 0.5);
     score -= Math.min(2, warnings * 0.4);
@@ -609,6 +618,36 @@ async function finalizeSelection(id, name, personnel, phone, input, resultsEl, s
     const stars = Math.round(score);
     const scoreText = stars >= 4 ? 'وضعیت مطلوب' : stars >= 3 ? 'نیاز به توجه' : 'وضعیت پرخطر';
 
+    // ⭐ ۳. دریافت اطلاعات طب کار (نظریه و شروط)
+    let exam = null;
+    try {
+      const { data: ex } = await sb.from('lab_results_periodicexamination')
+        .select('*')
+        .eq('patient_id', id)
+        .order('exam_date', { ascending: false })
+        .limit(1);
+      if (ex && ex.length) exam = ex[0];
+    } catch (err) { console.warn('[FR] exam query:', err); }
+
+    // ⭐ ۴. دریافت اقدام اصلاحی از جدول جدید
+    let correctiveAction = null;
+    try {
+      const { data: ca } = await sb.from('occupational_corrective_actions')
+        .select('*')
+        .eq('patient_id', id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (ca && ca.length) correctiveAction = ca[0];
+    } catch (err) { console.warn('[FR] corrective action query:', err); }
+
+    // ۵. استخراج مقادیر
+    const opinion = exam?.final_opinion_text || exam?.final_opinion || exam?.opinion_text || '';
+    const conditions = exam?.final_opinion_conditions || exam?.conditions || '';
+    // اولویت با اقدام اصلاحی جدید است، اگر نبود از جدول معاینه خوانده می‌شود
+    const actions = correctiveAction?.action_text || exam?.corrective_actions || exam?.corrective_action || exam?.actions || '';
+    const actionStatus = correctiveAction?.status || 'pending';
+
+    // ۶. رندر نهایی
     statsEl.innerHTML = `
       <div class="fr-stats-grid">
         <div class="fr-stat-box danger"><div class="fr-stat-num">${incidentCount}</div><div class="fr-stat-lbl">حادثه</div></div>
@@ -619,6 +658,26 @@ async function finalizeSelection(id, name, personnel, phone, input, resultsEl, s
       <div class="fr-safety-score">
         <div class="fr-score-stars">${'★'.repeat(stars)}${'☆'.repeat(5-stars)}</div>
         <div class="fr-score-text">اسکور ایمنی: ${stars}/5 — ${scoreText}</div>
+      </div>
+      
+      <!-- ⭐ بخش بازگشته‌ی اطلاعات طب کار -->
+      <div class="fr-occupational">
+        <div class="fr-occupational-title"><i class="bi bi-clipboard2-pulse"></i> اطلاعات طب کار</div>
+        <div class="fr-oc-row">
+          <span>نظریه نهایی:</span>
+          <b>${escapeHtml(opinion || 'ندارد')}</b>
+        </div>
+        <div class="fr-oc-row">
+          <span>شروط:</span>
+          <b>${escapeHtml(conditions || 'ندارد')}</b>
+        </div>
+        <div class="fr-oc-row">
+          <span>اقدام اصلاحی:</span>
+          <b class="${actionStatus === 'pending' ? 'text-warning' : 'text-success'}">
+            ${escapeHtml(actions || 'ندارد')}
+            ${actions ? `<small>(${actionStatus === 'pending' ? 'در انتظار' : 'انجام شده'})</small>` : ''}
+          </b>
+        </div>
       </div>
     `;
   } catch (e) {
@@ -1027,6 +1086,7 @@ async function loadSMSStatusList() {
   }
 }
 
+// ⭐ تابع استعلام وضعیت تحویل (با منطق دقیق DeliveryType)
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -1052,26 +1112,21 @@ async function checkAllDeliveries() {
     const processDelivery = async (del) => {
       const sendTime = del.SendDateTime || null;
       const statusCode = String(del.Status).toLowerCase();
-      const deliveryType = del.DeliveryType ?? -1; // ⭐ فیلد جدید
+      const deliveryType = del.DeliveryType ?? -1;
       const cost = Math.abs(Number(del.Cost) || 0);
 
       let isDelivered = false;
       let newSmsStatus = 'sent';
 
-      // ⭐ منطق جدید: اولویت با DeliveryType است
       if (deliveryType === 1) {
-        // تحویل شده به گوشی (حتی اگر هزینه صفر باشد)
         isDelivered = true;
         newSmsStatus = 'sent';
       } else if (deliveryType === 0 || deliveryType === 35) {
-        // در صف یا نامشخص -> همچنان در انتظار
         isDelivered = false;
         newSmsStatus = 'sent';
       } else if (['2', '16', 'failed'].includes(statusCode)) {
-        // ناموفق بر اساس Status
         newSmsStatus = 'failed';
       } else {
-        // سایر حالات
         newSmsStatus = 'sent';
       }
 
@@ -1079,7 +1134,7 @@ async function checkAllDeliveries() {
         .update({ 
           sms_is_delivered: isDelivered, 
           sms_delivery_status: del.Status,
-          sms_delivery_type: deliveryType, // ⭐ ذخیره نوع تحویل
+          sms_delivery_type: deliveryType,
           sms_status: newSmsStatus,
           sms_send_datetime: sendTime,
           sms_delivery_datetime: isDelivered ? sendTime : null,
