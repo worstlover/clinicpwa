@@ -1,9 +1,11 @@
 // js/modules/visit/list.js
 import { sb } from '../../sb.js';
-import { $, faNum, escapeHtml, gregorianToJalali, toast } from '../../utils.js';
+import { $, faNum, escapeHtml, gregorianToJalali, toast, beep } from '../../utils.js';
 import { state, loadUserMapFromVisits } from './state.js';
 import { getMyDjangoId, isSuperuser, isSafetyOrSupervisor, getUserName, getTimeStr, getIncLabel } from './helpers.js';
 import { openCreate } from './create.js';
+import { openForm } from '../../forms/engine.js';
+import { logChange } from './changelog.js'; // ⭐ برای ثبت لاگ تکمیل گروهی
 
 export async function renderList() {
   const c = $('visitContent');
@@ -20,8 +22,13 @@ export async function renderList() {
       </button>
     </div>
 
-    <button class="btn btn-primary w-100 py-3 mb-3" id="btnNewVisit">
+    <button class="btn btn-primary w-100 py-3 mb-2" id="btnNewVisit">
       <i class="bi bi-plus-circle-fill"></i> ثبت ویزیت جدید
+    </button>
+
+    <!-- ⭐ دکمه تکمیل گروهی -->
+    <button class="btn btn-warning w-100 py-2 mb-3" id="btnBulkComplete" style="display: ${state.filter !== 'completed' ? 'block' : 'none'};">
+      <i class="bi bi-check2-all"></i> تکمیل گروهی ویزیت‌های باز
     </button>
 
     <div id="visitList">
@@ -34,6 +41,12 @@ export async function renderList() {
   });
 
   $('btnNewVisit').onclick = () => openCreate();
+  $('btnBulkComplete').onclick = bulkCompleteVisits;
+
+  window._openForm34 = (visitId, e) => {
+    if (e) e.stopPropagation();
+    openForm('BR-FR-HS-34-00', { visitId: visitId });
+  };
 
   try {
     const myId = getMyDjangoId();
@@ -90,6 +103,14 @@ export async function renderList() {
       const assigneeName = getUserName(v.assigned_to_id);
       const isMine = v.assigned_to_id === getMyDjangoId();
 
+      const form34Btn = v.status !== 'completed' ? `
+        <div class="mt-2">
+          <button class="btn btn-sm btn-outline-danger w-100" onclick="window._openForm34(${v.id}, event)">
+            <i class="bi bi-file-earmark-medical"></i> صدور فرم بستری موقت
+          </button>
+        </div>
+      ` : '';
+
       return `
         <div class="visit-card ${cls}" data-visit-id="${v.id}">
           <div class="d-flex justify-content-between align-items-start">
@@ -114,6 +135,7 @@ export async function renderList() {
                   ? ` | <i class="bi bi-person-check"></i> مسئول: <strong>${escapeHtml(assigneeName)}</strong>`
                   : ''}
               </div>
+              ${form34Btn}
             </div>
             <i class="bi bi-chevron-left" style="font-size:1.5rem;color:#94a3b8;"></i>
           </div>
@@ -131,5 +153,138 @@ export async function renderList() {
   } catch (e) {
     console.error(e);
     $('visitList').innerHTML = `<div class="alert alert-danger">خطا: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// ⭐ تابع تکمیل گروهی (با چک موجودی و کسر FIFO دقیقاً مثل تکمیل تکی)
+async function bulkCompleteVisits() {
+  const btn = $('btnBulkComplete');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال بررسی موجودی...';
+
+  try {
+    // ۱. دریافت تمام ویزیت‌های باز
+    const { data: visits, error: e0 } = await sb.from('visits_visit')
+      .select('id')
+      .in('status', ['pending', 'referred']);
+
+    if (e0) throw e0;
+    if (!visits || visits.length === 0) {
+      toast('هیچ ویزیت بازی وجود ندارد', 'info');
+      return;
+    }
+
+    // ۲. بررسی داروها و موجودی برای هر ویزیت
+    const readyToComplete = [];
+    const shortagesInfo = [];
+
+    for (const v of visits) {
+      const { data: items } = await sb.from('visits_visititem')
+        .select('drug_id, quantity, drug:drugs_drug(name)').eq('visit_id', v.id);
+
+      if (!items || items.length === 0) {
+        readyToComplete.push({ id: v.id, items: [] });
+        continue;
+      }
+
+      let hasShortage = false;
+      let visitShortages = [];
+
+      for (const it of items) {
+        const { data: stock } = await sb.from('v_drug_stock')
+          .select('total_quantity').eq('drug_id', it.drug_id).maybeSingle();
+        const available = stock?.total_quantity || 0;
+
+        if (available < it.quantity) {
+          hasShortage = true;
+          visitShortages.push({
+            name: it.drug?.name || `#${it.drug_id}`,
+            required: it.quantity,
+            available: available
+          });
+        }
+      }
+
+      if (hasShortage) {
+        shortagesInfo.push({ visitId: v.id, shortages: visitShortages });
+      } else {
+        readyToComplete.push({ id: v.id, items });
+      }
+    }
+
+    // ۳. اگر کسری موجودی وجود داشت، به کاربر هشدار بده
+    if (shortagesInfo.length > 0) {
+      let msg = `⚠️ برخی ویزیت‌ها دارای کسری موجودی دارو هستند و از لیست تکمیل گروهی حذف شدند:\n\n`;
+      shortagesInfo.forEach(info => {
+        msg += `ویزیت #${info.visitId}:\n`;
+        info.shortages.forEach(s => {
+          msg += `  - ${s.name}: نیاز ${faNum(s.required)} | موجودی ${faNum(s.available)}\n`;
+        });
+        msg += `\n`;
+      });
+      msg += `آیا مایل هستید سایر ویزیت‌ها (${faNum(readyToComplete.length)} مورد) که موجودی کافی دارند، تکمیل شوند؟`;
+
+      if (readyToComplete.length === 0) {
+        alert('هیچ ویزیتی برای تکمیل گروهی وجود ندارد (همه دارای کسری هستند).');
+        return;
+      }
+
+      if (!confirm(msg)) return;
+    } else {
+      if (!confirm(`آیا مطمئن هستید که ${faNum(readyToComplete.length)} ویزیت تکمیل و موجودی داروهایشان کسر شود؟`)) return;
+    }
+
+    // ۴. اجرای کسر FIFO و تکمیل ویزیت‌ها
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال تکمیل...';
+    const myId = getMyDjangoId();
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const v of readyToComplete) {
+      try {
+        // الف) کسر موجودی داروها (FIFO)
+        for (const it of v.items) {
+          const { error: eRpc } = await sb.rpc('deduct_stock_fifo', {
+            p_drug_id: it.drug_id, p_quantity: it.quantity
+          });
+          if (eRpc) throw new Error(`داروی ${it.drug?.name}: ${eRpc.message}`);
+        }
+
+        // ب) تغییر وضعیت ویزیت به completed
+        const { error: e2 } = await sb.from('visits_visit').update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          completed_by_id: myId
+        }).eq('id', v.id);
+
+        if (e2) throw e2;
+
+        // ج) ثبت لاگ
+        await logChange(v.id, 'complete', [], `تکمیل گروهی (${v.items.length} دارو کسر شد)`);
+        successCount++;
+
+      } catch (err) {
+        console.error(`خطا در تکمیل ویزیت #${v.id}:`, err);
+        errorCount++;
+      }
+    }
+
+    // ۵. نمایش نتیجه
+    if (errorCount > 0) {
+      toast(`⚠️ ${faNum(successCount)} ویزیت تکمیل شد، ${faNum(errorCount)} ویزیت با خطا مواجه شد.`, 'warning');
+    } else {
+      toast(`✅ ${faNum(successCount)} ویزیت با موفقیت تکمیل شد.`, 'success');
+      beep();
+    }
+
+    // ۶. رفرش لیست
+    await renderList();
+
+  } catch (e) {
+    console.error('[BULK COMPLETE] Error:', e);
+    toast('خطا در عملیات گروهی: ' + e.message, 'danger');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check2-all"></i> تکمیل گروهی ویزیت‌های باز';
   }
 }
