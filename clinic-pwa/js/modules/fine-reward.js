@@ -38,6 +38,22 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
+// ⭐ ساخت متن پیامک طبق قالب درخواستی شما
+function buildSmsText(record) {
+  const type = record.record_type;
+  const amount = fmtMoney(record.amount);
+  const date = record.incident_datetime ? gregorianToJalali(record.incident_datetime.split('T')[0]) : '—';
+  const reason = record.reason || '—';
+  const who = 'مدیریت ایمنی'; // می‌توانید این را به نام کاربر جاری تغییر دهید
+  const SIGN = ''; // اگر نیاز به امضا یا متن خاصی دارید اینجا قرار دهید
+
+  if (type === "fine")
+    return `اطلاعیه ایمنی: ${who} مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} برای شما منظور گردید. ${SIGN}`;
+  if (type === "reward")
+    return `اطلاعیه ایمنی: ${who} مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} به عنوان پاداش برای شما منظور گردید. ${SIGN}`;
+  return `اخطار ایمنی: ${who} در تاریخ ${date} به علت ${reason} اخطار ایمنی برای شما ثبت گردید. ${SIGN}`;
+}
+
 // ═══════════════════════════════════════════════════════
 // 📱 سرویس پیامک (از طریق Edge Function سوپابیس)
 // ═══════════════════════════════════════════════════════
@@ -49,7 +65,6 @@ async function sendSMS(phone, text) {
   if (!/^09\d{9}$/.test(cleanPhone)) return { success: false, error: `شماره نامعتبر (${phone})` };
 
   try {
-    // ⭐ نام تابع دقیقاً مطابق داشبورد سوپابیس
     const { data, error } = await sb.functions.invoke('send-fine-sms', {
       body: { mobile: cleanPhone, text: text }
     });
@@ -275,7 +290,8 @@ function openDetail(item) {
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ارسال...';
       
-      const smsText = `همکار گرامی، ${typeFa} ثبت شده برای شما: ${item.reason} (مبلغ: ${fmtMoney(item.amount)} ریال)`;
+      // استفاده از تابع جدید ساخت پیامک
+      const smsText = buildSmsText(item);
       const res = await sendSMS(item.patient?.phone_number, smsText);
       
       if (res.success) {
@@ -301,7 +317,7 @@ function openDetail(item) {
 }
 
 // ═══════════════════════════════════════════════════════
-// تب ثبت جدید (اصلاح باگ مبلغ)
+// تب ثبت جدید
 // ═══════════════════════════════════════════════════════
 function renderAddForm() {
   const body = $('frBody');
@@ -364,7 +380,6 @@ function renderAddForm() {
     </div>
   `;
 
-  // ⭐ اصلاح باگ مبلغ: حذف ممیز فارسی و قرار دادن عدد انگلیسی
   const chipWrap = (wrapId, items, onPick) => {
     const w = $(wrapId);
     if (!w) return;
@@ -377,7 +392,7 @@ function renderAddForm() {
     });
   };
 
-  // وقتی دکمه مبلغ زده می‌شود، مقدار را با فرمت انگلیسی (کاما) بگذار
+  // ⭐ اصلاح باگ مبلغ: مقدار عددی انگلیسی ذخیره شود
   chipWrap('frAmountChips', QUICK_AMOUNTS, v => { $('frAmount').value = v.toLocaleString('en-US'); });
   chipWrap('frReasonChips', QUICK_REASONS, v => { $('frReason').value = v; });
   chipWrap('frLocationChips', QUICK_REGISTER_LOCATIONS, v => { $('frLocation').value = v; });
@@ -584,7 +599,7 @@ async function saveRecord() {
   const isoDT = toISOWithTime(dateStr, timeStr);
   if (!isoDT) { toast('تاریخ نامعتبر', 'warning'); return; }
 
-  // ⭐ اصلاح قطعی: حذف تمام کاراکترهای غیرعددی قبل از تبدیل به عدد
+  // ⭐ اصلاح باگ مبلغ: حذف هر کاراکتر غیرعددی
   const rawAmount = toEnDigits($('frAmount').value);
   const amount = parseInt(rawAmount.replace(/[^\d]/g, ''), 10) || 0;
   
@@ -607,8 +622,8 @@ async function saveRecord() {
     const { data: inserted, error } = await sb.from('safety_finereward').insert(record).select().single();
     if (error) throw error;
 
-    const typeFa = { fine: 'جریمه', reward: 'تشویقی', warning: 'اخطار' }[record.record_type];
-    const smsText = `همکار گرامی، ${typeFa} ثبت شده برای شما: ${reason} (مبلغ: ${fmtMoney(amount)} ریال)`;
+    // ⭐ استفاده از تابع ساخت پیامک
+    const smsText = buildSmsText(record);
     const smsResult = await sendSMS(phone, smsText);
     
     if (smsResult.success) {
@@ -852,8 +867,8 @@ async function loadSMSStatusList() {
       
       let success = 0, fail = 0;
       for (const item of failedList) {
-        const typeFa = { fine: 'جریمه', reward: 'تشویقی', warning: 'اخطار' }[item.record_type];
-        const smsText = `همکار گرامی، ${typeFa} ثبت شده برای شما: ${item.reason} (مبلغ: ${fmtMoney(item.amount)} ریال)`;
+        // استفاده از تابع ساخت پیامک
+        const smsText = buildSmsText(item);
         const res = await sendSMS(item.patient?.phone_number, smsText);
         
         if (res.success) {
