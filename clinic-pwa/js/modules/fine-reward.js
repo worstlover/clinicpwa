@@ -1,8 +1,8 @@
 // js/modules/fine-reward.js
 import { sb } from '../sb.js';
 import { $, toast, escapeHtml, gregorianToJalali, jalaliToGregorian, todayJalali } from '../utils.js';
-// ⭐ برای خروجی اکسل استاندارد
 import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js';
+import { getAccountStatus } from './amoot-api.js';
 
 // ═══════════════════════════════════════════════════════
 // دکمه‌های سریع
@@ -40,7 +40,7 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
-// ⭐ ساخت متن پیامک طبق قالب درخواستی شما
+// ساخت متن پیامک طبق قالب اختصاصی
 function buildSmsText(record) {
   const type = record.record_type;
   const amount = fmtMoney(record.amount);
@@ -57,7 +57,7 @@ function buildSmsText(record) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 📱 سرویس پیامک و استعلام اعتبار
+// 📱 سرویس پیامک (ارسال از طریق Edge Function)
 // ═══════════════════════════════════════════════════════
 async function sendSMS(phone, text) {
   if (!phone) return { success: false, error: 'شماره موبایل ثبت نشده است' };
@@ -81,34 +81,16 @@ async function sendSMS(phone, text) {
   }
 }
 
-// ⭐ استعلام اعتبار و وضعیت حساب از طریق Edge Function
-async function fetchAccountStatus() {
-  try {
-    const { data, error } = await sb.functions.invoke('amoot-account-status');
-    if (error) throw new Error(error.message);
-    return data;
-  } catch (e) {
-    console.error('[ACCOUNT] Error:', e);
-    return { success: false, error: e.message };
-  }
-}
-
 // ═══════════════════════════════════════════════════════
-// 📤 خروجی اکسل استاندارد (XLSX) و PDF
+// 📤 خروجی‌گیری (Excel و PDF)
 // ═══════════════════════════════════════════════════════
 function exportToExcel(headers, rows, filename) {
-  // ایجاد شیت از آرایه دو بعدی
   const wsData = [headers, ...rows];
   const ws = XLSX.utils.aoa_to_sheet(wsData);
-  
-  // تنظیم جهت راست‌به‌چپ
   if(!ws['!views']) ws['!views'] = [];
   ws['!views'].push({ RTL: true });
-
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Report");
-  
-  // خروجی به صورت فایل
   XLSX.writeFile(wb, filename);
 }
 
@@ -119,40 +101,23 @@ function exportToPDF(title, headers, rows) {
     area.id = 'pdfPrintArea';
     document.body.appendChild(area);
   }
-
   const tableRows = rows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('');
-
   area.innerHTML = `
     <div style="direction:rtl; font-family:Tahoma; padding:20px;">
       <h2 style="text-align:center; margin-bottom:20px;">${title}</h2>
       <p style="text-align:left; font-size:12px;">تاریخ چاپ: ${todayJalali()}</p>
       <table style="width:100%; border-collapse:collapse; text-align:center; font-size:12px;">
-        <thead>
-          <tr style="background:#f3f4f6;">
-            ${headers.map(h => `<th style="border:1px solid #000; padding:8px;">${h}</th>`).join('')}
-          </tr>
-        </thead>
+        <thead><tr style="background:#f3f4f6;">${headers.map(h => `<th style="border:1px solid #000; padding:8px;">${h}</th>`).join('')}</tr></thead>
         <tbody>${tableRows}</tbody>
       </table>
-    </div>
-  `;
-  
-  // استایل چاپ اختصاصی برای PDF
+    </div>`;
   let style = document.getElementById('pdfPrintStyle');
   if (!style) {
     style = document.createElement('style');
     style.id = 'pdfPrintStyle';
-    style.innerHTML = `
-      @media print {
-        body * { visibility: hidden; }
-        #pdfPrintArea, #pdfPrintArea * { visibility: visible; }
-        #pdfPrintArea { position: absolute; left: 0; top: 0; width: 100%; }
-        @page { size: A4; margin: 10mm; }
-      }
-    `;
+    style.innerHTML = `@media print { body * { visibility: hidden; } #pdfPrintArea, #pdfPrintArea * { visibility: visible; } #pdfPrintArea { position: absolute; left: 0; top: 0; width: 100%; } @page { size: A4; margin: 10mm; } }`;
     document.head.appendChild(style);
   }
-
   setTimeout(() => {
     window.print();
     setTimeout(() => { area.innerHTML = ''; }, 1000);
@@ -454,6 +419,7 @@ function renderAddForm() {
     });
   };
 
+  // ⭐ اصلاح باگ مبلغ: مقدار عددی انگلیسی ذخیره شود
   chipWrap('frAmountChips', QUICK_AMOUNTS, v => { $('frAmount').value = v.toLocaleString('en-US'); });
   chipWrap('frReasonChips', QUICK_REASONS, v => { $('frReason').value = v; });
   chipWrap('frLocationChips', QUICK_REGISTER_LOCATIONS, v => { $('frLocation').value = v; });
@@ -793,10 +759,10 @@ function exportExcel(records, prefix) {
 async function renderSMSStatus() {
   const body = $('frBody');
   
-  // استعلام اعتبار حساب
+  // ⭐ استعلام اعتبار و وضعیت حساب از طریق ماژول جدید
   let creditInfo = null;
-  const statusRes = await fetchAccountStatus();
-  if (statusRes && statusRes.success) {
+  const statusRes = await getAccountStatus();
+  if (statusRes.success) {
     creditInfo = statusRes.data;
   }
 
@@ -919,7 +885,6 @@ async function loadSMSStatusList() {
       </div>
     `;
 
-    // خروجی اکسل استاندارد
     $('frExportFailedExcel').onclick = async () => {
       const headers = ['نام', 'کد پرسنلی', 'موبایل', 'علت خطا', 'تاریخ رویداد'];
       const rows = failedList.map(r => [
@@ -938,7 +903,6 @@ async function loadSMSStatusList() {
       renderSMSStatus();
     };
 
-    // خروجی PDF
     $('frExportFailedPDF').onclick = () => {
       const headers = ['ردیف', 'نام', 'کد پرسنلی', 'موبایل', 'علت خطا', 'تاریخ'];
       const rows = failedList.map((r, idx) => [
@@ -951,7 +915,6 @@ async function loadSMSStatusList() {
       exportToPDF('گزارش پیامک‌های ناموفق', headers, rows);
     };
 
-    // ارسال مجدد
     $('frResendAll').onclick = async () => {
       if (!confirm(`آیا مایل به ارسال مجدد ${failedList.length} پیامک هستید؟`)) return;
       const btn = $('frResendAll');
