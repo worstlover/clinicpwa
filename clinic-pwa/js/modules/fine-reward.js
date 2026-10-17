@@ -39,18 +39,29 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
-// فرمت‌بندی دقیق تاریخ و ساعت برای خروجی‌ها
+// ⭐ فرمت‌بندی زمان با تنظیم دقیق منطقه زمانی تهران (حل مشکل ۳.۵ ساعت اختلاف)
 const formatDateTime = (isoStr) => {
   if (!isoStr) return '—';
   try {
-    const safeStr = String(isoStr).replace(/\.\d+/, '').replace(' ', 'T');
-    const d = new Date(safeStr);
+    const d = new Date(isoStr);
     if (isNaN(d)) return '—';
-    const g = d.toISOString().slice(0, 10);
-    const j = gregorianToJalali(g);
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    return `${j} - ${hh}:${mm}`;
+    
+    // تنظیم دقیق برای وقت تهران
+    const options = { 
+      timeZone: 'Asia/Tehran', 
+      year: 'numeric', month: '2-digit', day: '2-digit', 
+      hour: '2-digit', minute: '2-digit', hour12: false 
+    };
+    const formatter = new Intl.DateTimeFormat('fa-IR', options);
+    const parts = formatter.formatToParts(d);
+    
+    const y = parts.find(p => p.type === 'year').value;
+    const m = parts.find(p => p.type === 'month').value;
+    const day = parts.find(p => p.type === 'day').value;
+    const hh = parts.find(p => p.type === 'hour').value;
+    const mm = parts.find(p => p.type === 'minute').value;
+    
+    return `${y}/${m}/${day} - ${hh}:${mm}`;
   } catch (e) { return '—'; }
 };
 
@@ -60,7 +71,6 @@ function buildSmsText(record, customName) {
   const amount = fmtMoney(record.amount);
   const reason = record.reason || '—';
   
-  // استفاده از نام وارد شده، در غیر این صورت عبارت پیش‌فرض
   const cleanName = customName && customName.trim() !== '' ? customName.trim() : '';
   const prefix = cleanName ? `آقای ${cleanName}` : 'همکار گرامی';
   
@@ -774,7 +784,7 @@ function renderFinanceItem(it) {
 
 async function exportAndMark(records, format) {
   if (!records.length) return;
-  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان ارسال/تحویل'];
+  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان تحویل'];
   const rows = records.map(r => [
     `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
     r.patient?.personnel_number || '', r.patient?.national_code || '', r.patient?.phone_number || '',
@@ -798,7 +808,7 @@ async function exportAndMark(records, format) {
 }
 
 function exportFinance(records, format) {
-  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان ارسال/تحویل'];
+  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان تحویل'];
   const rows = records.map(r => [
     `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
     r.patient?.personnel_number || '', r.patient?.national_code || '', r.patient?.phone_number || '',
@@ -854,9 +864,20 @@ async function renderSMSStatus() {
         <div class="col-6"><input type="text" id="frSmsFilterFrom" placeholder="از تاریخ" value="${todayJalali().slice(0,4)}/01/01" class="form-control" dir="ltr"></div>
         <div class="col-6"><input type="text" id="frSmsFilterTo" placeholder="تا تاریخ" value="${todayJalali()}" class="form-control" dir="ltr"></div>
       </div>
-      <div class="d-flex justify-content-between align-items-center mt-2">
-        <button class="btn btn-primary btn-sm flex-grow-1 me-2" id="frSmsApplyFilter"><i class="bi bi-funnel"></i> اعمال فیلتر</button>
-        <button class="btn btn-info btn-sm text-white" id="frCheckDeliveryBtn"><i class="bi bi-arrow-repeat"></i> استعلام تحویل</button>
+      <div class="row g-2 mt-2">
+        <!-- ⭐ فیلتر وضعیت -->
+        <div class="col-6">
+          <select id="frSmsFilterStatus" class="form-select">
+            <option value="all">همه وضعیت‌ها</option>
+            <option value="delivered">تحویل شده</option>
+            <option value="sent">ارسال شده (در انتظار تحویل)</option>
+            <option value="failed">ناموفق</option>
+          </select>
+        </div>
+        <div class="col-6 d-flex align-items-end">
+          <button class="btn btn-primary btn-sm flex-grow-1 me-2" id="frSmsApplyFilter"><i class="bi bi-funnel"></i> فیلتر</button>
+          <button class="btn btn-info btn-sm text-white" id="frCheckDeliveryBtn"><i class="bi bi-arrow-repeat"></i> استعلام</button>
+        </div>
       </div>
     </div>
     <div id="frSmsListContainer"><div class="text-center py-4"><div class="spinner-border text-primary"></div></div></div>
@@ -874,12 +895,22 @@ async function loadSMSStatusList() {
   const q = $('frSmsFilterQuery')?.value.trim().toLowerCase() || '';
   const from = $('frSmsFilterFrom')?.value.trim() || '';
   const to = $('frSmsFilterTo')?.value.trim() || '';
+  const statusFilter = $('frSmsFilterStatus')?.value || 'all';
 
   try {
     let query = sb.from('safety_finereward')
       .select('*, patient:core_patient(first_name, last_name, personnel_number, phone_number)')
       .not('sms_status', 'eq', 'pending')
       .order('created_at', { ascending: false });
+
+    // ⭐ اعمال فیلتر وضعیت
+    if (statusFilter === 'delivered') {
+      query = query.eq('sms_is_delivered', true);
+    } else if (statusFilter === 'sent') {
+      query = query.eq('sms_status', 'sent').eq('sms_is_delivered', false);
+    } else if (statusFilter === 'failed') {
+      query = query.eq('sms_status', 'failed');
+    }
 
     const fromG = from ? jalaliToGregorian(from) : null;
     const toG = to ? jalaliToGregorian(to) : null;
@@ -1017,7 +1048,7 @@ async function checkAllDeliveries() {
     if (error) throw error;
     if (!pendingList || pendingList.length === 0) {
       toast('هیچ پیامک در انتظار تحویلی وجود ندارد', 'info');
-      btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام تحویل';
+      btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
       return;
     }
 
@@ -1086,6 +1117,6 @@ async function checkAllDeliveries() {
     console.error('Delivery check error:', e);
     toast(e.message || 'خطا در استعلام', 'danger');
   } finally {
-    btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام تحویل';
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
   }
 }
