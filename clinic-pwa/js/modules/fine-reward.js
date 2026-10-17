@@ -1028,14 +1028,10 @@ async function loadSMSStatusList() {
 }
 
 async function checkAllDeliveries() {
-  console.log('🔍 [DEBUG] 1. دکمه استعلام کلیک شد.');
-  
   const btn = $('frCheckDeliveryBtn');
-  btn.disabled = true; 
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
 
   try {
-    console.log('🔍 [DEBUG] 2. در حال دریافت لیست پیامک‌های در انتظار از دیتابیس...');
     const { data: pendingList, error } = await sb.from('safety_finereward')
       .select('id, sms_message_id')
       .eq('sms_status', 'sent')
@@ -1044,66 +1040,46 @@ async function checkAllDeliveries() {
       .limit(50);
 
     if (error) throw error;
-
     if (!pendingList || pendingList.length === 0) {
       toast('هیچ پیامک در انتظار تحویلی وجود ندارد', 'info');
-      btn.disabled = false; 
-      btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
+      btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
       return;
     }
 
     const messageIds = pendingList.map(p => p.sms_message_id);
-    console.log('🔍 [DEBUG] 3. شناسه‌های ارسال شده:', messageIds);
-
-    console.log('🔍 [DEBUG] 4. در حال ارسال درخواست به Edge Function...');
-    const res = await getDeliveries(messageIds);
-    
-    if (!res?.success) {
-      throw new Error(res?.error || 'ارتباط با سرویس استعلام دلیوری ناموفق بود');
-    }
-
-    const deliveries = res.data?.Data ?? res.data?.data;
-    if (!Array.isArray(deliveries)) {
-      throw new Error('ساختار پاسخ دلیوری آموت قابل شناسایی نیست');
-    }
-    
-    // ⭐ این خط، داده‌های خام را به صورت متن چاپ می‌کند
-    console.log('🔍 [DEBUG] 5. داده‌های خام دریافتی از آموت:\n' + JSON.stringify(deliveries, null, 2));
-
-    if (deliveries.length === 0) {
-      toast('آموت برای این شناسه‌ها رکورد دلیوری برنگرداند', 'warning');
-      btn.disabled = false; 
-      btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
-      return;
-    }
-
     let updatedCount = 0;
 
     const processDelivery = async (del) => {
       const sendTime = del.SendDateTime || null;
       const statusCode = String(del.Status).toLowerCase();
+      const deliveryType = del.DeliveryType ?? -1; // ⭐ فیلد جدید
       const cost = Math.abs(Number(del.Cost) || 0);
 
       let isDelivered = false;
       let newSmsStatus = 'sent';
 
-      if (statusCode === '1' || statusCode === 'success') {
-        if (cost > 0) {
-          isDelivered = true; 
-        } else {
-          isDelivered = false; 
-          newSmsStatus = 'sent'; 
-        }
+      // ⭐ منطق جدید: اولویت با DeliveryType است
+      if (deliveryType === 1) {
+        // تحویل شده به گوشی (حتی اگر هزینه صفر باشد)
+        isDelivered = true;
+        newSmsStatus = 'sent';
+      } else if (deliveryType === 0 || deliveryType === 35) {
+        // در صف یا نامشخص -> همچنان در انتظار
+        isDelivered = false;
+        newSmsStatus = 'sent';
       } else if (['2', '16', 'failed'].includes(statusCode)) {
-        newSmsStatus = 'failed'; 
+        // ناموفق بر اساس Status
+        newSmsStatus = 'failed';
       } else {
-        newSmsStatus = 'sent'; 
+        // سایر حالات
+        newSmsStatus = 'sent';
       }
 
-      await sb.from('safety_finereward')
+      const { error: updErr } = await sb.from('safety_finereward')
         .update({ 
           sms_is_delivered: isDelivered, 
           sms_delivery_status: del.Status,
+          sms_delivery_type: deliveryType, // ⭐ ذخیره نوع تحویل
           sms_status: newSmsStatus,
           sms_send_datetime: sendTime,
           sms_delivery_datetime: isDelivered ? sendTime : null,
@@ -1111,23 +1087,35 @@ async function checkAllDeliveries() {
         })
         .eq('sms_message_id', del.MessageID);
 
-      updatedCount++;
+      if (updErr) throw new Error('خطا در ذخیره وضعیت: ' + updErr.message);
     };
+
+    const res = await getDeliveries(messageIds);
+    if (!res?.success) {
+      throw new Error(res?.error || 'ارتباط با سرویس استعلام دلیوری ناموفق بود');
+    }
+
+    const deliveries = res.data?.Data ?? res.data?.data;
+    if (!Array.isArray(deliveries)) throw new Error('ساختار پاسخ دلیوری آموت قابل شناسایی نیست');
+    if (deliveries.length === 0) {
+      toast('آموت برای این شناسه‌ها رکورد دلیوری برنگرداند', 'warning');
+      btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
+      return;
+    }
 
     for (const del of deliveries) {
       if (!del || del.MessageID == null || del.Status == null) continue;
       await processDelivery(del);
+      updatedCount++;
     }
 
-    console.log(`🔍 [DEBUG] 6. پایان عملیات. ${updatedCount} پیامک آپدیت شد.`);
     toast(`استعلام پایان یافت. ${updatedCount} پیامک بررسی شد.`, 'success');
     loadSMSStatusList();
 
   } catch (e) {
-    console.error('🔍 [DEBUG] خطای نهایی:', e);
+    console.error('Delivery check error:', e);
     toast(e.message || 'خطا در استعلام', 'danger');
   } finally {
-    btn.disabled = false; 
-    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
   }
 }
