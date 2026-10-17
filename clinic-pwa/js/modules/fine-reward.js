@@ -39,7 +39,6 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
-// ⭐ متن پیامک دقیقاً طبق درخواست شما
 function buildSmsText(record) {
   const type = record.record_type;
   const amount = fmtMoney(record.amount);
@@ -105,7 +104,7 @@ function exportToExcel(headers, rows, filename) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 📤 خروجی PDF
+// 📤 خروجی PDF (اصلاح شده)
 // ═══════════════════════════════════════════════════════
 async function exportToPDF(title, headers, rows, filename) {
   if (!window.html2canvas || !window.jspdf) {
@@ -113,18 +112,17 @@ async function exportToPDF(title, headers, rows, filename) {
     return;
   }
 
+  // ایجاد یک کانتینر با استایل امن برای رندر
   const tempDiv = document.createElement('div');
   tempDiv.style.position = 'absolute';
   tempDiv.style.top = '0';
-  tempDiv.style.left = '0';
-  tempDiv.style.opacity = '0'; 
-  tempDiv.style.pointerEvents = 'none';
-  tempDiv.style.zIndex = '-1';
+  tempDiv.style.left = '-9999px'; // انتقال به خارج از صفحه
   tempDiv.style.width = '800px';
-  tempDiv.style.background = '#fff';
+  tempDiv.style.backgroundColor = '#ffffff';
   tempDiv.style.direction = 'rtl';
   tempDiv.style.fontFamily = 'Tahoma, Arial, sans-serif';
   tempDiv.style.padding = '20px';
+  // ⚠️ از opacity: 0 یا display: none استفاده نمی‌کنیم تا html2canvas بتواند آن را ببیند
 
   const tableRows = rows.map(row => `<tr>${row.map(cell => `<td style="border:1px solid #000; padding:8px; text-align:center;">${cell}</td>`).join('')}</tr>`).join('');
   
@@ -140,7 +138,15 @@ async function exportToPDF(title, headers, rows, filename) {
 
   try {
     toast('در حال آماده‌سازی PDF...', 'info');
-    const canvas = await window.html2canvas(tempDiv, { scale: 2, useCORS: true });
+    
+    // صبر کوتاه برای لود کامل استایل‌ها
+    await new Promise(r => setTimeout(r, 200));
+
+    const canvas = await window.html2canvas(tempDiv, { 
+      scale: 2, 
+      useCORS: true,
+      logging: false
+    });
     const imgData = canvas.toDataURL('image/png');
 
     const { jsPDF } = window.jspdf;
@@ -285,7 +291,6 @@ function renderListItem(item) {
   const name = item.patient ? `${item.patient.first_name||''} ${item.patient.last_name||''}`.trim() : '—';
   const dateStr = item.incident_datetime ? gregorianToJalali(item.incident_datetime.split('T')[0]) : '—';
   
-  // ⭐ اولویت نمایش با وضعیت تحویل است
   let smsBadge = '';
   if (item.sms_is_delivered) {
     smsBadge = '<span class="badge bg-success" style="font-size:0.6rem;">تحویل شد</span>';
@@ -319,12 +324,14 @@ function renderListItem(item) {
 }
 
 // ═══════════════════════════════════════════════════════
-// مودال جزئیات
+// مودال جزئیات (با نمایش ساعت تحویل)
 // ═══════════════════════════════════════════════════════
 function openDetail(item) {
   const typeFa = { fine: 'جریمه', reward: 'تشویقی', warning: 'اخطار' }[item.record_type] || '—';
   const name = item.patient ? `${item.patient.first_name||''} ${item.patient.last_name||''}`.trim() : '—';
   
+  const deliveryDate = item.sms_delivery_datetime ? new Date(item.sms_delivery_datetime).toLocaleString('fa-IR') : '—';
+
   const sheet = document.createElement('div');
   sheet.className = 'fr-sheet';
   sheet.innerHTML = `
@@ -341,7 +348,8 @@ function openDetail(item) {
       <span>وضعیت پیامک:</span>
       <b>${item.sms_status === 'sent' ? '✅ ارسال شده' : item.sms_status === 'failed' ? '❌ ناموفق' : '⏳ در انتظار'}</b>
     </div>
-    ${item.sms_status === 'sent' ? `<div class="fr-detail-row"><span>وضعیت تحویل:</span><b>${item.sms_is_delivered ? '📬 تحویل شده' : '⏳ تحویل نشده'}</b></div>` : ''}
+    ${item.sms_is_delivered ? `<div class="fr-detail-row"><span>وضعیت تحویل:</span><b>📬 تحویل شده</b></div>` : ''}
+    ${item.sms_delivery_datetime ? `<div class="fr-detail-row"><span>زمان تحویل:</span><b dir="ltr">${deliveryDate}</b></div>` : ''}
     ${item.sms_error ? `<div class="fr-detail-row"><span>علت خطا:</span><b class="text-danger">${escapeHtml(item.sms_error)}</b></div>` : ''}
 
     <div class="d-flex gap-2 mt-3">
@@ -913,12 +921,13 @@ async function loadSMSStatusList() {
     `;
 
     $('frExportFailedExcel').onclick = async () => {
-      const headers = ['نام', 'کد پرسنلی', 'موبایل', 'وضعیت ارسال', 'وضعیت تحویل', 'علت خطا', 'تاریخ'];
+      const headers = ['نام', 'کد پرسنلی', 'موبایل', 'وضعیت ارسال', 'وضعیت تحویل', 'زمان تحویل', 'علت خطا', 'تاریخ'];
       const rows = list.map(r => [
         `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
         r.patient?.personnel_number || '', r.patient?.phone_number || '',
         r.sms_status === 'failed' ? 'ناموفق' : 'ارسال شده',
         r.sms_is_delivered ? 'تحویل شده' : 'تحویل نشده',
+        r.sms_delivery_datetime ? new Date(r.sms_delivery_datetime).toLocaleString('fa-IR') : '—',
         r.sms_error || '—',
         r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
       ]);
@@ -930,12 +939,13 @@ async function loadSMSStatusList() {
     };
 
     $('frExportFailedPDF').onclick = () => {
-      const headers = ['ردیف', 'نام', 'موبایل', 'وضعیت', 'علت خطا'];
+      const headers = ['ردیف', 'نام', 'موبایل', 'وضعیت', 'زمان تحویل', 'علت خطا'];
       const rows = list.map((r, idx) => [
         idx + 1,
         `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
         r.patient?.phone_number || '—',
         r.sms_status === 'failed' ? 'ناموفق' : (r.sms_is_delivered ? 'تحویل شده' : 'ارسال شده'),
+        r.sms_delivery_datetime ? new Date(r.sms_delivery_datetime).toLocaleString('fa-IR') : '—',
         r.sms_error || '—',
       ]);
       exportToPDF('گزارش وضعیت پیامک‌ها', headers, rows, `sms-report-${todayJalali().replace(/\//g,'-')}.pdf`);
@@ -971,7 +981,7 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل (با تشخیص کلمه Success و هندل کردن خطای تک‌تک)
+// ⭐ تابع استعلام وضعیت تحویل (با ذخیره تاریخ/ساعت تحویل)
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -996,21 +1006,26 @@ async function checkAllDeliveries() {
     let updatedCount = 0;
     let invalidCount = 0;
 
+    const processDelivery = async (del) => {
+      // ⭐ ذخیره تاریخ و ساعت تحویل همراه با وضعیت
+      const updateData = { 
+        sms_is_delivered: true, 
+        sms_delivery_status: del.Status,
+        sms_status: 'sent', // مجبور کردن سیستم به آپدیت وضعیت اصلی
+        sms_send_datetime: del.SendDateTime ? del.SendDateTime : null,
+        sms_delivery_datetime: del.DeliveryDateTime ? del.DeliveryDateTime : (del.SendDateTime ? del.SendDateTime : null)
+      };
+      await sb.from('safety_finereward').update(updateData).eq('sms_message_id', del.MessageID);
+    };
+
     // تلاش برای استعلام گروهی
     const res = await getDeliveries(messageIds);
     
     if (res.success && res.data.Status !== 'Failed') {
       const deliveries = res.data?.Data || res.data?.data || [];
       for (const del of deliveries) {
-        // ⭐ اصلاح شد: پذیرش کلمه Success علاوه بر 2 و delivered
         if (['2', 'delivered', 'success'].includes(String(del.Status).toLowerCase())) {
-          await sb.from('safety_finereward')
-            .update({ 
-              sms_is_delivered: true, 
-              sms_delivery_status: del.Status,
-              sms_status: 'sent' // ⭐ مجبور کردن سیستم به آپدیت وضعیت اصلی
-            })
-            .eq('sms_message_id', del.MessageID);
+          await processDelivery(del);
           updatedCount++;
         }
       }
@@ -1030,13 +1045,7 @@ async function checkAllDeliveries() {
           const deliveries = singleRes.data?.Data || singleRes.data?.data || [];
           for (const del of deliveries) {
             if (['2', 'delivered', 'success'].includes(String(del.Status).toLowerCase())) {
-              await sb.from('safety_finereward')
-                .update({ 
-                  sms_is_delivered: true, 
-                  sms_delivery_status: del.Status,
-                  sms_status: 'sent'
-                })
-                .eq('sms_message_id', del.MessageID);
+              await processDelivery(del);
               updatedCount++;
             }
           }
