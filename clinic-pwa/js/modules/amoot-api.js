@@ -23,17 +23,20 @@ export async function getMessages(params = {}) {
   }
 }
 
-// ⭐ تابع جدید برای استعلام وضعیت تحویل
 export async function getDeliveries(messageIds) {
   if (!Array.isArray(messageIds) || messageIds.length === 0) {
     return { success: false, error: 'لیست شناسه پیامک‌ها خالی است' };
   }
   try {
+    // ارسال درخواست به Edge Function جدید
     const { data, error } = await sb.functions.invoke('amoot-get-deliveries', {
       body: { messageIds: messageIds }
     });
+    
     if (error) throw new Error(error.message);
     if (!data.success) throw new Error(data.error);
+    
+    // data.data در اینجا همان پاسخ خام آموت است { Status: 'Success', Data: [...] }
     return { success: true, data: data.data };
   } catch (e) {
     return { success: false, error: e.message };
