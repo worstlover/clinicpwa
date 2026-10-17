@@ -49,8 +49,8 @@ async function sendSMS(phone, text) {
   if (!/^09\d{9}$/.test(cleanPhone)) return { success: false, error: `شماره نامعتبر (${phone})` };
 
   try {
-    // فراخوانی Edge Function
-    const { data, error } = await sb.functions.invoke('send-sms', {
+    // ⭐ اصلاح نام تابع به send-fine-sms مطابق داشبورد سوپابیس
+    const { data, error } = await sb.functions.invoke('send-fine-sms', {
       body: { mobile: cleanPhone, text: text }
     });
 
