@@ -7,9 +7,15 @@ import { getAccountStatus, getDeliveries } from './amoot-api.js';
 // دکمه‌های سریع
 // ═══════════════════════════════════════════════════════
 const QUICK_AMOUNTS = [500000, 1000000, 2000000, 5000000];
-const QUICK_REASONS = ['عدم استفاده از PPE', 'بی‌احتیاطی در کار', 'عدم رعایت دستورالعمل', 'ورود به منطقه ممنوعه', 'عدم گزارش حادثه', 'انجام کار بدون مجوز'];
+const QUICK_REASONS = [
+  'عدم استفاده از PPE', 'بی‌احتیاطی در کار', 'عدم رعایت دستورالعمل',
+  'ورود به منطقه ممنوعه', 'عدم گزارش حادثه', 'انجام کار بدون مجوز'
+];
 const QUICK_REGISTER_LOCATIONS = ['دفتر ایمنی', 'سیار', 'دفتر سرپرست ایمنی', 'مدیریت'];
-const QUICK_INCIDENT_LOCATIONS = ['خط تولید', 'انبار', 'کارگاه', 'محوطه', 'آزمایشگاه', 'ساختمان اداری', 'تعمیرگاه', 'باسکول', 'کوره', 'آسیاب'];
+const QUICK_INCIDENT_LOCATIONS = [
+  'خط تولید', 'انبار', 'کارگاه', 'محوطه', 'آزمایشگاه',
+  'ساختمان اداری', 'تعمیرگاه', 'باسکول', 'کوره', 'آسیاب'
+];
 
 // ═══════════════════════════════════════════════════════
 // توابع کمکی
@@ -33,6 +39,7 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
+// ⭐ متن پیامک دقیقاً طبق درخواست شما
 function buildSmsText(record) {
   const type = record.record_type;
   const amount = fmtMoney(record.amount);
@@ -41,8 +48,10 @@ function buildSmsText(record) {
   const who = 'مدیریت ایمنی';
   const SIGN = '';
 
-  if (type === "fine") return `اطلاعیه ایمنی: ${who} مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} برای شما منظور گردید. ${SIGN}`;
-  if (type === "reward") return `اطلاعیه ایمنی: ${who} مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} به عنوان پاداش برای شما منظور گردید. ${SIGN}`;
+  if (type === "fine")
+    return `اطلاعیه ایمنی: ${who} مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} برای شما منظور گردید. ${SIGN}`;
+  if (type === "reward")
+    return `اطلاعیه ایمنی: ${who} مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} به عنوان پاداش برای شما منظور گردید. ${SIGN}`;
   return `اخطار ایمنی: ${who} در تاریخ ${date} به علت ${reason} اخطار ایمنی برای شما ثبت گردید. ${SIGN}`;
 }
 
@@ -51,16 +60,22 @@ function buildSmsText(record) {
 // ═══════════════════════════════════════════════════════
 async function sendSMS(phone, text) {
   if (!phone) return { success: false, error: 'شماره موبایل ثبت نشده است' };
+
   let cleanPhone = toEnDigits(phone).replace(/\D/g, '');
   if (cleanPhone.length === 10 && cleanPhone.startsWith('9')) cleanPhone = '0' + cleanPhone;
   if (!/^09\d{9}$/.test(cleanPhone)) return { success: false, error: `شماره نامعتبر (${phone})` };
 
   try {
-    const { data, error } = await sb.functions.invoke('send-fine-sms', { body: { mobile: cleanPhone, text: text } });
-    if (error) throw new Error(error.message);
-    if (!data.success) throw new Error(data.error);
+    const { data, error } = await sb.functions.invoke('send-fine-sms', {
+      body: { mobile: cleanPhone, text: text }
+    });
+
+    if (error) throw new Error(error.message || 'خطا در ارتباط با سرور');
+    if (!data.success) throw new Error(data.error || 'خطای نامشخص از سمت آموت');
+
     return { success: true, messageId: data.messageId };
   } catch (e) {
+    console.error('[SMS] Error:', e);
     return { success: false, error: e.message };
   }
 }
@@ -70,7 +85,7 @@ async function sendSMS(phone, text) {
 // ═══════════════════════════════════════════════════════
 function exportToExcel(headers, rows, filename) {
   if (!window.XLSX) {
-    toast('کتابخانه اکسل (SheetJS) لود نشده است. صفحه را رفرش کنید.', 'danger');
+    toast('کتابخانه اکسل لود نشده است', 'danger');
     return;
   }
   try {
@@ -98,9 +113,7 @@ async function exportToPDF(title, headers, rows, filename) {
     return;
   }
 
-  // ساخت یک المان موقت برای تبدیل به عکس
   const tempDiv = document.createElement('div');
-  // ⭐ به جای مخفی کردن با left، از opacity استفاده می‌کنیم تا در WebView رندر شود
   tempDiv.style.position = 'absolute';
   tempDiv.style.top = '0';
   tempDiv.style.left = '0';
@@ -272,9 +285,12 @@ function renderListItem(item) {
   const name = item.patient ? `${item.patient.first_name||''} ${item.patient.last_name||''}`.trim() : '—';
   const dateStr = item.incident_datetime ? gregorianToJalali(item.incident_datetime.split('T')[0]) : '—';
   
+  // ⭐ اولویت نمایش با وضعیت تحویل است
   let smsBadge = '';
-  if (item.sms_status === 'sent') {
-    smsBadge = item.sms_is_delivered ? '<span class="badge bg-success" style="font-size:0.6rem;">تحویل شد</span>' : '<span class="badge bg-warning text-dark" style="font-size:0.6rem;">ارسال شد</span>';
+  if (item.sms_is_delivered) {
+    smsBadge = '<span class="badge bg-success" style="font-size:0.6rem;">تحویل شد</span>';
+  } else if (item.sms_status === 'sent') {
+    smsBadge = '<span class="badge bg-warning text-dark" style="font-size:0.6rem;">ارسال شد</span>';
   } else if (item.sms_status === 'failed') {
     smsBadge = '<span class="badge bg-danger" style="font-size:0.6rem;">ناموفق</span>';
   } else {
@@ -874,8 +890,10 @@ async function loadSMSStatusList() {
         <div class="fr-list" id="frFailedList">
           ${list.map(it => {
             let badge = '';
-            if (it.sms_status === 'failed') badge = '<span class="badge bg-danger">ناموفق</span>';
-            else if (it.sms_status === 'sent') badge = it.sms_is_delivered ? '<span class="badge bg-success">تحویل شد</span>' : '<span class="badge bg-warning text-dark">ارسال شد (در انتظار تحویل)</span>';
+            if (it.sms_is_delivered) badge = '<span class="badge bg-success">تحویل شد</span>';
+            else if (it.sms_status === 'sent') badge = '<span class="badge bg-warning text-dark">ارسال شد (در انتظار تحویل)</span>';
+            else if (it.sms_status === 'failed') badge = '<span class="badge bg-danger">ناموفق</span>';
+            else badge = '<span class="badge bg-secondary">در انتظار</span>';
             
             return `
             <div class="fr-item ${it.sms_status === 'failed' ? 'danger' : ''}" data-id="${it.id}">
@@ -953,7 +971,7 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل
+// ⭐ تابع استعلام وضعیت تحویل (با تشخیص کلمه Success و هندل کردن خطای تک‌تک)
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -964,6 +982,7 @@ async function checkAllDeliveries() {
       .eq('sms_status', 'sent')
       .eq('sms_is_delivered', false)
       .not('sms_message_id', 'is', null)
+      .or('sms_delivery_status.is.null,sms_delivery_status.neq.invalid')
       .limit(50);
 
     if (error) throw error;
@@ -974,29 +993,62 @@ async function checkAllDeliveries() {
     }
 
     const messageIds = pendingList.map(p => p.sms_message_id);
+    let updatedCount = 0;
+    let invalidCount = 0;
+
+    // تلاش برای استعلام گروهی
     const res = await getDeliveries(messageIds);
     
-    if (!res.success) {
-      throw new Error(res.error || 'خطا در استعلام از سمت آموت');
-    }
+    if (res.success && res.data.Status !== 'Failed') {
+      const deliveries = res.data?.Data || res.data?.data || [];
+      for (const del of deliveries) {
+        // ⭐ اصلاح شد: پذیرش کلمه Success علاوه بر 2 و delivered
+        if (['2', 'delivered', 'success'].includes(String(del.Status).toLowerCase())) {
+          await sb.from('safety_finereward')
+            .update({ 
+              sms_is_delivered: true, 
+              sms_delivery_status: del.Status,
+              sms_status: 'sent' // ⭐ مجبور کردن سیستم به آپدیت وضعیت اصلی
+            })
+            .eq('sms_message_id', del.MessageID);
+          updatedCount++;
+        }
+      }
+    } else {
+      console.warn('استعلام گروهی خطا داد، در حال بررسی تک‌تک...');
+      toast('استعلام گروهی خطا داد. در حال بررسی تک‌تک پیام‌ها...', 'warning');
 
-    if (res.data.Status === 'Failed') {
-      throw new Error('آموت پاسخ Failed داد. احتمالاً فرمت MessageID اشتباه است یا توکن دسترسی ندارد.');
-    }
-
-    const deliveries = res.data?.Data || res.data?.data || [];
-    let updatedCount = 0;
-
-    for (const del of deliveries) {
-      if (String(del.Status) === '2' || String(del.Status).toLowerCase() === 'delivered') {
-        await sb.from('safety_finereward')
-          .update({ sms_is_delivered: true, sms_delivery_status: del.Status })
-          .eq('sms_message_id', del.MessageID);
-        updatedCount++;
+      for (const msgId of messageIds) {
+        const singleRes = await getDeliveries([msgId]);
+        
+        if (!singleRes.success || singleRes.data.Status === 'Failed') {
+          await sb.from('safety_finereward')
+            .update({ sms_delivery_status: 'invalid' })
+            .eq('sms_message_id', msgId);
+          invalidCount++;
+        } else {
+          const deliveries = singleRes.data?.Data || singleRes.data?.data || [];
+          for (const del of deliveries) {
+            if (['2', 'delivered', 'success'].includes(String(del.Status).toLowerCase())) {
+              await sb.from('safety_finereward')
+                .update({ 
+                  sms_is_delivered: true, 
+                  sms_delivery_status: del.Status,
+                  sms_status: 'sent'
+                })
+                .eq('sms_message_id', del.MessageID);
+              updatedCount++;
+            }
+          }
+        }
+        await new Promise(r => setTimeout(r, 300));
       }
     }
 
-    toast(`استعلام پایان یافت. ${updatedCount} پیامک جدید تحویل شد.`, 'success');
+    let msg = `استعلام پایان یافت. ${updatedCount} پیامک تحویل شد.`;
+    if (invalidCount > 0) msg += ` (${invalidCount} شناسه نامعتبر نادیده گرفته شد)`;
+    toast(msg, 'success');
+    
     loadSMSStatusList();
 
   } catch (e) {
