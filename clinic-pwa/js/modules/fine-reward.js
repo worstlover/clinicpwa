@@ -2,6 +2,19 @@
 import { sb } from '../sb.js';
 import { $, toast, escapeHtml, gregorianToJalali, jalaliToGregorian, todayJalali } from '../utils.js';
 
+// ═══════════════════════════════════════════════════════
+// ⚙️ تنظیمات پیامک (اینجا را ویرایش کنید)
+// ═══════════════════════════════════════════════════════
+const SMS_CONFIG = {
+  API_TOKEN: 'YOUR_API_TOKEN_HERE',   // 🔴 توکن API خود را اینجا قرار دهید
+  LINE_NUMBER: 'Public',              // شماره خط فرستنده
+  SEND_URL: 'https://portal.amootsms.com/rest/SendSimple',
+  DELIVERY_URL: 'https://portal.amootsms.com/rest/GetDeliveries' // برای استعلام وضعیت
+};
+
+// ═══════════════════════════════════════════════════════
+// توابع کمکی
+// ═══════════════════════════════════════════════════════
 function showScreenDirect(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const el = document.getElementById('screen' + name);
@@ -21,75 +34,145 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
-// ⭐ دکمه‌های سریع اصلاح‌شده
-const QUICK_AMOUNTS = [500000, 1000000, 2000000, 5000000];
-const QUICK_REASONS = [
-  'عدم استفاده از PPE',
-  'بی‌احتیاطی در کار',
-  'عدم رعایت دستورالعمل',
-  'ورود به منطقه ممنوعه',
-  'عدم گزارش حادثه',
-  'انجام کار بدون مجوز',
-];
-const QUICK_REGISTER_LOCATIONS = ['دفتر ایمنی', 'سیار', 'دفتر سرپرست ایمنی', 'مدیریت'];
-const QUICK_INCIDENT_LOCATIONS = [
-  'خط تولید', 'انبار', 'کارگاه', 'محوطه', 'آزمایشگاه',
-  'ساختمان اداری', 'تعمیرگاه', 'باسکول', 'کوره', 'آسیاب',
-];
-
 // ═══════════════════════════════════════════════════════
-export function openFineReward() {
-  showScreenDirect('FineReward');
-  const wrap = $('fineRewardContent');
-  if (!wrap) return;
+// 📱 سرویس پیامک (ارسال + ذخیره لاگ)
+// ═══════════════════════════════════════════════════════
+async function sendSMS(phone, text, patientName) {
+  if (!phone || !/^09\d{9}$/.test(phone)) {
+    console.warn('[SMS] شماره نامعتبر:', phone);
+    return { success: false, error: 'شماره نامعتبر' };
+  }
 
-  wrap.innerHTML = `
-    <div class="fr-page">
-      <div class="fr-header">
-        <div class="fr-title">مدیریت جریمه و تشویقی</div>
-        <div class="fr-sub">ثبت و مشاهده سوابق ایمنی پرسنل</div>
-      </div>
-      <div class="fr-tabs">
-        <button class="fr-tab active" data-tab="list"><i class="bi bi-list-ul"></i> لیست</button>
-        <button class="fr-tab" data-tab="add"><i class="bi bi-plus-circle"></i> ثبت جدید</button>
-        <button class="fr-tab" data-tab="finance"><i class="bi bi-file-earmark-excel"></i> مالی</button>
-      </div>
-      <div id="frBody"></div>
-    </div>
-  `;
-  wrap.querySelectorAll('.fr-tab').forEach(btn => {
-    btn.onclick = () => {
-      wrap.querySelectorAll('.fr-tab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const t = btn.dataset.tab;
-      if (t === 'list') renderList();
-      else if (t === 'add') renderAddForm();
-      else if (t === 'finance') renderFinance();
-    };
-  });
-  renderList();
+  try {
+    const formData = new URLSearchParams();
+    formData.append('token', SMS_CONFIG.API_TOKEN);
+    formData.append('Mobiles', phone);
+    formData.append('SendDateTime', '0');
+    formData.append('SMSMessageText', text);
+    formData.append('LineNumber', SMS_CONFIG.LINE_NUMBER);
+
+    const res = await fetch(SMS_CONFIG.SEND_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString()
+    });
+
+    const data = await res.json();
+    console.log('[SMS] Response:', data);
+
+    // بررسی خروجی API (ساختار: result.Data[0].Status)
+    let isSuccess = false;
+    let messageId = null;
+    let statusText = 'نامشخص';
+
+    if (data?.result?.Data?.[0]) {
+      const item = data.result.Data[0];
+      messageId = item.MessageID;
+      statusText = item.Status;
+      // طبق مستندات، Status های موفقیت معمولاً 1 یا 200 هستند
+      isSuccess = (String(item.Status) === '1' || String(item.Status) === '200');
+    } else if (data?.Status) {
+      statusText = data.Status;
+      isSuccess = (String(data.Status) === '1' || String(data.Status) === '200');
+    }
+
+    // ذخیره لاگ در دیتابیس (جدول جدید sms_logs)
+    const { error: logErr } = await sb.from('sms_logs').insert({
+      patient_name: patientName,
+      mobile: phone,
+      message_text: text,
+      message_id: messageId,
+      status: statusText,
+      is_success: isSuccess,
+      sent_at: new Date().toISOString()
+    });
+
+    if (logErr) console.error('[SMS] Log error:', logErr);
+    
+    return { success: isSuccess, messageId, status: statusText };
+  } catch (e) {
+    console.error('[SMS] Send error:', e);
+    return { success: false, error: e.message };
+  }
 }
 
 // ═══════════════════════════════════════════════════════
-// لیست
+// 📊 استعلام وضعیت تحویل (GetDeliveries)
+// ═══════════════════════════════════════════════════════
+async function checkDeliveryStatus() {
+  try {
+    const { data: pending } = await sb.from('sms_logs')
+      .select('id, message_id, mobile')
+      .eq('is_delivered', false)
+      .not('message_id', 'is', null)
+      .limit(20);
+
+    if (!pending?.length) return;
+
+    for (const log of pending) {
+      const formData = new URLSearchParams();
+      formData.append('token', SMS_CONFIG.API_TOKEN);
+      formData.append('MessageIDs', log.message_id);
+
+      const res = await fetch(SMS_CONFIG.DELIVERY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData.toString()
+      });
+      const data = await res.json();
+      
+      // اگر وضعیت نهایی بود (مثلاً 2 = تحویل شده)، آپدیت کن
+      const deliveryStatus = data?.result?.Data?.[0]?.Status;
+      if (deliveryStatus && String(deliveryStatus) === '2') {
+        await sb.from('sms_logs').update({ is_delivered: true, delivery_status: deliveryStatus }).eq('id', log.id);
+      }
+    }
+    toast('وضعیت تحویل پیام‌ها به‌روز شد', 'success');
+  } catch (e) {
+    console.error('Delivery check error:', e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// 📤 خروجی اکسل (CSV با پشتیبانی از فارسی)
+// ═══════════════════════════════════════════════════════
+function downloadCSV(headers, rows, filename) {
+  const BOM = '\uFEFF';
+  const csvContent = BOM + [headers, ...rows].map(row => 
+    row.map(cell => `"${String(cell || '').replace(/"/g, '""')}"`).join(',')
+  ).join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+// ═══════════════════════════════════════════════════════
+// لیست و جستجوی تراکنش‌ها
 // ═══════════════════════════════════════════════════════
 async function renderList() {
   const body = $('frBody');
   body.innerHTML = `
     <div class="fr-filters">
-      <input type="text" id="frFilterWorker" placeholder="نام کارگر..." class="form-control">
-      <input type="text" id="frFilterUser" placeholder="کاربر ثبت‌کننده..." class="form-control mt-2">
-      <div class="row g-2 mt-1">
+      <div class="input-group mb-2">
+        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+        <input type="text" id="frFilterQuery" placeholder="جستجو (نام، کد پرسنلی، موبایل، علت...)" class="form-control">
+      </div>
+      <div class="row g-2">
         <div class="col-6"><input type="text" id="frFilterFrom" placeholder="از تاریخ" value="${todayJalali().slice(0,4)}/01/01" class="form-control" dir="ltr"></div>
         <div class="col-6"><input type="text" id="frFilterTo" placeholder="تا تاریخ" value="${todayJalali()}" class="form-control" dir="ltr"></div>
       </div>
       <div class="row g-2 mt-2">
-        <div class="col-6"><select id="frFilterType" class="form-select"><option value="all">همه انواع</option><option value="fine">جریمه</option><option value="reward">تشویقی</option><option value="warning">اخطار</option></select></div>
-        <div class="col-6"><button class="btn btn-primary w-100" id="frApplyFilter"><i class="bi bi-search"></i> اعمال</button></div>
+        <div class="col-8"><select id="frFilterType" class="form-select"><option value="all">همه انواع</option><option value="fine">جریمه</option><option value="reward">تشویقی</option><option value="warning">اخطار</option></select></div>
+        <div class="col-4"><button class="btn btn-primary w-100" id="frApplyFilter"><i class="bi bi-funnel"></i> فیلتر</button></div>
       </div>
     </div>
     <div id="frListContainer"><div class="text-center py-4"><div class="spinner-border text-primary"></div></div></div>
   `;
+
   $('frApplyFilter').onclick = loadList;
   loadList();
 }
@@ -97,32 +180,35 @@ async function renderList() {
 async function loadList() {
   const c = $('frListContainer');
   c.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
-  const worker = $('frFilterWorker')?.value.trim() || '';
-  const user = $('frFilterUser')?.value.trim() || '';
+  
+  const q = $('frFilterQuery')?.value.trim().toLowerCase() || '';
   const from = $('frFilterFrom')?.value.trim() || '';
   const to = $('frFilterTo')?.value.trim() || '';
   const type = $('frFilterType')?.value || 'all';
 
   try {
-    let q = sb.from('safety_finereward')
+    let query = sb.from('safety_finereward')
       .select('*, patient:core_patient(first_name, last_name, personnel_number, national_code, phone_number)')
       .order('created_at', { ascending: false }).limit(300);
-    if (type !== 'all') q = q.eq('record_type', type);
-
+      
+    if (type !== 'all') query = query.eq('record_type', type);
     const fromG = from ? jalaliToGregorian(from) : null;
     const toG = to ? jalaliToGregorian(to) : null;
-    if (fromG) q = q.gte('incident_datetime', fromG + 'T00:00:00');
-    if (toG)   q = q.lte('incident_datetime', toG + 'T23:59:59');
+    if (fromG) query = query.gte('incident_datetime', fromG + 'T00:00:00');
+    if (toG) query = query.lte('incident_datetime', toG + 'T23:59:59');
 
-    const { data, error } = await q;
+    const { data, error } = await query;
     if (error) throw error;
 
     let list = data || [];
-    if (worker) {
-      const wl = worker.toLowerCase();
+    if (q) {
       list = list.filter(it => {
-        const n = `${it.patient?.first_name||''} ${it.patient?.last_name||''}`.toLowerCase();
-        return n.includes(wl) || (it.patient?.personnel_number||'').includes(worker);
+        const haystack = [
+          it.patient?.first_name, it.patient?.last_name,
+          it.patient?.personnel_number, it.patient?.national_code, it.patient?.phone_number,
+          it.reason, it.location, it.incident_location
+        ].join(' ').toLowerCase();
+        return haystack.includes(q);
       });
     }
 
@@ -148,9 +234,9 @@ function renderListItem(item) {
     reward:  { label: 'تشویقی',  cls: 'success', icon: 'bi-award-fill' },
     warning: { label: 'اخطار',   cls: 'warning', icon: 'bi-exclamation-triangle-fill' },
   }[item.record_type] || { label: '—', cls: 'gray', icon: 'bi-file-earmark' };
+
   const name = item.patient ? `${item.patient.first_name||''} ${item.patient.last_name||''}`.trim() : '—';
   const dateStr = item.incident_datetime ? gregorianToJalali(item.incident_datetime.split('T')[0]) : '—';
-  const timeStr = item.incident_datetime ? new Date(item.incident_datetime).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}) : '';
 
   return `
     <button class="fr-item ${meta.cls}" data-fr-id="${item.id}">
@@ -158,12 +244,11 @@ function renderListItem(item) {
       <div class="fr-item-body">
         <div class="fr-item-head">
           <span class="fr-item-type ${meta.cls}">${meta.label}</span>
-          <span class="fr-item-date">${escapeHtml(dateStr)} ${escapeHtml(timeStr)}</span>
+          <span class="fr-item-date">${escapeHtml(dateStr)}</span>
         </div>
         <div class="fr-item-name">${escapeHtml(name)}</div>
-        ${item.patient?.personnel_number ? `<div class="fr-item-personnel"><i class="bi bi-hash"></i> ${escapeHtml(item.patient.personnel_number)}</div>` : ''}
+        <div class="fr-item-personnel">${escapeHtml(item.patient?.personnel_number || '—')}</div>
         <div class="fr-item-reason">${escapeHtml(item.reason || '—')}</div>
-        ${item.location ? `<div class="fr-item-loc"><i class="bi bi-geo-alt"></i> ${escapeHtml(item.location)}</div>` : ''}
         ${item.amount ? `<div class="fr-item-amount">${fmtMoney(item.amount)} ریال</div>` : ''}
       </div>
       <i class="bi bi-chevron-left fr-item-arrow"></i>
@@ -171,14 +256,18 @@ function renderListItem(item) {
   `;
 }
 
+// ═══════════════════════════════════════════════════════
+// جزئیات کامل تراکنش
+// ═══════════════════════════════════════════════════════
 function openDetail(item) {
   const typeFa = { fine: 'جریمه', reward: 'تشویقی', warning: 'اخطار' }[item.record_type] || '—';
   const name = item.patient ? `${item.patient.first_name||''} ${item.patient.last_name||''}`.trim() : '—';
+  
   const sheet = document.createElement('div');
   sheet.className = 'fr-sheet';
   sheet.innerHTML = `
     <div class="fr-sheet-handle"></div>
-    <div class="fr-sheet-title">${typeFa}</div>
+    <div class="fr-sheet-title">جزئیات ${typeFa}</div>
     <div class="fr-detail-row"><span>نام کارگر:</span><b>${escapeHtml(name)}</b></div>
     <div class="fr-detail-row"><span>کد پرسنلی:</span><b dir="ltr">${escapeHtml(item.patient?.personnel_number||'—')}</b></div>
     <div class="fr-detail-row"><span>کد ملی:</span><b dir="ltr">${escapeHtml(item.patient?.national_code||'—')}</b></div>
@@ -188,7 +277,7 @@ function openDetail(item) {
     <div class="fr-detail-row"><span>محل جریمه:</span><b>${escapeHtml(item.incident_location||'—')}</b></div>
     <div class="fr-detail-row"><span>علت:</span><b>${escapeHtml(item.reason||'—')}</b></div>
     ${item.amount?`<div class="fr-detail-row"><span>مبلغ:</span><b>${fmtMoney(item.amount)} ریال</b></div>`:''}
-    ${item.sent_to_finance?'<div class="fr-detail-row"><span>وضعیت مالی:</span><b style="color:#059669;">ارسال شده</b></div>':''}
+    <div class="fr-detail-row"><span>وضعیت پیامک:</span><b>${item.sms_sent ? '✅ ارسال شده' : '⏳ در انتظار'}</b></div>
     <button class="btn btn-light w-100 mt-3" id="frCloseSheet">بستن</button>
   `;
   const backdrop = document.createElement('div');
@@ -201,7 +290,7 @@ function openDetail(item) {
 }
 
 // ═══════════════════════════════════════════════════════
-// فرم ثبت
+// فرم ثبت (با ارسال پیامک خودکار)
 // ═══════════════════════════════════════════════════════
 function renderAddForm() {
   const body = $('frBody');
@@ -221,7 +310,7 @@ function renderAddForm() {
         <label>جستجوی کارگر *</label>
         <div class="fr-search-wrap">
           <i class="bi bi-search"></i>
-          <input type="text" id="frWorkerSearch" placeholder="نام، کد ملی، کد پرسنلی یا موبایل..." autocomplete="off">
+          <input type="text" id="frWorkerSearch" placeholder="نام، کد ملی، کد پرسنلی..." autocomplete="off">
         </div>
         <div id="frWorkerResults" class="fr-worker-results"></div>
         <div id="frSelectedWorker" class="fr-selected-worker" style="display:none;"></div>
@@ -231,13 +320,11 @@ function renderAddForm() {
       <div class="fr-field">
         <label>محل ثبت *</label>
         <input type="text" class="form-control" id="frLocation" placeholder="دفتر ایمنی / سیار / ...">
-        <div class="fr-quick-chips" id="frLocationChips"></div>
       </div>
 
       <div class="fr-field">
         <label>محل جریمه / حادثه *</label>
         <input type="text" class="form-control" id="frIncidentLocation" placeholder="خط تولید / انبار / ...">
-        <div class="fr-quick-chips" id="frIncidentLocationChips"></div>
       </div>
 
       <div class="fr-field">
@@ -251,40 +338,16 @@ function renderAddForm() {
       <div class="fr-field">
         <label>علت *</label>
         <textarea class="form-control" id="frReason" rows="2"></textarea>
-        <div class="fr-quick-chips" id="frReasonChips"></div>
       </div>
 
       <div class="fr-field">
         <label>مبلغ (ریال) *</label>
         <input type="text" class="form-control" id="frAmount" value="1" dir="ltr" inputmode="numeric">
-        <div class="fr-quick-chips" id="frAmountChips"></div>
       </div>
 
-      <button class="btn btn-primary w-100 fr-save-btn" id="frSave"><i class="bi bi-check-circle"></i> ثبت</button>
+      <button class="btn btn-primary w-100 fr-save-btn" id="frSave"><i class="bi bi-check-circle"></i> ثبت و ارسال پیامک</button>
     </div>
   `;
-
-  // چیپ‌ها
-  const chipWrap = (wrapId, items, onPick) => {
-    const w = $(wrapId);
-    items.forEach(v => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'fr-chip'; b.textContent = v;
-      b.onclick = () => onPick(v);
-      w.appendChild(b);
-    });
-  };
-
-  chipWrap('frAmountChips', QUICK_AMOUNTS.map(fmtMoney), v => { $('frAmount').value = v; });
-  chipWrap('frReasonChips', QUICK_REASONS, v => { $('frReason').value = v; });
-  chipWrap('frLocationChips', QUICK_REGISTER_LOCATIONS, v => { $('frLocation').value = v; });
-  chipWrap('frIncidentLocationChips', QUICK_INCIDENT_LOCATIONS, v => { $('frIncidentLocation').value = v; });
-
-  // جداکننده هزارگان روی مبلغ
-  $('frAmount').addEventListener('input', (e) => {
-    const v = toEnDigits(e.target.value).replace(/[^0-9]/g, '');
-    e.target.value = v ? Number(v).toLocaleString('en-US') : '';
-  });
 
   bindTypeButtons();
   bindWorkerSearch();
@@ -302,7 +365,7 @@ function bindTypeButtons() {
 }
 
 // ═══════════════════════════════════════════════════════
-// جستجوی کارگر
+// جستجوی کارگر (با نمایش آمار)
 // ═══════════════════════════════════════════════════════
 let searchTimer = null;
 function bindWorkerSearch() {
@@ -406,21 +469,18 @@ async function finalizeSelection(id, name, personnel, input, resultsEl, selected
   statsEl.innerHTML = '<div class="fr-loading">در حال بارگذاری آمار...</div>';
 
   try {
-    // ⭐ آمار ویزیت‌ها
     const { count: incidentCount } = await sb.from('visits_visit')
       .select('id', { count: 'exact', head: true })
       .eq('patient_id', id)
       .neq('incident_type', 'none')
       .not('incident_type', 'is', null);
 
-    // ⭐ جریمه/تشویقی
     const { data: records } = await sb.from('safety_finereward')
       .select('record_type').eq('worker_id', id);
     const fines = (records||[]).filter(r => r.record_type === 'fine').length;
     const rewards = (records||[]).filter(r => r.record_type === 'reward').length;
     const warnings = (records||[]).filter(r => r.record_type === 'warning').length;
 
-    // ⭐ طب کار — SELECT * برای اطمینان از وجود همه ستون‌ها
     let exam = null;
     try {
       const { data: ex } = await sb.from('lab_results_periodicexamination')
@@ -431,7 +491,6 @@ async function finalizeSelection(id, name, personnel, input, resultsEl, selected
       if (ex && ex.length) exam = ex[0];
     } catch (err) { console.warn('[FR] exam query:', err); }
 
-    // اسکور
     let score = 5;
     score -= Math.min(3, incidentCount * 0.5);
     score -= Math.min(2, warnings * 0.4);
@@ -441,7 +500,6 @@ async function finalizeSelection(id, name, personnel, input, resultsEl, selected
     const stars = Math.round(score);
     const scoreText = stars >= 4 ? 'وضعیت مطلوب' : stars >= 3 ? 'نیاز به توجه' : 'وضعیت پرخطر';
 
-    // استخراج مقادیر طب کار — با چک کردن نام‌های مختلف
     const opinion = exam?.final_opinion_text || exam?.final_opinion || exam?.opinion_text || '';
     const conditions = exam?.final_opinion_conditions || exam?.conditions || '';
     const actions = exam?.corrective_actions || exam?.corrective_action || exam?.actions || '';
@@ -453,12 +511,10 @@ async function finalizeSelection(id, name, personnel, input, resultsEl, selected
         <div class="fr-stat-box danger"><div class="fr-stat-num">${fines}</div><div class="fr-stat-lbl">جریمه</div></div>
         <div class="fr-stat-box success"><div class="fr-stat-num">${rewards}</div><div class="fr-stat-lbl">تشویقی</div></div>
       </div>
-
       <div class="fr-safety-score">
         <div class="fr-score-stars">${'★'.repeat(stars)}${'☆'.repeat(5-stars)}</div>
         <div class="fr-score-text">اسکور ایمنی: ${stars}/5 — ${scoreText}</div>
       </div>
-
       <div class="fr-occupational">
         <div class="fr-occupational-title"><i class="bi bi-clipboard2-pulse"></i> اطلاعات طب کار</div>
         <div class="fr-oc-row"><span>نظریه نهایی:</span><b>${escapeHtml(opinion || 'ندارد')}</b></div>
@@ -500,7 +556,7 @@ function openMissingInfoModal({ patientId, name, missingFields, onSave }) {
 }
 
 // ═══════════════════════════════════════════════════════
-// ذخیره
+// ذخیره تراکنش + ارسال پیامک
 // ═══════════════════════════════════════════════════════
 async function saveRecord() {
   const input = $('frWorkerSearch');
@@ -537,9 +593,22 @@ async function saveRecord() {
   };
 
   try {
-    const { error } = await sb.from('safety_finereward').insert(record);
+    // ۱. ذخیره در دیتابیس
+    const { data: inserted, error } = await sb.from('safety_finereward').insert(record).select().single();
     if (error) throw error;
-    toast('✅ ثبت شد', 'success');
+
+    // ۲. ارسال پیامک
+    const typeFa = { fine: 'جریمه', reward: 'تشویقی', warning: 'اخطار' }[record.record_type];
+    const smsText = `همکار گرامی، ${typeFa} ثبت شده برای شما: ${reason} (مبلغ: ${fmtMoney(amount)} ریال)`;
+    const smsResult = await sendSMS($('frWorkerSearch').dataset.phone, smsText, input.value);
+    
+    if (smsResult.success) {
+      await sb.from('safety_finereward').update({ sms_sent: true, sms_message_id: smsResult.messageId }).eq('id', inserted.id);
+      toast('✅ ثبت شد و پیامک ارسال گردید', 'success');
+    } else {
+      toast('✅ ثبت شد اما پیامک ارسال نشد: ' + (smsResult.error || 'خطای نامشخص'), 'warning');
+    }
+
     document.querySelector('.fr-tab[data-tab="list"]').click();
   } catch (e) {
     console.error(e);
@@ -548,7 +617,7 @@ async function saveRecord() {
 }
 
 // ═══════════════════════════════════════════════════════
-// تب مالی
+// تب مالی (با خروجی اکسل تفکیک‌شده)
 // ═══════════════════════════════════════════════════════
 async function renderFinance() {
   const body = $('frBody');
@@ -568,54 +637,45 @@ async function renderFinance() {
       <div class="fr-finance-section">
         <div class="fr-finance-header pending">
           <div><i class="bi bi-hourglass-split"></i> ${pending.length} مورد ارسال‌نشده</div>
-          ${pending.length ? `<button class="btn btn-success btn-sm" id="frSendAll"><i class="bi bi-file-earmark-excel"></i> ارسال به مالی</button>` : '<span class="badge-soft success">همه ارسال شده</span>'}
+          ${pending.length ? `<button class="btn btn-success btn-sm" id="frSendAll"><i class="bi bi-file-earmark-excel"></i> ارسال و اکسل</button>` : '<span class="badge-soft success">همه ارسال شده</span>'}
         </div>
-        ${pending.length ? `<div class="fr-list">
-          ${pending.map(it => `
-            <div class="fr-item ${it.record_type}">
-              <div class="fr-item-icon ${it.record_type === 'reward' ? 'success' : 'danger'}"><i class="bi ${it.record_type === 'reward' ? 'bi-award-fill' : 'bi-exclamation-circle-fill'}"></i></div>
-              <div class="fr-item-body">
-                <div class="fr-item-name">${escapeHtml((it.patient?.first_name||'')+' '+(it.patient?.last_name||''))}</div>
-                <div class="fr-item-personnel">پرسنلی: ${escapeHtml(it.patient?.personnel_number||'—')} — موبایل: ${escapeHtml(it.patient?.phone_number||'—')}</div>
-                <div class="fr-item-amount">${fmtMoney(it.amount)} ریال</div>
-              </div>
-            </div>
-          `).join('')}
-        </div>` : ''}
+        ${pending.length ? `<div class="fr-list">${pending.map(renderFinanceItem).join('')}</div>` : ''}
       </div>
 
       ${sent.length ? `
         <div class="fr-finance-section" style="margin-top:20px;">
           <div class="fr-finance-header sent">
             <div><i class="bi bi-check2-circle"></i> ${sent.length} مورد ارسال‌شده</div>
+            <button class="btn btn-outline-success btn-sm" id="frExportSent"><i class="bi bi-download"></i> خروجی اکسل</button>
           </div>
-          <div class="fr-list">
-            ${sent.slice(0, 50).map(it => {
-              const d = it.finance_sent_at || it.status_changed_at || it.created_at;
-              const dateFa = d ? gregorianToJalali(d.split('T')[0]) : '—';
-              return `
-                <div class="fr-item ${it.record_type} sent">
-                  <div class="fr-item-icon ${it.record_type === 'reward' ? 'success' : 'danger'}"><i class="bi ${it.record_type === 'reward' ? 'bi-award-fill' : 'bi-exclamation-circle-fill'}"></i></div>
-                  <div class="fr-item-body">
-                    <div class="fr-item-name">${escapeHtml((it.patient?.first_name||'')+' '+(it.patient?.last_name||''))}</div>
-                    <div class="fr-item-personnel">پرسنلی: ${escapeHtml(it.patient?.personnel_number||'—')}</div>
-                    <div class="fr-item-amount">${fmtMoney(it.amount)} ریال</div>
-                    <div class="fr-sent-badge"><i class="bi bi-check-circle-fill"></i> ارسال شد — ${escapeHtml(dateFa)}</div>
-                  </div>
-                </div>
-              `;
-            }).join('')}
-          </div>
+          <div class="fr-list">${sent.slice(0, 50).map(renderFinanceItem).join('')}</div>
         </div>` : ''}
     `;
 
-    if ($('frSendAll')) $('frSendAll').onclick = () => exportExcel(pending);
+    if ($('frSendAll')) $('frSendAll').onclick = () => exportAndMark(pending);
+    if ($('frExportSent')) $('frExportSent').onclick = () => exportExcel(sent, 'sent-finance');
   } catch (e) {
     body.innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
   }
 }
 
-async function exportExcel(records) {
+function renderFinanceItem(it) {
+  const dateFa = it.incident_datetime ? gregorianToJalali(it.incident_datetime.split('T')[0]) : '—';
+  return `
+    <div class="fr-item ${it.record_type}">
+      <div class="fr-item-icon ${it.record_type === 'reward' ? 'success' : 'danger'}"><i class="bi ${it.record_type === 'reward' ? 'bi-award-fill' : 'bi-exclamation-circle-fill'}"></i></div>
+      <div class="fr-item-body">
+        <div class="fr-item-name">${escapeHtml((it.patient?.first_name||'')+' '+(it.patient?.last_name||''))}</div>
+        <div class="fr-item-personnel">پرسنلی: ${escapeHtml(it.patient?.personnel_number||'—')} — موبایل: ${escapeHtml(it.patient?.phone_number||'—')}</div>
+        <div class="fr-item-amount">${fmtMoney(it.amount)} ریال</div>
+      </div>
+    </div>
+  `;
+}
+
+async function exportAndMark(records) {
+  if (!records.length) return;
+
   const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'محل جریمه', 'تاریخ'];
   const rows = records.map(r => [
     `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
@@ -630,14 +690,7 @@ async function exportExcel(records) {
     r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
   ]);
 
-  const csv = '\uFEFF' + [headers, ...rows].map(row => row.join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `finance-${todayJalali().replace(/\//g,'-')}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadCSV(headers, rows, `finance-pending-${todayJalali().replace(/\//g,'-')}.csv`);
 
   const ids = records.map(r => r.id);
   const now = new Date().toISOString();
@@ -647,4 +700,55 @@ async function exportExcel(records) {
 
   if (error) toast('خطا: ' + error.message, 'danger');
   else { toast('✅ گزارش دانلود و علامت‌گذاری شد', 'success'); renderFinance(); }
+}
+
+function exportExcel(records, prefix) {
+  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ'];
+  const rows = records.map(r => [
+    `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
+    r.patient?.personnel_number || '',
+    r.patient?.national_code || '',
+    r.patient?.phone_number || '',
+    r.record_type === 'fine' ? 'جریمه' : r.record_type === 'reward' ? 'تشویقی' : 'اخطار',
+    r.amount || 0,
+    (r.reason || '').replace(/,/g, ' '),
+    (r.location || '').replace(/,/g, ' '),
+    r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
+  ]);
+  downloadCSV(headers, rows, `${prefix}-${todayJalali().replace(/\//g,'-')}.csv`);
+}
+
+// ═══════════════════════════════════════════════════════
+// ورودی اصلی
+// ═══════════════════════════════════════════════════════
+export function openFineReward() {
+  showScreenDirect('FineReward');
+  const wrap = $('fineRewardContent');
+  if (!wrap) return;
+
+  wrap.innerHTML = `
+    <div class="fr-page">
+      <div class="fr-header">
+        <div class="fr-title">مدیریت جریمه و تشویقی</div>
+        <div class="fr-sub">ثبت، پیامک و گزارش‌گیری</div>
+      </div>
+      <div class="fr-tabs">
+        <button class="fr-tab active" data-tab="list"><i class="bi bi-list-ul"></i> لیست</button>
+        <button class="fr-tab" data-tab="add"><i class="bi bi-plus-circle"></i> ثبت جدید</button>
+        <button class="fr-tab" data-tab="finance"><i class="bi bi-file-earmark-excel"></i> مالی</button>
+      </div>
+      <div id="frBody"></div>
+    </div>
+  `;
+  wrap.querySelectorAll('.fr-tab').forEach(btn => {
+    btn.onclick = () => {
+      wrap.querySelectorAll('.fr-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const t = btn.dataset.tab;
+      if (t === 'list') renderList();
+      else if (t === 'add') renderAddForm();
+      else if (t === 'finance') renderFinance();
+    };
+  });
+  renderList();
 }
