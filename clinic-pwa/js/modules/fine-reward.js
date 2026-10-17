@@ -1043,15 +1043,9 @@ async function checkAllDeliveries() {
       .not('sms_message_id', 'is', null)
       .limit(50);
 
-    if (error) {
-      console.error('🔍 [DEBUG] خطای دیتابیس:', error);
-      throw error;
-    }
-
-    console.log('🔍 [DEBUG] 3. لیست دریافتی از دیتابیس:', pendingList);
+    if (error) throw error;
 
     if (!pendingList || pendingList.length === 0) {
-      console.warn('🔍 [DEBUG] هیچ پیامکی در لیست انتظار پیدا نشد. عملیات متوقف شد.');
       toast('هیچ پیامک در انتظار تحویلی وجود ندارد', 'info');
       btn.disabled = false; 
       btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
@@ -1059,24 +1053,22 @@ async function checkAllDeliveries() {
     }
 
     const messageIds = pendingList.map(p => p.sms_message_id);
-    console.log('🔍 [DEBUG] 4. شناسه‌های ارسال شده به تابع سوپابیس:', messageIds);
+    console.log('🔍 [DEBUG] 3. شناسه‌های ارسال شده:', messageIds);
 
-    console.log('🔍 [DEBUG] 5. در حال ارسال درخواست به Edge Function (amoot-get-deliveries)...');
+    console.log('🔍 [DEBUG] 4. در حال ارسال درخواست به Edge Function...');
     const res = await getDeliveries(messageIds);
     
-    console.log('🔍 [DEBUG] 6. پاسخ دریافتی از Edge Function:', res);
-
     if (!res?.success) {
       throw new Error(res?.error || 'ارتباط با سرویس استعلام دلیوری ناموفق بود');
     }
 
     const deliveries = res.data?.Data ?? res.data?.data;
     if (!Array.isArray(deliveries)) {
-      console.error('🔍 [DEBUG] ساختار پاسخ آموت آرایه نیست:', res.data);
       throw new Error('ساختار پاسخ دلیوری آموت قابل شناسایی نیست');
     }
     
-    console.log('🔍 [DEBUG] 7. لیست دلیوری دریافتی از آموت:', deliveries);
+    // ⭐ این خط، داده‌های خام را به صورت متن چاپ می‌کند
+    console.log('🔍 [DEBUG] 5. داده‌های خام دریافتی از آموت:\n' + JSON.stringify(deliveries, null, 2));
 
     if (deliveries.length === 0) {
       toast('آموت برای این شناسه‌ها رکورد دلیوری برنگرداند', 'warning');
@@ -1108,7 +1100,7 @@ async function checkAllDeliveries() {
         newSmsStatus = 'sent'; 
       }
 
-      const { error: updErr } = await sb.from('safety_finereward')
+      await sb.from('safety_finereward')
         .update({ 
           sms_is_delivered: isDelivered, 
           sms_delivery_status: del.Status,
@@ -1119,21 +1111,20 @@ async function checkAllDeliveries() {
         })
         .eq('sms_message_id', del.MessageID);
 
-      if (updErr) throw new Error('خطا در ذخیره وضعیت: ' + updErr.message);
+      updatedCount++;
     };
 
     for (const del of deliveries) {
       if (!del || del.MessageID == null || del.Status == null) continue;
       await processDelivery(del);
-      updatedCount++;
     }
 
-    console.log(`🔍 [DEBUG] 8. پایان عملیات. ${updatedCount} پیامک بررسی و آپدیت شد.`);
+    console.log(`🔍 [DEBUG] 6. پایان عملیات. ${updatedCount} پیامک آپدیت شد.`);
     toast(`استعلام پایان یافت. ${updatedCount} پیامک بررسی شد.`, 'success');
     loadSMSStatusList();
 
   } catch (e) {
-    console.error('🔍 [DEBUG] خطای نهایی (Catch):', e);
+    console.error('🔍 [DEBUG] خطای نهایی:', e);
     toast(e.message || 'خطا در استعلام', 'danger');
   } finally {
     btn.disabled = false; 
