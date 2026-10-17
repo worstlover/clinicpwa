@@ -1,6 +1,6 @@
-// js/modules/modals.js
-import { sb } from '../sb.js';
-import { $, escapeHtml, gregorianToJalali, jalaliToGregorian, checkExpiry, toast } from '../utils.js';
+// js/modals.js
+import { sb } from './sb.js';
+import { $, escapeHtml, gregorianToJalali, jalaliToGregorian, checkExpiry, toast } from './utils.js';
 
 // ═══════════════════════════════════════════════════════
 // ۱. مودال تعداد (askQty)
@@ -409,7 +409,6 @@ export async function openNewDrugModal(prefillName = '', cb) {
   setTimeout(() => $('ndmName').focus(), 300);
 }
 
-// ⭐ توابع استخراج شکل فارسی (کاملاً بدون مشکل)
 async function loadFormOptions(force) {
   const sel = $('ndmForm');
   if (!force && sel.dataset.loaded === '1') return;
