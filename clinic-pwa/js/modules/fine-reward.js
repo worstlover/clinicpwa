@@ -49,7 +49,7 @@ async function sendSMS(phone, text) {
   if (!/^09\d{9}$/.test(cleanPhone)) return { success: false, error: `شماره نامعتبر (${phone})` };
 
   try {
-    // ⭐ اصلاح نام تابع به send-fine-sms مطابق داشبورد سوپابیس
+    // ⭐ نام تابع دقیقاً مطابق داشبورد سوپابیس
     const { data, error } = await sb.functions.invoke('send-fine-sms', {
       body: { mobile: cleanPhone, text: text }
     });
@@ -231,7 +231,7 @@ function renderListItem(item) {
 }
 
 // ═══════════════════════════════════════════════════════
-// مودال جزئیات (با دکمه ارسال مجدد)
+// مودال جزئیات
 // ═══════════════════════════════════════════════════════
 function openDetail(item) {
   const typeFa = { fine: 'جریمه', reward: 'تشویقی', warning: 'اخطار' }[item.record_type] || '—';
@@ -286,7 +286,7 @@ function openDetail(item) {
         }).eq('id', item.id);
         toast('✅ پیامک با موفقیت ارسال شد', 'success');
         close();
-        loadList(); // رفرش لیست
+        loadList(); 
       } else {
         await sb.from('safety_finereward').update({ 
           sms_status: 'failed', 
@@ -301,7 +301,7 @@ function openDetail(item) {
 }
 
 // ═══════════════════════════════════════════════════════
-// تب ثبت جدید
+// تب ثبت جدید (اصلاح باگ مبلغ)
 // ═══════════════════════════════════════════════════════
 function renderAddForm() {
   const body = $('frBody');
@@ -364,18 +364,21 @@ function renderAddForm() {
     </div>
   `;
 
+  // ⭐ اصلاح باگ مبلغ: حذف ممیز فارسی و قرار دادن عدد انگلیسی
   const chipWrap = (wrapId, items, onPick) => {
     const w = $(wrapId);
     if (!w) return;
     items.forEach(v => {
       const b = document.createElement('button');
-      b.type = 'button'; b.className = 'fr-chip'; b.textContent = typeof v === 'number' ? fmtMoney(v) : v;
+      b.type = 'button'; b.className = 'fr-chip'; 
+      b.textContent = typeof v === 'number' ? fmtMoney(v) : v;
       b.onclick = () => onPick(v);
       w.appendChild(b);
     });
   };
 
-  chipWrap('frAmountChips', QUICK_AMOUNTS, v => { $('frAmount').value = fmtMoney(v); });
+  // وقتی دکمه مبلغ زده می‌شود، مقدار را با فرمت انگلیسی (کاما) بگذار
+  chipWrap('frAmountChips', QUICK_AMOUNTS, v => { $('frAmount').value = v.toLocaleString('en-US'); });
   chipWrap('frReasonChips', QUICK_REASONS, v => { $('frReason').value = v; });
   chipWrap('frLocationChips', QUICK_REGISTER_LOCATIONS, v => { $('frLocation').value = v; });
   chipWrap('frIncidentLocationChips', QUICK_INCIDENT_LOCATIONS, v => { $('frIncidentLocation').value = v; });
@@ -581,7 +584,10 @@ async function saveRecord() {
   const isoDT = toISOWithTime(dateStr, timeStr);
   if (!isoDT) { toast('تاریخ نامعتبر', 'warning'); return; }
 
-  const amount = parseInt(toEnDigits($('frAmount').value).replace(/,/g,''), 10) || 0;
+  // ⭐ اصلاح قطعی: حذف تمام کاراکترهای غیرعددی قبل از تبدیل به عدد
+  const rawAmount = toEnDigits($('frAmount').value);
+  const amount = parseInt(rawAmount.replace(/[^\d]/g, ''), 10) || 0;
+  
   if (amount < 1) { toast('مبلغ حداقل ۱ ریال است', 'warning'); return; }
 
   const { data: { user } } = await sb.auth.getUser();
@@ -598,16 +604,13 @@ async function saveRecord() {
   };
 
   try {
-    // ۱. ذخیره اولیه
     const { data: inserted, error } = await sb.from('safety_finereward').insert(record).select().single();
     if (error) throw error;
 
-    // ۲. ارسال پیامک از طریق Edge Function
     const typeFa = { fine: 'جریمه', reward: 'تشویقی', warning: 'اخطار' }[record.record_type];
     const smsText = `همکار گرامی، ${typeFa} ثبت شده برای شما: ${reason} (مبلغ: ${fmtMoney(amount)} ریال)`;
     const smsResult = await sendSMS(phone, smsText);
     
-    // ۳. آپدیت وضعیت پیامک
     if (smsResult.success) {
       await sb.from('safety_finereward').update({ sms_status: 'sent', sms_message_id: smsResult.messageId, sms_error: null }).eq('id', inserted.id);
       toast('✅ ثبت شد و پیامک ارسال گردید', 'success');
@@ -710,33 +713,97 @@ function exportExcel(records, prefix) {
 }
 
 // ═══════════════════════════════════════════════════════
-// تب پیامک‌ها (مدیریت ناموفق‌ها)
+// تب پیامک‌ها (با جستجو، فیلتر تاریخ و لاگ خروجی اکسل)
 // ═══════════════════════════════════════════════════════
 async function renderSMSStatus() {
   const body = $('frBody');
-  body.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
+  
+  // واکشی تاریخ آخرین خروجی اکسل
+  let lastExportDate = '—';
+  try {
+    const { data: lastExp } = await sb.from('safety_finereward')
+      .select('sms_exported_at')
+      .not('sms_exported_at', 'is', null)
+      .order('sms_exported_at', { ascending: false })
+      .limit(1);
+    if (lastExp && lastExp.length) {
+      lastExportDate = gregorianToJalali(lastExp[0].sms_exported_at.split('T')[0]) + ' ' + new Date(lastExp[0].sms_exported_at).toLocaleTimeString('fa-IR', {hour: '2-digit', minute:'2-digit'});
+    }
+  } catch(e) {}
+
+  body.innerHTML = `
+    <div class="fr-filters" style="background:#fff; border-radius:12px; padding:12px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,0.05);">
+      <div class="input-group mb-2">
+        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+        <input type="text" id="frSmsFilterQuery" placeholder="جستجو (نام، کد پرسنلی، موبایل، علت خطا...)" class="form-control">
+      </div>
+      <div class="row g-2">
+        <div class="col-6"><input type="text" id="frSmsFilterFrom" placeholder="از تاریخ" value="${todayJalali().slice(0,4)}/01/01" class="form-control" dir="ltr"></div>
+        <div class="col-6"><input type="text" id="frSmsFilterTo" placeholder="تا تاریخ" value="${todayJalali()}" class="form-control" dir="ltr"></div>
+      </div>
+      <div class="d-flex justify-content-between align-items-center mt-2">
+        <button class="btn btn-primary btn-sm flex-grow-1 me-2" id="frSmsApplyFilter"><i class="bi bi-funnel"></i> اعمال فیلتر</button>
+        <div class="small text-muted text-end" style="font-size:0.75rem; line-height:1.4;">
+          آخرین خروجی اکسل:<br>
+          <span class="fw-bold text-dark">${lastExportDate}</span>
+        </div>
+      </div>
+    </div>
+    <div id="frSmsListContainer"><div class="text-center py-4"><div class="spinner-border text-primary"></div></div></div>
+  `;
+
+  $('frSmsApplyFilter').onclick = loadSMSStatusList;
+  loadSMSStatusList();
+}
+
+async function loadSMSStatusList() {
+  const c = $('frSmsListContainer');
+  c.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
+
+  const q = $('frSmsFilterQuery')?.value.trim().toLowerCase() || '';
+  const from = $('frSmsFilterFrom')?.value.trim() || '';
+  const to = $('frSmsFilterTo')?.value.trim() || '';
 
   try {
-    const { data, error } = await sb.from('safety_finereward')
+    let query = sb.from('safety_finereward')
       .select('*, patient:core_patient(first_name, last_name, personnel_number, national_code, phone_number)')
       .eq('sms_status', 'failed')
       .order('created_at', { ascending: false });
 
+    const fromG = from ? jalaliToGregorian(from) : null;
+    const toG = to ? jalaliToGregorian(to) : null;
+    if (fromG) query = query.gte('incident_datetime', fromG + 'T00:00:00');
+    if (toG) query = query.lte('incident_datetime', toG + 'T23:59:59');
+
+    const { data, error } = await query;
     if (error) throw error;
-    const failedList = data || [];
+
+    let failedList = data || [];
+    
+    // فیلتر متنی
+    if (q) {
+      failedList = failedList.filter(it => {
+        const haystack = [
+          it.patient?.first_name, it.patient?.last_name,
+          it.patient?.personnel_number, it.patient?.phone_number,
+          it.sms_error, it.reason
+        ].join(' ').toLowerCase();
+        return haystack.includes(q);
+      });
+    }
 
     if (!failedList.length) {
-      body.innerHTML = `
+      c.innerHTML = `
         <div class="fr-empty">
           <i class="bi bi-check2-circle text-success" style="font-size:3rem; opacity:1;"></i>
-          <div class="mt-2 text-success fw-bold">هیچ پیامک ناموفقی وجود ندارد</div>
+          <div class="mt-2 text-success fw-bold">پیامک ناموفقی در این بازه یافت نشد</div>
         </div>`;
       return;
     }
 
-    body.innerHTML = `
+    c.innerHTML = `
       <div class="fr-finance-section">
-        <div class="fr-finance-header" style="background:#fee2e2; color:#991b1b;">
+        <div class="fr-finance-header" style="background:#fee2e2; color:#991b1b; margin-bottom:10px;">
           <div><i class="bi bi-x-circle-fill"></i> ${failedList.length} پیامک ناموفق</div>
           <div class="d-flex gap-2">
             <button class="btn btn-outline-danger btn-sm" id="frExportFailed"><i class="bi bi-download"></i> اکسل</button>
@@ -758,13 +825,24 @@ async function renderSMSStatus() {
       </div>
     `;
 
-    $('frExportFailed').onclick = () => {
-      const headers = ['نام', 'کد پرسنلی', 'موبایل', 'علت خطا'];
+    // لاگ کردن خروجی اکسل در دیتابیس
+    $('frExportFailed').onclick = async () => {
+      const headers = ['نام', 'کد پرسنلی', 'موبایل', 'علت خطا', 'تاریخ رویداد'];
       const rows = failedList.map(r => [
         `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
-        r.patient?.personnel_number || '', r.patient?.phone_number || '', r.sms_error || 'نامشخص'
+        r.patient?.personnel_number || '', r.patient?.phone_number || '', 
+        r.sms_error || 'نامشخص',
+        r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
       ]);
       downloadCSV(headers, rows, `sms-failed-${todayJalali().replace(/\//g,'-')}.csv`);
+      
+      // بروزرسانی تاریخ خروجی در دیتابیس
+      const ids = failedList.map(r => r.id);
+      const now = new Date().toISOString();
+      await sb.from('safety_finereward').update({ sms_exported_at: now }).in('id', ids);
+      
+      toast('✅ خروجی اکسل ذخیره شد و در سیستم ثبت گردید', 'success');
+      renderSMSStatus(); // رفرش برای نمایش تاریخ جدید
     };
 
     $('frResendAll').onclick = async () => {
@@ -791,6 +869,6 @@ async function renderSMSStatus() {
     };
 
   } catch (e) {
-    body.innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
+    c.innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
   }
 }
