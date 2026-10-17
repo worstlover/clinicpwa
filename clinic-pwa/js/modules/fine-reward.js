@@ -6,11 +6,28 @@ import { $, toast, escapeHtml, gregorianToJalali, jalaliToGregorian, todayJalali
 // ⚙️ تنظیمات پیامک (اینجا را ویرایش کنید)
 // ═══════════════════════════════════════════════════════
 const SMS_CONFIG = {
-  API_TOKEN: 'F411EDA9DFD8C4E96D521D29DFBC21BD58A5E7AA',   // 🔴 توکن API خود را اینجا قرار دهید
+  API_TOKEN: 'YOUR_API_TOKEN_HERE',   // 🔴 توکن API خود را اینجا قرار دهید
   LINE_NUMBER: 'Public',              // شماره خط فرستنده
-  SEND_URL: 'https://portal.amootsms.com/rest/SendSimple',
-  DELIVERY_URL: 'https://portal.amootsms.com/rest/GetDeliveries' // برای استعلام وضعیت
+  SEND_URL: 'https://portal.amootsms.com/rest/SendSimple'
 };
+
+// ═══════════════════════════════════════════════════════
+// دکمه‌های سریع (برگشت داده شد)
+// ═══════════════════════════════════════════════════════
+const QUICK_AMOUNTS = [500000, 1000000, 2000000, 5000000];
+const QUICK_REASONS = [
+  'عدم استفاده از PPE',
+  'بی‌احتیاطی در کار',
+  'عدم رعایت دستورالعمل',
+  'ورود به منطقه ممنوعه',
+  'عدم گزارش حادثه',
+  'انجام کار بدون مجوز'
+];
+const QUICK_REGISTER_LOCATIONS = ['دفتر ایمنی', 'سیار', 'دفتر سرپرست ایمنی', 'مدیریت'];
+const QUICK_INCIDENT_LOCATIONS = [
+  'خط تولید', 'انبار', 'کارگاه', 'محوطه', 'آزمایشگاه',
+  'ساختمان اداری', 'تعمیرگاه', 'باسکول', 'کوره', 'آسیاب'
+];
 
 // ═══════════════════════════════════════════════════════
 // توابع کمکی
@@ -35,18 +52,30 @@ const toISOWithTime = (jalaliDate, timeStr) => {
 };
 
 // ═══════════════════════════════════════════════════════
-// 📱 سرویس پیامک (ارسال + ذخیره لاگ)
+// 📱 سرویس پیامک (با اصلاح شماره نامعتبر)
 // ═══════════════════════════════════════════════════════
-async function sendSMS(phone, text, patientName) {
-  if (!phone || !/^09\d{9}$/.test(phone)) {
-    console.warn('[SMS] شماره نامعتبر:', phone);
-    return { success: false, error: 'شماره نامعتبر' };
+async function sendSMS(phone, text) {
+  if (!phone) {
+    return { success: false, error: 'شماره موبایل ثبت نشده است' };
+  }
+
+  // ۱. تبدیل اعداد فارسی به انگلیسی و حذف فاصله/خط تیره
+  let cleanPhone = toEnDigits(phone).replace(/\D/g, '');
+
+  // ۲. اگر صفر اول جا افتاده بود، اضافه کن
+  if (cleanPhone.length === 10 && cleanPhone.startsWith('9')) {
+    cleanPhone = '0' + cleanPhone;
+  }
+
+  // ۳. اعتبارسنجی نهایی
+  if (!/^09\d{9}$/.test(cleanPhone)) {
+    return { success: false, error: `شماره نامعتبر (${phone})` };
   }
 
   try {
     const formData = new URLSearchParams();
     formData.append('token', SMS_CONFIG.API_TOKEN);
-    formData.append('Mobiles', phone);
+    formData.append('Mobiles', cleanPhone);
     formData.append('SendDateTime', '0');
     formData.append('SMSMessageText', text);
     formData.append('LineNumber', SMS_CONFIG.LINE_NUMBER);
@@ -60,7 +89,6 @@ async function sendSMS(phone, text, patientName) {
     const data = await res.json();
     console.log('[SMS] Response:', data);
 
-    // بررسی خروجی API (ساختار: result.Data[0].Status)
     let isSuccess = false;
     let messageId = null;
     let statusText = 'نامشخص';
@@ -69,26 +97,12 @@ async function sendSMS(phone, text, patientName) {
       const item = data.result.Data[0];
       messageId = item.MessageID;
       statusText = item.Status;
-      // طبق مستندات، Status های موفقیت معمولاً 1 یا 200 هستند
       isSuccess = (String(item.Status) === '1' || String(item.Status) === '200');
     } else if (data?.Status) {
       statusText = data.Status;
       isSuccess = (String(data.Status) === '1' || String(data.Status) === '200');
     }
 
-    // ذخیره لاگ در دیتابیس (جدول جدید sms_logs)
-    const { error: logErr } = await sb.from('sms_logs').insert({
-      patient_name: patientName,
-      mobile: phone,
-      message_text: text,
-      message_id: messageId,
-      status: statusText,
-      is_success: isSuccess,
-      sent_at: new Date().toISOString()
-    });
-
-    if (logErr) console.error('[SMS] Log error:', logErr);
-    
     return { success: isSuccess, messageId, status: statusText };
   } catch (e) {
     console.error('[SMS] Send error:', e);
@@ -97,44 +111,7 @@ async function sendSMS(phone, text, patientName) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 📊 استعلام وضعیت تحویل (GetDeliveries)
-// ═══════════════════════════════════════════════════════
-async function checkDeliveryStatus() {
-  try {
-    const { data: pending } = await sb.from('sms_logs')
-      .select('id, message_id, mobile')
-      .eq('is_delivered', false)
-      .not('message_id', 'is', null)
-      .limit(20);
-
-    if (!pending?.length) return;
-
-    for (const log of pending) {
-      const formData = new URLSearchParams();
-      formData.append('token', SMS_CONFIG.API_TOKEN);
-      formData.append('MessageIDs', log.message_id);
-
-      const res = await fetch(SMS_CONFIG.DELIVERY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formData.toString()
-      });
-      const data = await res.json();
-      
-      // اگر وضعیت نهایی بود (مثلاً 2 = تحویل شده)، آپدیت کن
-      const deliveryStatus = data?.result?.Data?.[0]?.Status;
-      if (deliveryStatus && String(deliveryStatus) === '2') {
-        await sb.from('sms_logs').update({ is_delivered: true, delivery_status: deliveryStatus }).eq('id', log.id);
-      }
-    }
-    toast('وضعیت تحویل پیام‌ها به‌روز شد', 'success');
-  } catch (e) {
-    console.error('Delivery check error:', e);
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-// 📤 خروجی اکسل (CSV با پشتیبانی از فارسی)
+// 📤 خروجی اکسل
 // ═══════════════════════════════════════════════════════
 function downloadCSV(headers, rows, filename) {
   const BOM = '\uFEFF';
@@ -151,7 +128,44 @@ function downloadCSV(headers, rows, filename) {
 }
 
 // ═══════════════════════════════════════════════════════
-// لیست و جستجوی تراکنش‌ها
+// ورودی اصلی
+// ═══════════════════════════════════════════════════════
+export function openFineReward() {
+  showScreenDirect('FineReward');
+  const wrap = $('fineRewardContent');
+  if (!wrap) return;
+
+  wrap.innerHTML = `
+    <div class="fr-page">
+      <div class="fr-header">
+        <div class="fr-title">مدیریت جریمه و تشویقی</div>
+        <div class="fr-sub">ثبت، پیامک و گزارش‌گیری</div>
+      </div>
+      <div class="fr-tabs">
+        <button class="fr-tab active" data-tab="list"><i class="bi bi-list-ul"></i> لیست</button>
+        <button class="fr-tab" data-tab="add"><i class="bi bi-plus-circle"></i> ثبت جدید</button>
+        <button class="fr-tab" data-tab="finance"><i class="bi bi-file-earmark-excel"></i> مالی</button>
+        <button class="fr-tab" data-tab="sms"><i class="bi bi-phone"></i> پیامک‌ها</button>
+      </div>
+      <div id="frBody"></div>
+    </div>
+  `;
+  wrap.querySelectorAll('.fr-tab').forEach(btn => {
+    btn.onclick = () => {
+      wrap.querySelectorAll('.fr-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const t = btn.dataset.tab;
+      if (t === 'list') renderList();
+      else if (t === 'add') renderAddForm();
+      else if (t === 'finance') renderFinance();
+      else if (t === 'sms') renderSMSStatus();
+    };
+  });
+  renderList();
+}
+
+// ═══════════════════════════════════════════════════════
+// تب لیست
 // ═══════════════════════════════════════════════════════
 async function renderList() {
   const body = $('frBody');
@@ -256,9 +270,6 @@ function renderListItem(item) {
   `;
 }
 
-// ═══════════════════════════════════════════════════════
-// جزئیات کامل تراکنش
-// ═══════════════════════════════════════════════════════
 function openDetail(item) {
   const typeFa = { fine: 'جریمه', reward: 'تشویقی', warning: 'اخطار' }[item.record_type] || '—';
   const name = item.patient ? `${item.patient.first_name||''} ${item.patient.last_name||''}`.trim() : '—';
@@ -277,7 +288,7 @@ function openDetail(item) {
     <div class="fr-detail-row"><span>محل جریمه:</span><b>${escapeHtml(item.incident_location||'—')}</b></div>
     <div class="fr-detail-row"><span>علت:</span><b>${escapeHtml(item.reason||'—')}</b></div>
     ${item.amount?`<div class="fr-detail-row"><span>مبلغ:</span><b>${fmtMoney(item.amount)} ریال</b></div>`:''}
-    <div class="fr-detail-row"><span>وضعیت پیامک:</span><b>${item.sms_sent ? '✅ ارسال شده' : '⏳ در انتظار'}</b></div>
+    <div class="fr-detail-row"><span>وضعیت پیامک:</span><b>${item.sms_status === 'sent' ? '✅ ارسال شده' : item.sms_status === 'failed' ? '❌ ناموفق' : '⏳ در انتظار'}</b></div>
     <button class="btn btn-light w-100 mt-3" id="frCloseSheet">بستن</button>
   `;
   const backdrop = document.createElement('div');
@@ -290,7 +301,7 @@ function openDetail(item) {
 }
 
 // ═══════════════════════════════════════════════════════
-// فرم ثبت (با ارسال پیامک خودکار)
+// تب ثبت جدید (با برگشت دکمه‌های سریع)
 // ═══════════════════════════════════════════════════════
 function renderAddForm() {
   const body = $('frBody');
@@ -320,11 +331,13 @@ function renderAddForm() {
       <div class="fr-field">
         <label>محل ثبت *</label>
         <input type="text" class="form-control" id="frLocation" placeholder="دفتر ایمنی / سیار / ...">
+        <div class="fr-quick-chips" id="frLocationChips"></div>
       </div>
 
       <div class="fr-field">
         <label>محل جریمه / حادثه *</label>
         <input type="text" class="form-control" id="frIncidentLocation" placeholder="خط تولید / انبار / ...">
+        <div class="fr-quick-chips" id="frIncidentLocationChips"></div>
       </div>
 
       <div class="fr-field">
@@ -338,16 +351,40 @@ function renderAddForm() {
       <div class="fr-field">
         <label>علت *</label>
         <textarea class="form-control" id="frReason" rows="2"></textarea>
+        <div class="fr-quick-chips" id="frReasonChips"></div>
       </div>
 
       <div class="fr-field">
         <label>مبلغ (ریال) *</label>
         <input type="text" class="form-control" id="frAmount" value="1" dir="ltr" inputmode="numeric">
+        <div class="fr-quick-chips" id="frAmountChips"></div>
       </div>
 
       <button class="btn btn-primary w-100 fr-save-btn" id="frSave"><i class="bi bi-check-circle"></i> ثبت و ارسال پیامک</button>
     </div>
   `;
+
+  // ⭐ برگرداندن دکمه‌های سریع
+  const chipWrap = (wrapId, items, onPick) => {
+    const w = $(wrapId);
+    if (!w) return;
+    items.forEach(v => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'fr-chip'; b.textContent = typeof v === 'number' ? fmtMoney(v) : v;
+      b.onclick = () => onPick(v);
+      w.appendChild(b);
+    });
+  };
+
+  chipWrap('frAmountChips', QUICK_AMOUNTS, v => { $('frAmount').value = fmtMoney(v); });
+  chipWrap('frReasonChips', QUICK_REASONS, v => { $('frReason').value = v; });
+  chipWrap('frLocationChips', QUICK_REGISTER_LOCATIONS, v => { $('frLocation').value = v; });
+  chipWrap('frIncidentLocationChips', QUICK_INCIDENT_LOCATIONS, v => { $('frIncidentLocation').value = v; });
+
+  $('frAmount').addEventListener('input', (e) => {
+    const v = toEnDigits(e.target.value).replace(/[^0-9]/g, '');
+    e.target.value = v ? Number(v).toLocaleString('en-US') : '';
+  });
 
   bindTypeButtons();
   bindWorkerSearch();
@@ -364,9 +401,6 @@ function bindTypeButtons() {
   });
 }
 
-// ═══════════════════════════════════════════════════════
-// جستجوی کارگر (با نمایش آمار)
-// ═══════════════════════════════════════════════════════
 let searchTimer = null;
 function bindWorkerSearch() {
   const input = $('frWorkerSearch');
@@ -378,6 +412,7 @@ function bindWorkerSearch() {
     if (selectedEl.style.display !== 'none') {
       selectedEl.style.display = 'none'; statsEl.style.display = 'none';
       delete input.dataset.workerId;
+      delete input.dataset.phone;
     }
     clearTimeout(searchTimer);
     const raw = input.value.trim();
@@ -449,18 +484,19 @@ async function selectWorker(card, input, resultsEl, selectedEl, statsEl) {
         }
         const { error } = await sb.from('core_patient').update(updated).eq('id', id);
         if (error) { toast('خطا: ' + error.message, 'danger'); return false; }
-        await finalizeSelection(id, name, personnel, input, resultsEl, selectedEl, statsEl);
+        await finalizeSelection(id, name, personnel, updated.phone_number || phone, input, resultsEl, selectedEl, statsEl);
         return true;
       }
     });
     return;
   }
-  await finalizeSelection(id, name, personnel, input, resultsEl, selectedEl, statsEl);
+  await finalizeSelection(id, name, personnel, phone, input, resultsEl, selectedEl, statsEl);
 }
 
-async function finalizeSelection(id, name, personnel, input, resultsEl, selectedEl, statsEl) {
+async function finalizeSelection(id, name, personnel, phone, input, resultsEl, selectedEl, statsEl) {
   input.value = name;
   input.dataset.workerId = id;
+  input.dataset.phone = phone;
   resultsEl.innerHTML = '';
   selectedEl.style.display = 'block';
   selectedEl.innerHTML = `<div class="fr-selected-inner"><i class="bi bi-check-circle-fill"></i><div><div class="fr-selected-name">${escapeHtml(name)}</div><div class="fr-selected-meta">${personnel?'کد پرسنلی: '+escapeHtml(personnel):''}</div></div></div>`;
@@ -555,12 +591,10 @@ function openMissingInfoModal({ patientId, name, missingFields, onSave }) {
   };
 }
 
-// ═══════════════════════════════════════════════════════
-// ذخیره تراکنش + ارسال پیامک
-// ═══════════════════════════════════════════════════════
 async function saveRecord() {
   const input = $('frWorkerSearch');
   const workerId = input.dataset.workerId;
+  const phone = input.dataset.phone;
   if (!workerId) { toast('ابتدا کارگر را انتخاب کنید', 'warning'); return; }
 
   const reason = $('frReason').value.trim();
@@ -590,23 +624,26 @@ async function saveRecord() {
     recorded_by: user?.id || null,
     sent_to_finance: false,
     status_changed_at: new Date().toISOString(),
+    sms_status: 'pending'
   };
 
   try {
-    // ۱. ذخیره در دیتابیس
+    // ۱. ذخیره اولیه
     const { data: inserted, error } = await sb.from('safety_finereward').insert(record).select().single();
     if (error) throw error;
 
     // ۲. ارسال پیامک
     const typeFa = { fine: 'جریمه', reward: 'تشویقی', warning: 'اخطار' }[record.record_type];
     const smsText = `همکار گرامی، ${typeFa} ثبت شده برای شما: ${reason} (مبلغ: ${fmtMoney(amount)} ریال)`;
-    const smsResult = await sendSMS($('frWorkerSearch').dataset.phone, smsText, input.value);
+    const smsResult = await sendSMS(phone, smsText);
     
+    // ۳. آپدیت وضعیت پیامک
     if (smsResult.success) {
-      await sb.from('safety_finereward').update({ sms_sent: true, sms_message_id: smsResult.messageId }).eq('id', inserted.id);
+      await sb.from('safety_finereward').update({ sms_status: 'sent', sms_message_id: smsResult.messageId, sms_error: null }).eq('id', inserted.id);
       toast('✅ ثبت شد و پیامک ارسال گردید', 'success');
     } else {
-      toast('✅ ثبت شد اما پیامک ارسال نشد: ' + (smsResult.error || 'خطای نامشخص'), 'warning');
+      await sb.from('safety_finereward').update({ sms_status: 'failed', sms_error: smsResult.error || 'خطای نامشخص' }).eq('id', inserted.id);
+      toast(`⚠️ ثبت شد اما پیامک ناموفق بود: ${smsResult.error}`, 'warning');
     }
 
     document.querySelector('.fr-tab[data-tab="list"]').click();
@@ -617,7 +654,7 @@ async function saveRecord() {
 }
 
 // ═══════════════════════════════════════════════════════
-// تب مالی (با خروجی اکسل تفکیک‌شده)
+// تب مالی
 // ═══════════════════════════════════════════════════════
 async function renderFinance() {
   const body = $('frBody');
@@ -636,7 +673,7 @@ async function renderFinance() {
     body.innerHTML = `
       <div class="fr-finance-section">
         <div class="fr-finance-header pending">
-          <div><i class="bi bi-hourglass-split"></i> ${pending.length} مورد ارسال‌نشده</div>
+          <div><i class="bi bi-hourglass-split"></i> ${pending.length} مورد ارسال‌نشده به مالی</div>
           ${pending.length ? `<button class="btn btn-success btn-sm" id="frSendAll"><i class="bi bi-file-earmark-excel"></i> ارسال و اکسل</button>` : '<span class="badge-soft success">همه ارسال شده</span>'}
         </div>
         ${pending.length ? `<div class="fr-list">${pending.map(renderFinanceItem).join('')}</div>` : ''}
@@ -645,7 +682,7 @@ async function renderFinance() {
       ${sent.length ? `
         <div class="fr-finance-section" style="margin-top:20px;">
           <div class="fr-finance-header sent">
-            <div><i class="bi bi-check2-circle"></i> ${sent.length} مورد ارسال‌شده</div>
+            <div><i class="bi bi-check2-circle"></i> ${sent.length} مورد ارسال‌شده به مالی</div>
             <button class="btn btn-outline-success btn-sm" id="frExportSent"><i class="bi bi-download"></i> خروجی اکسل</button>
           </div>
           <div class="fr-list">${sent.slice(0, 50).map(renderFinanceItem).join('')}</div>
@@ -660,7 +697,6 @@ async function renderFinance() {
 }
 
 function renderFinanceItem(it) {
-  const dateFa = it.incident_datetime ? gregorianToJalali(it.incident_datetime.split('T')[0]) : '—';
   return `
     <div class="fr-item ${it.record_type}">
       <div class="fr-item-icon ${it.record_type === 'reward' ? 'success' : 'danger'}"><i class="bi ${it.record_type === 'reward' ? 'bi-award-fill' : 'bi-exclamation-circle-fill'}"></i></div>
@@ -675,7 +711,6 @@ function renderFinanceItem(it) {
 
 async function exportAndMark(records) {
   if (!records.length) return;
-
   const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'محل جریمه', 'تاریخ'];
   const rows = records.map(r => [
     `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
@@ -719,36 +754,125 @@ function exportExcel(records, prefix) {
 }
 
 // ═══════════════════════════════════════════════════════
-// ورودی اصلی
+// ⭐ تب پیامک‌ها (مدیریت ناموفق‌ها)
 // ═══════════════════════════════════════════════════════
-export function openFineReward() {
-  showScreenDirect('FineReward');
-  const wrap = $('fineRewardContent');
-  if (!wrap) return;
+async function renderSMSStatus() {
+  const body = $('frBody');
+  body.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
 
-  wrap.innerHTML = `
-    <div class="fr-page">
-      <div class="fr-header">
-        <div class="fr-title">مدیریت جریمه و تشویقی</div>
-        <div class="fr-sub">ثبت، پیامک و گزارش‌گیری</div>
+  try {
+    const { data, error } = await sb.from('safety_finereward')
+      .select('*, patient:core_patient(first_name, last_name, personnel_number, national_code, phone_number)')
+      .eq('sms_status', 'failed')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    const failedList = data || [];
+
+    if (!failedList.length) {
+      body.innerHTML = `
+        <div class="fr-empty">
+          <i class="bi bi-check2-circle text-success" style="font-size:3rem; opacity:1;"></i>
+          <div class="mt-2 text-success fw-bold">هیچ پیامک ناموفقی وجود ندارد</div>
+          <div class="muted small">همه پیامک‌ها با موفقیت ارسال شده‌اند.</div>
+        </div>`;
+      return;
+    }
+
+    body.innerHTML = `
+      <div class="fr-finance-section">
+        <div class="fr-finance-header" style="background:#fee2e2; color:#991b1b;">
+          <div><i class="bi bi-x-circle-fill"></i> ${failedList.length} پیامک ناموفق</div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-outline-danger btn-sm" id="frExportFailed"><i class="bi bi-download"></i> خروجی اکسل</button>
+            <button class="btn btn-danger btn-sm" id="frResendAll"><i class="bi bi-arrow-repeat"></i> ارسال مجدد همه</button>
+          </div>
+        </div>
+        <div class="fr-list" id="frFailedList">
+          ${failedList.map(it => `
+            <div class="fr-item danger" data-id="${it.id}">
+              <div class="fr-item-icon danger"><i class="bi bi-exclamation-triangle-fill"></i></div>
+              <div class="fr-item-body">
+                <div class="fr-item-name">${escapeHtml((it.patient?.first_name||'')+' '+(it.patient?.last_name||''))}</div>
+                <div class="fr-item-personnel">پرسنلی: ${escapeHtml(it.patient?.personnel_number||'—')} — موبایل: ${escapeHtml(it.patient?.phone_number||'—')}</div>
+                <div class="fr-item-reason">خطا: ${escapeHtml(it.sms_error || 'نامشخص')}</div>
+                <button class="btn btn-sm btn-outline-primary mt-2" data-resend="${it.id}"><i class="bi bi-arrow-clockwise"></i> ارسال مجدد</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
       </div>
-      <div class="fr-tabs">
-        <button class="fr-tab active" data-tab="list"><i class="bi bi-list-ul"></i> لیست</button>
-        <button class="fr-tab" data-tab="add"><i class="bi bi-plus-circle"></i> ثبت جدید</button>
-        <button class="fr-tab" data-tab="finance"><i class="bi bi-file-earmark-excel"></i> مالی</button>
-      </div>
-      <div id="frBody"></div>
-    </div>
-  `;
-  wrap.querySelectorAll('.fr-tab').forEach(btn => {
-    btn.onclick = () => {
-      wrap.querySelectorAll('.fr-tab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const t = btn.dataset.tab;
-      if (t === 'list') renderList();
-      else if (t === 'add') renderAddForm();
-      else if (t === 'finance') renderFinance();
+    `;
+
+    // خروجی اکسل
+    $('frExportFailed').onclick = () => {
+      const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'علت خطا', 'تاریخ'];
+      const rows = failedList.map(r => [
+        `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
+        r.patient?.personnel_number || '',
+        r.patient?.national_code || '',
+        r.patient?.phone_number || '',
+        r.sms_error || 'نامشخص',
+        r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
+      ]);
+      downloadCSV(headers, rows, `sms-failed-${todayJalali().replace(/\//g,'-')}.csv`);
     };
-  });
-  renderList();
+
+    // ارسال مجدد تک‌تک
+    body.querySelectorAll('[data-resend]').forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.resend;
+        const item = failedList.find(x => String(x.id) === String(id));
+        if (item) await resendSMS(item, btn);
+      };
+    });
+
+    // ارسال مجدد همه
+    $('frResendAll').onclick = async () => {
+      if (!confirm(`آیا مایل به ارسال مجدد ${failedList.length} پیامک هستید؟`)) return;
+      const btn = $('frResendAll');
+      btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ارسال...';
+      
+      let success = 0, fail = 0;
+      for (const item of failedList) {
+        const res = await resendSMS(item, null, true);
+        if (res) success++; else fail++;
+      }
+      toast(`ارسال مجدد پایان یافت. موفق: ${success}، ناموفق: ${fail}`, success ? 'success' : 'danger');
+      renderSMSStatus();
+    };
+
+  } catch (e) {
+    body.innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// ⭐ تابع ارسال مجدد
+async function resendSMS(item, btnEl = null, silent = false) {
+  if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+
+  const typeFa = { fine: 'جریمه', reward: 'تشویقی', warning: 'اخطار' }[item.record_type];
+  const smsText = `همکار گرامی، ${typeFa} ثبت شده برای شما: ${item.reason} (مبلغ: ${fmtMoney(item.amount)} ریال)`;
+  const phone = item.patient?.phone_number;
+
+  const smsResult = await sendSMS(phone, smsText);
+
+  if (smsResult.success) {
+    await sb.from('safety_finereward').update({ 
+      sms_status: 'sent', 
+      sms_message_id: smsResult.messageId, 
+      sms_error: null 
+    }).eq('id', item.id);
+    if (!silent) toast('✅ پیامک با موفقیت ارسال شد', 'success');
+    return true;
+  } else {
+    await sb.from('safety_finereward').update({ 
+      sms_status: 'failed', 
+      sms_error: smsResult.error || 'خطای نامشخص' 
+    }).eq('id', item.id);
+    if (!silent) toast(`❌ ارسال ناموفق: ${smsResult.error}`, 'danger');
+    if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="bi bi-arrow-clockwise"></i> ارسال مجدد'; }
+    return false;
+  }
 }
