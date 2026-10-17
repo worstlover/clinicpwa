@@ -364,6 +364,7 @@ function openDetail(item) {
     </div>
     ${item.sms_is_delivered ? `<div class="fr-detail-row"><span>وضعیت تحویل:</span><b>📬 تحویل شده</b></div>` : ''}
     ${item.sms_delivery_datetime ? `<div class="fr-detail-row"><span>زمان تحویل:</span><b dir="ltr">${deliveryDate}</b></div>` : ''}
+    ${item.sms_cost ? `<div class="fr-detail-row"><span>هزینه پیامک:</span><b>${fmtMoney(item.sms_cost)} ریال</b></div>` : ''}
     ${item.sms_error ? `<div class="fr-detail-row"><span>علت خطا:</span><b class="text-danger">${escapeHtml(item.sms_error)}</b></div>` : ''}
 
     <div class="d-flex gap-2 mt-3">
@@ -950,6 +951,7 @@ async function loadSMSStatusList() {
                   ${badge}
                 </div>
                 <div class="fr-item-personnel">موبایل: ${escapeHtml(it.patient?.phone_number||'—')}</div>
+                ${it.sms_cost ? `<div class="fr-item-meta small text-primary">هزینه: ${fmtMoney(it.sms_cost)} ریال</div>` : ''}
                 ${it.sms_delivery_datetime ? `<div class="fr-item-meta small text-success">زمان تحویل: ${formatDateTime(it.sms_delivery_datetime)}</div>` : ''}
                 ${it.sms_error ? `<div class="fr-item-reason text-danger small mt-1">خطا: ${escapeHtml(it.sms_error)}</div>` : ''}
               </div>
@@ -960,12 +962,13 @@ async function loadSMSStatusList() {
     `;
 
     $('frExportFailedExcel').onclick = async () => {
-      const headers = ['نام', 'کد پرسنلی', 'موبایل', 'وضعیت ارسال', 'وضعیت تحویل', 'زمان تحویل', 'علت خطا', 'تاریخ'];
+      const headers = ['نام', 'کد پرسنلی', 'موبایل', 'وضعیت ارسال', 'وضعیت تحویل', 'هزینه', 'زمان تحویل', 'علت خطا', 'تاریخ'];
       const rows = list.map(r => [
         `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
         r.patient?.personnel_number || '', r.patient?.phone_number || '',
         r.sms_status === 'failed' ? 'ناموفق' : 'ارسال شده',
         r.sms_is_delivered ? 'تحویل شده' : 'تحویل نشده',
+        r.sms_cost || 0,
         formatDateTime(r.sms_delivery_datetime),
         r.sms_error || '—',
         r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
@@ -978,12 +981,13 @@ async function loadSMSStatusList() {
     };
 
     $('frExportFailedPDF').onclick = () => {
-      const headers = ['ردیف', 'نام', 'موبایل', 'وضعیت', 'زمان تحویل', 'علت خطا'];
+      const headers = ['ردیف', 'نام', 'موبایل', 'وضعیت', 'هزینه', 'زمان تحویل', 'علت خطا'];
       const rows = list.map((r, idx) => [
         idx + 1,
         `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
         r.patient?.phone_number || '—',
         r.sms_status === 'failed' ? 'ناموفق' : (r.sms_is_delivered ? 'تحویل شده' : 'ارسال شده'),
+        r.sms_cost || 0,
         formatDateTime(r.sms_delivery_datetime),
         r.sms_error || '—',
       ]);
@@ -1021,7 +1025,7 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل (با بررسی‌های سخت‌گیرانه)
+// ⭐ تابع استعلام وضعیت تحویل (با منطق دقیق هزینه)
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -1047,12 +1051,18 @@ async function checkAllDeliveries() {
     const processDelivery = async (del) => {
       const sendTime = del.SendDateTime || null;
       const statusCode = String(del.Status).toLowerCase();
+      const cost = Number(del.Cost) || 0;
 
       let isDelivered = false;
       let newSmsStatus = 'sent';
 
       if (['1', 'success'].includes(statusCode)) {
-        isDelivered = true; 
+        if (cost > 0) {
+          isDelivered = true; 
+        } else {
+          isDelivered = false; 
+          newSmsStatus = 'sent'; 
+        }
       } else if (['2', '3', '5', '16', 'failed'].includes(statusCode)) {
         newSmsStatus = 'failed'; 
       } else if (statusCode === '0') {
@@ -1065,39 +1075,29 @@ async function checkAllDeliveries() {
           sms_delivery_status: del.Status,
           sms_status: newSmsStatus,
           sms_send_datetime: sendTime,
-          sms_delivery_datetime: isDelivered ? sendTime : null
+          sms_delivery_datetime: isDelivered ? sendTime : null,
+          sms_cost: cost
         })
         .eq('sms_message_id', del.MessageID);
 
-      if (updErr) throw new Error('خطا در ذخیره وضعیت در دیتابیس: ' + updErr.message);
+      if (updErr) throw new Error('خطا در ذخیره وضعیت: ' + updErr.message);
     };
 
     const res = await getDeliveries(messageIds);
-    console.log('[AMOOT] Delivery response:', res);
-
     if (!res?.success) {
       throw new Error(res?.error || 'ارتباط با سرویس استعلام دلیوری ناموفق بود');
     }
 
     const deliveries = res.data?.Data ?? res.data?.data;
-
-    if (!Array.isArray(deliveries)) {
-      console.error('[AMOOT] Unexpected response structure:', res.data);
-      throw new Error('ساختار پاسخ دلیوری آموت قابل شناسایی نیست');
-    }
-
+    if (!Array.isArray(deliveries)) throw new Error('ساختار پاسخ دلیوری آموت قابل شناسایی نیست');
     if (deliveries.length === 0) {
-      console.warn('[AMOOT] No delivery records returned', messageIds);
       toast('آموت برای این شناسه‌ها رکورد دلیوری برنگرداند', 'warning');
       btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
       return;
     }
 
     for (const del of deliveries) {
-      if (!del || del.MessageID == null || del.Status == null) {
-        console.warn('[AMOOT] Invalid delivery item:', del);
-        continue;
-      }
+      if (!del || del.MessageID == null || del.Status == null) continue;
       await processDelivery(del);
       updatedCount++;
     }
