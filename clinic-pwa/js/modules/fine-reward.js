@@ -2,7 +2,7 @@
 import { sb } from '../sb.js';
 import { $, toast, escapeHtml, gregorianToJalali, jalaliToGregorian, todayJalali } from '../utils.js';
 import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js';
-import { getAccountStatus } from './amoot-api.js';
+import { getAccountStatus, getDeliveries } from './amoot-api.js';
 
 // ═══════════════════════════════════════════════════════
 // دکمه‌های سریع
@@ -40,7 +40,7 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
-// ساخت متن پیامک طبق قالب اختصاصی
+// متن پیامک
 function buildSmsText(record) {
   const type = record.record_type;
   const amount = fmtMoney(record.amount);
@@ -57,7 +57,7 @@ function buildSmsText(record) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 📱 سرویس پیامک (ارسال از طریق Edge Function)
+// 📱 سرویس پیامک و Edge Function
 // ═══════════════════════════════════════════════════════
 async function sendSMS(phone, text) {
   if (!phone) return { success: false, error: 'شماره موبایل ثبت نشده است' };
@@ -82,7 +82,7 @@ async function sendSMS(phone, text) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 📤 خروجی‌گیری (Excel و PDF)
+// 📤 خروجی اکسل (تضمینی با Data URI)
 // ═══════════════════════════════════════════════════════
 function exportToExcel(headers, rows, filename) {
   const wsData = [headers, ...rows];
@@ -91,37 +91,54 @@ function exportToExcel(headers, rows, filename) {
   ws['!views'].push({ RTL: true });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Report");
-  XLSX.writeFile(wb, filename);
+  
+  // تبدیل به Base64 برای دانلود مطمئن در WebView
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+  const dataUri = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${wbout}`;
+  
+  const link = document.createElement('a');
+  link.href = dataUri;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
-function exportToPDF(title, headers, rows) {
-  let area = document.getElementById('pdfPrintArea');
-  if (!area) {
-    area = document.createElement('div');
-    area.id = 'pdfPrintArea';
-    document.body.appendChild(area);
+// ═══════════════════════════════════════════════════════
+// 📤 خروجی PDF (تضمینی با jsPDF)
+// ═══════════════════════════════════════════════════════
+function exportToPDF(title, headers, rows, filename) {
+  if (!window.jspdf || !window.jspdf.jsPDF) {
+    toast('کتابخانه PDF لود نشده است. صفحه را رفرش کنید.', 'danger');
+    return;
   }
-  const tableRows = rows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('');
-  area.innerHTML = `
-    <div style="direction:rtl; font-family:Tahoma; padding:20px;">
-      <h2 style="text-align:center; margin-bottom:20px;">${title}</h2>
-      <p style="text-align:left; font-size:12px;">تاریخ چاپ: ${todayJalali()}</p>
-      <table style="width:100%; border-collapse:collapse; text-align:center; font-size:12px;">
-        <thead><tr style="background:#f3f4f6;">${headers.map(h => `<th style="border:1px solid #000; padding:8px;">${h}</th>`).join('')}</tr></thead>
-        <tbody>${tableRows}</tbody>
-      </table>
-    </div>`;
-  let style = document.getElementById('pdfPrintStyle');
-  if (!style) {
-    style = document.createElement('style');
-    style.id = 'pdfPrintStyle';
-    style.innerHTML = `@media print { body * { visibility: hidden; } #pdfPrintArea, #pdfPrintArea * { visibility: visible; } #pdfPrintArea { position: absolute; left: 0; top: 0; width: 100%; } @page { size: A4; margin: 10mm; } }`;
-    document.head.appendChild(style);
-  }
-  setTimeout(() => {
-    window.print();
-    setTimeout(() => { area.innerHTML = ''; }, 1000);
-  }, 100);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+  
+  doc.autoTable({
+    head: [headers],
+    body: rows,
+    startY: 30,
+    theme: 'grid',
+    headStyles: { halign: 'center', fillColor: [41, 128, 185], textColor: 255 },
+    bodyStyles: { halign: 'center' },
+    styles: { font: 'Tahoma', fontSize: 9 },
+    didDrawPage: function (data) {
+      doc.setFontSize(16);
+      doc.text(title, 105, 15, { align: 'center' });
+      doc.setFontSize(10);
+      doc.text(`تاریخ چاپ: ${todayJalali()}`, 190, 25, { align: 'right' });
+    }
+  });
+  
+  // تبدیل به Data URI برای دانلود مطمئن
+  const pdfDataUri = doc.output('datauristring');
+  const link = document.createElement('a');
+  link.href = pdfDataUri;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -248,9 +265,17 @@ function renderListItem(item) {
 
   const name = item.patient ? `${item.patient.first_name||''} ${item.patient.last_name||''}`.trim() : '—';
   const dateStr = item.incident_datetime ? gregorianToJalali(item.incident_datetime.split('T')[0]) : '—';
-  const smsBadge = item.sms_status === 'sent' ? '<span class="badge bg-success" style="font-size:0.6rem;">پیامک شد</span>' : 
-                   item.sms_status === 'failed' ? '<span class="badge bg-danger" style="font-size:0.6rem;">پیامک نشد</span>' : 
-                   '<span class="badge bg-secondary" style="font-size:0.6rem;">در انتظار</span>';
+  
+  let smsBadge = '';
+  if (item.sms_status === 'sent') {
+    smsBadge = item.sms_is_delivered 
+      ? '<span class="badge bg-success" style="font-size:0.6rem;">تحویل شد</span>' 
+      : '<span class="badge bg-warning text-dark" style="font-size:0.6rem;">ارسال شد</span>';
+  } else if (item.sms_status === 'failed') {
+    smsBadge = '<span class="badge bg-danger" style="font-size:0.6rem;">ناموفق</span>';
+  } else {
+    smsBadge = '<span class="badge bg-secondary" style="font-size:0.6rem;">در انتظار</span>';
+  }
 
   return `
     <button class="fr-item ${meta.cls}" data-fr-id="${item.id}">
@@ -296,6 +321,7 @@ function openDetail(item) {
       <span>وضعیت پیامک:</span>
       <b>${item.sms_status === 'sent' ? '✅ ارسال شده' : item.sms_status === 'failed' ? '❌ ناموفق' : '⏳ در انتظار'}</b>
     </div>
+    ${item.sms_status === 'sent' ? `<div class="fr-detail-row"><span>وضعیت تحویل:</span><b>${item.sms_is_delivered ? '📬 تحویل شده' : '⏳ تحویل نشده'}</b></div>` : ''}
     ${item.sms_error ? `<div class="fr-detail-row"><span>علت خطا:</span><b class="text-danger">${escapeHtml(item.sms_error)}</b></div>` : ''}
 
     <div class="d-flex gap-2 mt-3">
@@ -322,22 +348,13 @@ function openDetail(item) {
       const res = await sendSMS(item.patient?.phone_number, smsText);
       
       if (res.success) {
-        await sb.from('safety_finereward').update({ 
-          sms_status: 'sent', 
-          sms_message_id: res.messageId, 
-          sms_error: null 
-        }).eq('id', item.id);
+        await sb.from('safety_finereward').update({ sms_status: 'sent', sms_message_id: res.messageId, sms_error: null }).eq('id', item.id);
         toast('✅ پیامک با موفقیت ارسال شد', 'success');
-        close();
-        loadList(); 
+        close(); loadList(); 
       } else {
-        await sb.from('safety_finereward').update({ 
-          sms_status: 'failed', 
-          sms_error: res.error 
-        }).eq('id', item.id);
+        await sb.from('safety_finereward').update({ sms_status: 'failed', sms_error: res.error }).eq('id', item.id);
         toast(`❌ ارسال ناموفق: ${res.error}`, 'danger');
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> ارسال مجدد پیامک';
+        btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> ارسال مجدد پیامک';
       }
     };
   }
@@ -419,7 +436,6 @@ function renderAddForm() {
     });
   };
 
-  // ⭐ اصلاح باگ مبلغ: مقدار عددی انگلیسی ذخیره شود
   chipWrap('frAmountChips', QUICK_AMOUNTS, v => { $('frAmount').value = v.toLocaleString('en-US'); });
   chipWrap('frReasonChips', QUICK_REASONS, v => { $('frReason').value = v; });
   chipWrap('frLocationChips', QUICK_REGISTER_LOCATIONS, v => { $('frLocation').value = v; });
@@ -455,8 +471,7 @@ function bindWorkerSearch() {
   input.addEventListener('input', () => {
     if (selectedEl.style.display !== 'none') {
       selectedEl.style.display = 'none'; statsEl.style.display = 'none';
-      delete input.dataset.workerId;
-      delete input.dataset.phone;
+      delete input.dataset.workerId; delete input.dataset.phone;
     }
     clearTimeout(searchTimer);
     const raw = input.value.trim();
@@ -511,12 +526,8 @@ async function selectWorker(card, input, resultsEl, selectedEl, statsEl) {
       patientId: id, name,
       missingFields: { national_code: !national, phone_number: !phone },
       onSave: async (updated) => {
-        if (updated.phone_number && !/^09\d{9}$/.test(updated.phone_number)) {
-          toast('شماره موبایل باید ۱۱ رقم و با ۰۹ شروع شود', 'danger'); return false;
-        }
-        if (updated.national_code && !/^\d{10}$/.test(updated.national_code)) {
-          toast('کد ملی باید ۱۰ رقم باشد', 'danger'); return false;
-        }
+        if (updated.phone_number && !/^09\d{9}$/.test(updated.phone_number)) { toast('شماره موبایل نامعتبر', 'danger'); return false; }
+        if (updated.national_code && !/^\d{10}$/.test(updated.national_code)) { toast('کد ملی نامعتبر', 'danger'); return false; }
         const { error } = await sb.from('core_patient').update(updated).eq('id', id);
         if (error) { toast('خطا: ' + error.message, 'danger'); return false; }
         await finalizeSelection(id, name, personnel, updated.phone_number || phone, input, resultsEl, selectedEl, statsEl);
@@ -540,14 +551,8 @@ async function finalizeSelection(id, name, personnel, phone, input, resultsEl, s
   statsEl.innerHTML = '<div class="fr-loading">در حال بارگذاری آمار...</div>';
 
   try {
-    const { count: incidentCount } = await sb.from('visits_visit')
-      .select('id', { count: 'exact', head: true })
-      .eq('patient_id', id)
-      .neq('incident_type', 'none')
-      .not('incident_type', 'is', null);
-
-    const { data: records } = await sb.from('safety_finereward')
-      .select('record_type').eq('worker_id', id);
+    const { count: incidentCount } = await sb.from('visits_visit').select('id', { count: 'exact', head: true }).eq('patient_id', id).neq('incident_type', 'none').not('incident_type', 'is', null);
+    const { data: records } = await sb.from('safety_finereward').select('record_type').eq('worker_id', id);
     const fines = (records||[]).filter(r => r.record_type === 'fine').length;
     const rewards = (records||[]).filter(r => r.record_type === 'reward').length;
     const warnings = (records||[]).filter(r => r.record_type === 'warning').length;
@@ -614,21 +619,16 @@ async function saveRecord() {
 
   const reason = $('frReason').value.trim();
   if (!reason) { toast('علت اجباری است', 'warning'); return; }
-
   const location = $('frLocation').value.trim();
   if (!location) { toast('محل ثبت اجباری است', 'warning'); return; }
-
   const incidentLocation = $('frIncidentLocation').value.trim();
   if (!incidentLocation) { toast('محل جریمه/حادثه اجباری است', 'warning'); return; }
 
-  const dateStr = $('frDate').value.trim();
-  const timeStr = $('frTime').value.trim();
-  const isoDT = toISOWithTime(dateStr, timeStr);
+  const isoDT = toISOWithTime($('frDate').value.trim(), $('frTime').value.trim());
   if (!isoDT) { toast('تاریخ نامعتبر', 'warning'); return; }
 
   const rawAmount = toEnDigits($('frAmount').value);
   const amount = parseInt(rawAmount.replace(/[^\d]/g, ''), 10) || 0;
-  
   if (amount < 1) { toast('مبلغ حداقل ۱ ریال است', 'warning'); return; }
 
   const { data: { user } } = await sb.auth.getUser();
@@ -658,7 +658,6 @@ async function saveRecord() {
       await sb.from('safety_finereward').update({ sms_status: 'failed', sms_error: smsResult.error }).eq('id', inserted.id);
       toast(`⚠️ ثبت شد اما پیامک ناموفق بود: ${smsResult.error}`, 'warning');
     }
-
     document.querySelector('.fr-tab[data-tab="list"]').click();
   } catch (e) {
     console.error(e);
@@ -686,8 +685,8 @@ async function renderFinance() {
     body.innerHTML = `
       <div class="fr-finance-section">
         <div class="fr-finance-header pending">
-          <div><i class="bi bi-hourglass-split"></i> ${pending.length} مورد ارسال‌نشده به مالی</div>
-          ${pending.length ? `<button class="btn btn-success btn-sm" id="frSendAll"><i class="bi bi-file-earmark-excel"></i> ارسال و اکسل</button>` : '<span class="badge-soft success">همه ارسال شده</span>'}
+          <div><i class="bi bi-hourglass-split"></i> ${pending.length} مورد ارسال‌نشده</div>
+          ${pending.length ? `<button class="btn btn-success btn-sm" id="frSendAll"><i class="bi bi-file-earmark-excel"></i> خروجی اکسل</button>` : '<span class="badge-soft success">همه ارسال شده</span>'}
         </div>
         ${pending.length ? `<div class="fr-list">${pending.map(renderFinanceItem).join('')}</div>` : ''}
       </div>
@@ -695,7 +694,7 @@ async function renderFinance() {
       ${sent.length ? `
         <div class="fr-finance-section" style="margin-top:20px;">
           <div class="fr-finance-header sent">
-            <div><i class="bi bi-check2-circle"></i> ${sent.length} مورد ارسال‌شده به مالی</div>
+            <div><i class="bi bi-check2-circle"></i> ${sent.length} مورد ارسال‌شده</div>
             <button class="btn btn-outline-success btn-sm" id="frExportSent"><i class="bi bi-download"></i> خروجی اکسل</button>
           </div>
           <div class="fr-list">${sent.slice(0, 50).map(renderFinanceItem).join('')}</div>
@@ -754,48 +753,38 @@ function exportExcel(records, prefix) {
 }
 
 // ═══════════════════════════════════════════════════════
-// تب پیامک‌ها (با جستجو، فیلتر تاریخ و لاگ خروجی)
+// تب پیامک‌ها (با استعلام وضعیت تحویل)
 // ═══════════════════════════════════════════════════════
 async function renderSMSStatus() {
   const body = $('frBody');
   
-  // ⭐ استعلام اعتبار و وضعیت حساب از طریق ماژول جدید
   let creditInfo = null;
   const statusRes = await getAccountStatus();
-  if (statusRes.success) {
-    creditInfo = statusRes.data;
-  }
+  if (statusRes.success) creditInfo = statusRes.data;
 
-  // واکشی تاریخ آخرین خروجی اکسل
   let lastExportDate = '—';
   try {
     const { data: lastExp } = await sb.from('safety_finereward')
-      .select('sms_exported_at')
-      .not('sms_exported_at', 'is', null)
-      .order('sms_exported_at', { ascending: false })
-      .limit(1);
-    if (lastExp && lastExp.length) {
-      lastExportDate = gregorianToJalali(lastExp[0].sms_exported_at.split('T')[0]);
-    }
+      .select('sms_exported_at').not('sms_exported_at', 'is', null)
+      .order('sms_exported_at', { ascending: false }).limit(1);
+    if (lastExp && lastExp.length) lastExportDate = gregorianToJalali(lastExp[0].sms_exported_at.split('T')[0]);
   } catch(e) {}
 
   body.innerHTML = `
     <div class="card mb-3" style="background:#f8fafc; border:none; border-radius:12px;">
       <div class="card-body p-3 d-flex justify-content-between align-items-center">
         <div>
-          <div style="font-size:0.8rem; color:#64748b;">اعتبار باقیمانده پنل پیامک:</div>
-          <div class="fw-bold" style="font-size:1.1rem; color:#0f172a;">
-            ${creditInfo ? fmtMoney(creditInfo.RemaindCredit) + ' ریال' : 'نامشخص'}
-          </div>
+          <div style="font-size:0.8rem; color:#64748b;">اعتبار پنل پیامک:</div>
+          <div class="fw-bold" style="font-size:1.1rem; color:#0f172a;">${creditInfo ? fmtMoney(creditInfo.RemaindCredit) + ' ریال' : 'نامشخص'}</div>
         </div>
-        ${creditInfo ? `<div class="badge bg-success">فعال</div>` : `<div class="badge bg-warning text-dark">خطا در استعلام</div>`}
+        <a href="https://hub.amootsoft.com/panel/credit/increase" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-circle"></i> شارژ</a>
       </div>
     </div>
 
     <div class="fr-filters" style="background:#fff; border-radius:12px; padding:12px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,0.05);">
       <div class="input-group mb-2">
         <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-        <input type="text" id="frSmsFilterQuery" placeholder="جستجو (نام، کد پرسنلی، موبایل، علت خطا...)" class="form-control">
+        <input type="text" id="frSmsFilterQuery" placeholder="جستجو..." class="form-control">
       </div>
       <div class="row g-2">
         <div class="col-6"><input type="text" id="frSmsFilterFrom" placeholder="از تاریخ" value="${todayJalali().slice(0,4)}/01/01" class="form-control" dir="ltr"></div>
@@ -803,16 +792,14 @@ async function renderSMSStatus() {
       </div>
       <div class="d-flex justify-content-between align-items-center mt-2">
         <button class="btn btn-primary btn-sm flex-grow-1 me-2" id="frSmsApplyFilter"><i class="bi bi-funnel"></i> اعمال فیلتر</button>
-        <div class="small text-muted text-end" style="font-size:0.75rem; line-height:1.4;">
-          آخرین خروجی:<br>
-          <span class="fw-bold text-dark">${lastExportDate}</span>
-        </div>
+        <button class="btn btn-info btn-sm text-white" id="frCheckDeliveryBtn"><i class="bi bi-arrow-repeat"></i> استعلام تحویل</button>
       </div>
     </div>
     <div id="frSmsListContainer"><div class="text-center py-4"><div class="spinner-border text-primary"></div></div></div>
   `;
 
   $('frSmsApplyFilter').onclick = loadSMSStatusList;
+  $('frCheckDeliveryBtn').onclick = checkAllDeliveries;
   loadSMSStatusList();
 }
 
@@ -826,8 +813,8 @@ async function loadSMSStatusList() {
 
   try {
     let query = sb.from('safety_finereward')
-      .select('*, patient:core_patient(first_name, last_name, personnel_number, national_code, phone_number)')
-      .eq('sms_status', 'failed')
+      .select('*, patient:core_patient(first_name, last_name, personnel_number, phone_number)')
+      .not('sms_status', 'eq', 'pending') // فقط ارسال شده‌ها یا ناموفق‌ها
       .order('created_at', { ascending: false });
 
     const fromG = from ? jalaliToGregorian(from) : null;
@@ -838,90 +825,94 @@ async function loadSMSStatusList() {
     const { data, error } = await query;
     if (error) throw error;
 
-    let failedList = data || [];
-    
+    let list = data || [];
     if (q) {
-      failedList = failedList.filter(it => {
-        const haystack = [
-          it.patient?.first_name, it.patient?.last_name,
-          it.patient?.personnel_number, it.patient?.phone_number,
-          it.sms_error, it.reason
-        ].join(' ').toLowerCase();
+      list = list.filter(it => {
+        const haystack = [it.patient?.first_name, it.patient?.last_name, it.patient?.personnel_number, it.patient?.phone_number, it.sms_error, it.reason].join(' ').toLowerCase();
         return haystack.includes(q);
       });
     }
 
-    if (!failedList.length) {
-      c.innerHTML = `
-        <div class="fr-empty">
-          <i class="bi bi-check2-circle text-success" style="font-size:3rem; opacity:1;"></i>
-          <div class="mt-2 text-success fw-bold">پیامک ناموفقی در این بازه یافت نشد</div>
-        </div>`;
+    if (!list.length) {
+      c.innerHTML = `<div class="fr-empty"><i class="bi bi-inbox"></i><div>موردی یافت نشد</div></div>`;
       return;
     }
 
     c.innerHTML = `
       <div class="fr-finance-section">
-        <div class="fr-finance-header" style="background:#fee2e2; color:#991b1b; margin-bottom:10px;">
-          <div><i class="bi bi-x-circle-fill"></i> ${failedList.length} پیامک ناموفق</div>
+        <div class="fr-finance-header" style="background:#e0e7ff; color:#3730a3; margin-bottom:10px;">
+          <div><i class="bi bi-phone"></i> ${list.length} پیامک</div>
           <div class="d-flex gap-1 flex-wrap">
-            <button class="btn btn-outline-danger btn-sm" id="frExportFailedExcel"><i class="bi bi-file-earmark-excel"></i> اکسل</button>
-            <button class="btn btn-outline-danger btn-sm" id="frExportFailedPDF"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
-            <button class="btn btn-danger btn-sm" id="frResendAll"><i class="bi bi-arrow-repeat"></i> ارسال مجدد</button>
+            <button class="btn btn-outline-primary btn-sm" id="frExportFailedExcel"><i class="bi bi-file-earmark-excel"></i> اکسل</button>
+            <button class="btn btn-outline-primary btn-sm" id="frExportFailedPDF"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+            <button class="btn btn-primary btn-sm" id="frResendFailed"><i class="bi bi-arrow-repeat"></i> ارسال مجدد ناموفق‌ها</button>
           </div>
         </div>
         <div class="fr-list" id="frFailedList">
-          ${failedList.map(it => `
-            <div class="fr-item danger" data-id="${it.id}">
-              <div class="fr-item-icon danger"><i class="bi bi-exclamation-triangle-fill"></i></div>
+          ${list.map(it => {
+            let badge = '';
+            if (it.sms_status === 'failed') badge = '<span class="badge bg-danger">ناموفق</span>';
+            else if (it.sms_status === 'sent') badge = it.sms_is_delivered ? '<span class="badge bg-success">تحویل شد</span>' : '<span class="badge bg-warning text-dark">ارسال شد (در انتظار تحویل)</span>';
+            
+            return `
+            <div class="fr-item ${it.sms_status === 'failed' ? 'danger' : ''}" data-id="${it.id}">
+              <div class="fr-item-icon ${it.sms_status === 'failed' ? 'danger' : 'success'}"><i class="bi ${it.sms_status === 'failed' ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill'}"></i></div>
               <div class="fr-item-body">
-                <div class="fr-item-name">${escapeHtml((it.patient?.first_name||'')+' '+(it.patient?.last_name||''))}</div>
-                <div class="fr-item-personnel">پرسنلی: ${escapeHtml(it.patient?.personnel_number||'—')} — موبایل: ${escapeHtml(it.patient?.phone_number||'—')}</div>
-                <div class="fr-item-reason">خطا: ${escapeHtml(it.sms_error || 'نامشخص')}</div>
+                <div class="fr-item-head mb-1">
+                  <div class="fr-item-name">${escapeHtml((it.patient?.first_name||'')+' '+(it.patient?.last_name||''))}</div>
+                  ${badge}
+                </div>
+                <div class="fr-item-personnel">موبایل: ${escapeHtml(it.patient?.phone_number||'—')}</div>
+                ${it.sms_error ? `<div class="fr-item-reason text-danger small mt-1">خطا: ${escapeHtml(it.sms_error)}</div>` : ''}
               </div>
-            </div>
-          `).join('')}
+            </div>`;
+          }).join('')}
         </div>
       </div>
     `;
 
+    // خروجی اکسل
     $('frExportFailedExcel').onclick = async () => {
-      const headers = ['نام', 'کد پرسنلی', 'موبایل', 'علت خطا', 'تاریخ رویداد'];
-      const rows = failedList.map(r => [
+      const headers = ['نام', 'کد پرسنلی', 'موبایل', 'وضعیت ارسال', 'وضعیت تحویل', 'علت خطا', 'تاریخ'];
+      const rows = list.map(r => [
         `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
-        r.patient?.personnel_number || '', r.patient?.phone_number || '', 
-        r.sms_error || 'نامشخص',
+        r.patient?.personnel_number || '', r.patient?.phone_number || '',
+        r.sms_status === 'failed' ? 'ناموفق' : 'ارسال شده',
+        r.sms_is_delivered ? 'تحویل شده' : 'تحویل نشده',
+        r.sms_error || '—',
         r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
       ]);
-      exportToExcel(headers, rows, `sms-failed-${todayJalali().replace(/\//g,'-')}.xlsx`);
+      exportToExcel(headers, rows, `sms-report-${todayJalali().replace(/\//g,'-')}.xlsx`);
       
-      const ids = failedList.map(r => r.id);
-      const now = new Date().toISOString();
-      await sb.from('safety_finereward').update({ sms_exported_at: now }).in('id', ids);
-      
+      const ids = list.map(r => r.id);
+      await sb.from('safety_finereward').update({ sms_exported_at: new Date().toISOString() }).in('id', ids);
       toast('✅ خروجی اکسل ذخیره شد', 'success');
-      renderSMSStatus();
     };
 
+    // خروجی PDF
     $('frExportFailedPDF').onclick = () => {
-      const headers = ['ردیف', 'نام', 'کد پرسنلی', 'موبایل', 'علت خطا', 'تاریخ'];
-      const rows = failedList.map((r, idx) => [
+      const headers = ['ردیف', 'نام', 'موبایل', 'وضعیت', 'علت خطا'];
+      const rows = list.map((r, idx) => [
         idx + 1,
         `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
-        r.patient?.personnel_number || '—', r.patient?.phone_number || '—', 
-        r.sms_error || 'نامشخص',
-        r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '—',
+        r.patient?.phone_number || '—',
+        r.sms_status === 'failed' ? 'ناموفق' : (r.sms_is_delivered ? 'تحویل شده' : 'ارسال شده'),
+        r.sms_error || '—',
       ]);
-      exportToPDF('گزارش پیامک‌های ناموفق', headers, rows);
+      exportToPDF('گزارش وضعیت پیامک‌ها', headers, rows, `sms-report-${todayJalali().replace(/\//g,'-')}.pdf`);
     };
 
-    $('frResendAll').onclick = async () => {
-      if (!confirm(`آیا مایل به ارسال مجدد ${failedList.length} پیامک هستید؟`)) return;
-      const btn = $('frResendAll');
+    // ارسال مجدد ناموفق‌ها
+    $('frResendFailed').onclick = async () => {
+      const failedItems = list.filter(it => it.sms_status === 'failed');
+      if (!failedItems.length) { toast('پیامک ناموفقی در این لیست نیست', 'info'); return; }
+      if (!confirm(`آیا مایل به ارسال مجدد ${failedItems.length} پیامک ناموفق هستید؟`)) return;
+      
+      const btn = $('frResendFailed');
       btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ارسال...';
       
       let success = 0, fail = 0;
-      for (const item of failedList) {
+      for (const item of failedItems) {
         const smsText = buildSmsText(item);
         const res = await sendSMS(item.patient?.phone_number, smsText);
         
@@ -933,11 +924,64 @@ async function loadSMSStatusList() {
           fail++;
         }
       }
-      toast(`ارسال مجدد پایان یافت. موفق: ${success}، ناموفق: ${fail}`, success ? 'success' : 'danger');
+      toast(`پایان یافت. موفق: ${success}، ناموفق: ${fail}`, success ? 'success' : 'danger');
       renderSMSStatus();
     };
 
   } catch (e) {
     c.innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// ⭐ تابع استعلام وضعیت تحویل (Delivery Status)
+async function checkAllDeliveries() {
+  const btn = $('frCheckDeliveryBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
+
+  try {
+    // پیدا کردن پیامک‌هایی که ارسال شده‌اند اما وضعیت تحویلشان مشخص نیست
+    const { data: pendingList, error } = await sb.from('safety_finereward')
+      .select('id, sms_message_id')
+      .eq('sms_status', 'sent')
+      .eq('sms_is_delivered', false)
+      .not('sms_message_id', 'is', null)
+      .limit(50); // حداکثر ۵۰ تا در هر بار استعلام
+
+    if (error) throw error;
+    if (!pendingList || pendingList.length === 0) {
+      toast('هیچ پیامک در انتظار تحویلی وجود ندارد', 'info');
+      btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام تحویل';
+      return;
+    }
+
+    const messageIds = pendingList.map(p => p.sms_message_id);
+    
+    // فراخوانی متد GetDeliveries از API آموت
+    const res = await getDeliveries(messageIds);
+    
+    if (!res.success) throw new Error(res.error || 'خطا در استعلام تحویل');
+
+    // بررسی پاسخ آموت (معمولاً در res.data.Data برمی‌گردد)
+    const deliveries = res.data?.Data || res.data?.data || [];
+    let updatedCount = 0;
+
+    for (const del of deliveries) {
+      // اگر وضعیت تحویل با موفقیت برگشت (معمولاً کد 2 یا وضعیت "Delivered")
+      if (String(del.Status) === '2' || String(del.Status).toLowerCase() === 'delivered') {
+        await sb.from('safety_finereward')
+          .update({ sms_is_delivered: true, sms_delivery_status: del.Status })
+          .eq('sms_message_id', del.MessageID);
+        updatedCount++;
+      }
+    }
+
+    toast(`استعلام پایان یافت. ${updatedCount} پیامک جدید تحویل شد.`, 'success');
+    loadSMSStatusList();
+
+  } catch (e) {
+    console.error('Delivery check error:', e);
+    toast('خطا در استعلام: ' + e.message, 'danger');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام تحویل';
   }
 }
