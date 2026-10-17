@@ -39,33 +39,38 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
-// ⭐ تابع کمکی برای فرمت تاریخ و ساعت در خروجی‌ها
+// ⭐ فرمت‌بندی دقیق تاریخ و ساعت برای خروجی‌ها
 const formatDateTime = (isoStr) => {
   if (!isoStr) return '—';
   try {
-    const d = new Date(isoStr);
+    // حذف میلی‌ثانیه‌ها برای جلوگیری از خطای پارس در برخی مرورگرها
+    const safeStr = String(isoStr).replace(/\.\d+/, '').replace(' ', 'T');
+    const d = new Date(safeStr);
     if (isNaN(d)) return '—';
     const g = d.toISOString().slice(0, 10);
     const j = gregorianToJalali(g);
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
-    return `${j} ${hh}:${mm}`;
+    return `${j} - ${hh}:${mm}`;
   } catch (e) { return '—'; }
 };
 
-function buildSmsText(record) {
+// ⭐ متن پیامک با اسم شخص در ابتدا
+function buildSmsText(record, customName) {
   const type = record.record_type;
   const amount = fmtMoney(record.amount);
   const date = record.incident_datetime ? gregorianToJalali(record.incident_datetime.split('T')[0]) : '—';
   const reason = record.reason || '—';
-  const who = 'مدیریت ایمنی';
+  
+  // اگر اسم نبود، از عبارت کلی استفاده کن
+  const name = customName || 'همکار گرامی'; 
   const SIGN = '';
 
   if (type === "fine")
-    return `اطلاعیه ایمنی: ${who} مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} برای شما منظور گردید. ${SIGN}`;
+    return `${name} عزیز، اطلاعیه ایمنی: مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} برای شما منظور گردید. ${SIGN}`;
   if (type === "reward")
-    return `اطلاعیه ایمنی: ${who} مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} به عنوان پاداش برای شما منظور گردید. ${SIGN}`;
-  return `اخطار ایمنی: ${who} در تاریخ ${date} به علت ${reason} اخطار ایمنی برای شما ثبت گردید. ${SIGN}`;
+    return `${name} عزیز، اطلاعیه ایمنی: مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} به عنوان پاداش برای شما منظور گردید. ${SIGN}`;
+  return `${name} عزیز، اخطار ایمنی: در تاریخ ${date} به علت ${reason} اخطار ایمنی برای شما ثبت گردید. ${SIGN}`;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -118,7 +123,7 @@ function exportToExcel(headers, rows, filename) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 📤 خروجی PDF (اصلاح شده)
+// 📤 خروجی PDF
 // ═══════════════════════════════════════════════════════
 async function exportToPDF(title, headers, rows, filename) {
   if (!window.html2canvas || !window.jspdf) {
@@ -129,7 +134,7 @@ async function exportToPDF(title, headers, rows, filename) {
   const tempDiv = document.createElement('div');
   tempDiv.style.position = 'absolute';
   tempDiv.style.top = '0';
-  tempDiv.style.left = '-9999px';
+  tempDiv.style.left = '-9999px'; 
   tempDiv.style.width = '800px';
   tempDiv.style.backgroundColor = '#ffffff';
   tempDiv.style.direction = 'rtl';
@@ -376,7 +381,8 @@ function openDetail(item) {
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ارسال...';
       
-      const smsText = buildSmsText(item);
+      // ⭐ ارسال اسم شخص به تابع پیامک
+      const smsText = buildSmsText(item, name);
       const res = await sendSMS(item.patient?.phone_number, smsText);
       
       if (res.success) {
@@ -647,6 +653,7 @@ async function saveRecord() {
   const input = $('frWorkerSearch');
   const workerId = input.dataset.workerId;
   const phone = input.dataset.phone;
+  const patientName = input.value; // ⭐ گرفتن نام شخص از فیلد
   if (!workerId) { toast('ابتدا کارگر را انتخاب کنید', 'warning'); return; }
 
   const reason = $('frReason').value.trim();
@@ -680,7 +687,8 @@ async function saveRecord() {
     const { data: inserted, error } = await sb.from('safety_finereward').insert(record).select().single();
     if (error) throw error;
 
-    const smsText = buildSmsText(record);
+    // ⭐ ارسال نام شخص به تابع
+    const smsText = buildSmsText(record, patientName);
     const smsResult = await sendSMS(phone, smsText);
     
     if (smsResult.success) {
@@ -765,7 +773,7 @@ function renderFinanceItem(it) {
 
 async function exportAndMark(records, format) {
   if (!records.length) return;
-  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان ارسال'];
+  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان ارسال/تحویل'];
   const rows = records.map(r => [
     `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
     r.patient?.personnel_number || '', r.patient?.national_code || '', r.patient?.phone_number || '',
@@ -773,7 +781,7 @@ async function exportAndMark(records, format) {
     r.amount || 0, (r.reason || '').replace(/,/g, ' '), (r.location || '').replace(/,/g, ' '),
     r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
     r.sms_is_delivered ? 'تحویل شده' : (r.sms_status === 'sent' ? 'ارسال شده' : (r.sms_status === 'failed' ? 'ناموفق' : 'در انتظار')),
-    formatDateTime(r.sms_send_datetime)
+    formatDateTime(r.sms_delivery_datetime)
   ]);
 
   if (format === 'excel') {
@@ -789,7 +797,7 @@ async function exportAndMark(records, format) {
 }
 
 function exportFinance(records, format) {
-  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان ارسال'];
+  const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ', 'وضعیت پیامک', 'زمان ارسال/تحویل'];
   const rows = records.map(r => [
     `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
     r.patient?.personnel_number || '', r.patient?.national_code || '', r.patient?.phone_number || '',
@@ -797,7 +805,7 @@ function exportFinance(records, format) {
     r.amount || 0, (r.reason || '').replace(/,/g, ' '), (r.location || '').replace(/,/g, ' '),
     r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
     r.sms_is_delivered ? 'تحویل شده' : (r.sms_status === 'sent' ? 'ارسال شده' : (r.sms_status === 'failed' ? 'ناموفق' : 'در انتظار')),
-    formatDateTime(r.sms_send_datetime)
+    formatDateTime(r.sms_delivery_datetime)
   ]);
   
   if (format === 'excel') {
@@ -970,7 +978,8 @@ async function loadSMSStatusList() {
       
       let success = 0, fail = 0;
       for (const item of failedItems) {
-        const smsText = buildSmsText(item);
+        const name = `${item.patient?.first_name||''} ${item.patient?.last_name||''}`.trim();
+        const smsText = buildSmsText(item, name);
         const res = await sendSMS(item.patient?.phone_number, smsText);
         
         if (res.success) {
@@ -1016,18 +1025,19 @@ async function checkAllDeliveries() {
     let invalidCount = 0;
 
     const processDelivery = async (del) => {
-      // ⭐ آموت فیلد DeliveryDateTime ندارد. از SendDateTime استفاده می‌کنیم.
       const sendTime = del.SendDateTime || null;
       
-      await sb.from('safety_finereward')
+      const { error: updErr } = await sb.from('safety_finereward')
         .update({ 
           sms_is_delivered: true, 
           sms_delivery_status: del.Status,
           sms_status: 'sent',
           sms_send_datetime: sendTime,
-          sms_delivery_datetime: sendTime // زمان تحویل را برابر با زمان ارسال می‌گذاریم
+          sms_delivery_datetime: sendTime
         })
         .eq('sms_message_id', del.MessageID);
+
+      if (updErr) throw new Error('خطا در ذخیره زمان تحویل در دیتابیس: ' + updErr.message);
     };
 
     // تلاش برای استعلام گروهی
@@ -1074,7 +1084,7 @@ async function checkAllDeliveries() {
 
   } catch (e) {
     console.error('Delivery check error:', e);
-    toast('خطا در استعلام: ' + e.message, 'danger');
+    toast(e.message || 'خطا در استعلام', 'danger');
   } finally {
     btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام تحویل';
   }
