@@ -1,22 +1,15 @@
 // js/modules/fine-reward.js
 import { sb } from '../sb.js';
 import { $, toast, escapeHtml, gregorianToJalali, jalaliToGregorian, todayJalali } from '../utils.js';
-// ⭐ ایمپورت XLSX حذف شد (از طریق index.html لود می‌شود)
 import { getAccountStatus, getDeliveries } from './amoot-api.js';
 
 // ═══════════════════════════════════════════════════════
 // دکمه‌های سریع
 // ═══════════════════════════════════════════════════════
 const QUICK_AMOUNTS = [500000, 1000000, 2000000, 5000000];
-const QUICK_REASONS = [
-  'عدم استفاده از PPE', 'بی‌احتیاطی در کار', 'عدم رعایت دستورالعمل',
-  'ورود به منطقه ممنوعه', 'عدم گزارش حادثه', 'انجام کار بدون مجوز'
-];
+const QUICK_REASONS = ['عدم استفاده از PPE', 'بی‌احتیاطی در کار', 'عدم رعایت دستورالعمل', 'ورود به منطقه ممنوعه', 'عدم گزارش حادثه', 'انجام کار بدون مجوز'];
 const QUICK_REGISTER_LOCATIONS = ['دفتر ایمنی', 'سیار', 'دفتر سرپرست ایمنی', 'مدیریت'];
-const QUICK_INCIDENT_LOCATIONS = [
-  'خط تولید', 'انبار', 'کارگاه', 'محوطه', 'آزمایشگاه',
-  'ساختمان اداری', 'تعمیرگاه', 'باسکول', 'کوره', 'آسیاب'
-];
+const QUICK_INCIDENT_LOCATIONS = ['خط تولید', 'انبار', 'کارگاه', 'محوطه', 'آزمایشگاه', 'ساختمان اداری', 'تعمیرگاه', 'باسکول', 'کوره', 'آسیاب'];
 
 // ═══════════════════════════════════════════════════════
 // توابع کمکی
@@ -48,10 +41,8 @@ function buildSmsText(record) {
   const who = 'مدیریت ایمنی';
   const SIGN = '';
 
-  if (type === "fine")
-    return `اطلاعیه ایمنی: ${who} مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} برای شما منظور گردید. ${SIGN}`;
-  if (type === "reward")
-    return `اطلاعیه ایمنی: ${who} مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} به عنوان پاداش برای شما منظور گردید. ${SIGN}`;
+  if (type === "fine") return `اطلاعیه ایمنی: ${who} مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} برای شما منظور گردید. ${SIGN}`;
+  if (type === "reward") return `اطلاعیه ایمنی: ${who} مبلغ ${amount} ریال در تاریخ ${date} به علت ${reason} به عنوان پاداش برای شما منظور گردید. ${SIGN}`;
   return `اخطار ایمنی: ${who} در تاریخ ${date} به علت ${reason} اخطار ایمنی برای شما ثبت گردید. ${SIGN}`;
 }
 
@@ -60,32 +51,26 @@ function buildSmsText(record) {
 // ═══════════════════════════════════════════════════════
 async function sendSMS(phone, text) {
   if (!phone) return { success: false, error: 'شماره موبایل ثبت نشده است' };
-
   let cleanPhone = toEnDigits(phone).replace(/\D/g, '');
   if (cleanPhone.length === 10 && cleanPhone.startsWith('9')) cleanPhone = '0' + cleanPhone;
   if (!/^09\d{9}$/.test(cleanPhone)) return { success: false, error: `شماره نامعتبر (${phone})` };
 
   try {
-    const { data, error } = await sb.functions.invoke('send-fine-sms', {
-      body: { mobile: cleanPhone, text: text }
-    });
-
-    if (error) throw new Error(error.message || 'خطا در ارتباط با سرور');
-    if (!data.success) throw new Error(data.error || 'خطای نامشخص از سمت آموت');
-
+    const { data, error } = await sb.functions.invoke('send-fine-sms', { body: { mobile: cleanPhone, text: text } });
+    if (error) throw new Error(error.message);
+    if (!data.success) throw new Error(data.error);
     return { success: true, messageId: data.messageId };
   } catch (e) {
-    console.error('[SMS] Error:', e);
     return { success: false, error: e.message };
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// 📤 خروجی اکسل (استفاده از window.XLSX)
+// 📤 خروجی اکسل
 // ═══════════════════════════════════════════════════════
 function exportToExcel(headers, rows, filename) {
   if (!window.XLSX) {
-    toast('کتابخانه اکسل لود نشده است', 'danger');
+    toast('کتابخانه اکسل (SheetJS) لود نشده است. صفحه را رفرش کنید.', 'danger');
     return;
   }
   try {
@@ -105,7 +90,7 @@ function exportToExcel(headers, rows, filename) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 📤 خروجی PDF (با استفاده از html2canvas برای فارسی صحیح)
+// 📤 خروجی PDF
 // ═══════════════════════════════════════════════════════
 async function exportToPDF(title, headers, rows, filename) {
   if (!window.html2canvas || !window.jspdf) {
@@ -113,10 +98,15 @@ async function exportToPDF(title, headers, rows, filename) {
     return;
   }
 
+  // ساخت یک المان موقت برای تبدیل به عکس
   const tempDiv = document.createElement('div');
-  tempDiv.style.position = 'fixed';
-  tempDiv.style.left = '-9999px';
+  // ⭐ به جای مخفی کردن با left، از opacity استفاده می‌کنیم تا در WebView رندر شود
+  tempDiv.style.position = 'absolute';
   tempDiv.style.top = '0';
+  tempDiv.style.left = '0';
+  tempDiv.style.opacity = '0'; 
+  tempDiv.style.pointerEvents = 'none';
+  tempDiv.style.zIndex = '-1';
   tempDiv.style.width = '800px';
   tempDiv.style.background = '#fff';
   tempDiv.style.direction = 'rtl';
@@ -129,11 +119,7 @@ async function exportToPDF(title, headers, rows, filename) {
     <h2 style="text-align:center; margin-bottom: 20px;">${title}</h2>
     <p style="text-align:left; font-size:12px;">تاریخ چاپ: ${todayJalali()}</p>
     <table style="width:100%; border-collapse:collapse; text-align:center; font-size:12px;">
-      <thead>
-        <tr style="background:#f3f4f6;">
-          ${headers.map(h => `<th style="border:1px solid #000; padding:8px;">${h}</th>`).join('')}
-        </tr>
-      </thead>
+      <thead><tr style="background:#f3f4f6;">${headers.map(h => `<th style="border:1px solid #000; padding:8px;">${h}</th>`).join('')}</tr></thead>
       <tbody>${tableRows}</tbody>
     </table>
   `;
@@ -141,7 +127,7 @@ async function exportToPDF(title, headers, rows, filename) {
 
   try {
     toast('در حال آماده‌سازی PDF...', 'info');
-    const canvas = await window.html2canvas(tempDiv, { scale: 2 });
+    const canvas = await window.html2canvas(tempDiv, { scale: 2, useCORS: true });
     const imgData = canvas.toDataURL('image/png');
 
     const { jsPDF } = window.jspdf;
@@ -288,9 +274,7 @@ function renderListItem(item) {
   
   let smsBadge = '';
   if (item.sms_status === 'sent') {
-    smsBadge = item.sms_is_delivered 
-      ? '<span class="badge bg-success" style="font-size:0.6rem;">تحویل شد</span>' 
-      : '<span class="badge bg-warning text-dark" style="font-size:0.6rem;">ارسال شد</span>';
+    smsBadge = item.sms_is_delivered ? '<span class="badge bg-success" style="font-size:0.6rem;">تحویل شد</span>' : '<span class="badge bg-warning text-dark" style="font-size:0.6rem;">ارسال شد</span>';
   } else if (item.sms_status === 'failed') {
     smsBadge = '<span class="badge bg-danger" style="font-size:0.6rem;">ناموفق</span>';
   } else {
@@ -686,7 +670,7 @@ async function saveRecord() {
 }
 
 // ═══════════════════════════════════════════════════════
-// تب مالی (با خروجی PDF جدید)
+// تب مالی
 // ═══════════════════════════════════════════════════════
 async function renderFinance() {
   const body = $('frBody');
@@ -969,7 +953,7 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل (با نمایش دقیق خطا)
+// ⭐ تابع استعلام وضعیت تحویل
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -992,13 +976,12 @@ async function checkAllDeliveries() {
     const messageIds = pendingList.map(p => p.sms_message_id);
     const res = await getDeliveries(messageIds);
     
-    // ⭐ بررسی دقیق پاسخ آموت
     if (!res.success) {
       throw new Error(res.error || 'خطا در استعلام از سمت آموت');
     }
 
     if (res.data.Status === 'Failed') {
-      throw new Error('آموت پاسخ Failed داد. احتمالاً توکن نامعتبر است یا MessageID منقضی شده است.');
+      throw new Error('آموت پاسخ Failed داد. احتمالاً فرمت MessageID اشتباه است یا توکن دسترسی ندارد.');
     }
 
     const deliveries = res.data?.Data || res.data?.data || [];
