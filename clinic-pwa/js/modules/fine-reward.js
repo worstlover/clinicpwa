@@ -1045,7 +1045,6 @@ async function checkAllDeliveries() {
     let updatedCount = 0;
     let invalidCount = 0;
 
-    // ⭐ این همان تابع processDelivery است که وظیفه تفسیر کدها و آپدیت دیتابیس را دارد
     const processDelivery = async (del) => {
       const sendTime = del.SendDateTime || null;
       const statusCode = String(del.Status).toLowerCase();
