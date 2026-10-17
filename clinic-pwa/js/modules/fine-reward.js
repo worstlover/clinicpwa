@@ -39,30 +39,24 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
-// ⭐ فرمت‌بندی زمان با تنظیم دقیق منطقه زمانی تهران (حل مشکل ۳.۵ ساعت اختلاف)
+// ⭐ فرمت‌بندی تاریخ بدون تغییر ساعت (حل مشکل اختلاف ۳.۵ ساعت)
 const formatDateTime = (isoStr) => {
   if (!isoStr) return '—';
   try {
-    const d = new Date(isoStr);
-    if (isNaN(d)) return '—';
+    // زمان آموت معمولاً به شکل 2026-10-17T14:09:47.62 است
+    const parts = String(isoStr).split('T');
+    if (parts.length !== 2) return '—';
     
-    // تنظیم دقیق برای وقت تهران
-    const options = { 
-      timeZone: 'Asia/Tehran', 
-      year: 'numeric', month: '2-digit', day: '2-digit', 
-      hour: '2-digit', minute: '2-digit', hour12: false 
-    };
-    const formatter = new Intl.DateTimeFormat('fa-IR', options);
-    const parts = formatter.formatToParts(d);
+    const datePart = parts[0]; // 2026-10-17
+    const timePart = parts[1].split('.')[0]; // 14:09:47
     
-    const y = parts.find(p => p.type === 'year').value;
-    const m = parts.find(p => p.type === 'month').value;
-    const day = parts.find(p => p.type === 'day').value;
-    const hh = parts.find(p => p.type === 'hour').value;
-    const mm = parts.find(p => p.type === 'minute').value;
+    const jDate = gregorianToJalali(datePart);
+    const hm = timePart.split(':').slice(0, 2).join(':'); // فقط ساعت و دقیقه
     
-    return `${y}/${m}/${day} - ${hh}:${mm}`;
-  } catch (e) { return '—'; }
+    return `${jDate} - ${hm}`;
+  } catch (e) { 
+    return '—'; 
+  }
 };
 
 // ⭐ متن پیامک دقیقاً طبق فرمت درخواستی شما
@@ -903,7 +897,6 @@ async function loadSMSStatusList() {
       .not('sms_status', 'eq', 'pending')
       .order('created_at', { ascending: false });
 
-    // ⭐ اعمال فیلتر وضعیت
     if (statusFilter === 'delivered') {
       query = query.eq('sms_is_delivered', true);
     } else if (statusFilter === 'sent') {
@@ -1031,7 +1024,7 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل
+// ⭐ تابع استعلام وضعیت تحویل (اصلاح شده)
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -1042,8 +1035,7 @@ async function checkAllDeliveries() {
       .eq('sms_status', 'sent')
       .eq('sms_is_delivered', false)
       .not('sms_message_id', 'is', null)
-      .or('sms_delivery_status.is.null,sms_delivery_status.neq.invalid')
-      .limit(50);
+      .limit(50); // حذف شرط .or برای جلوگیری از گیر کردن پیامک‌ها
 
     if (error) throw error;
     if (!pendingList || pendingList.length === 0) {
@@ -1058,18 +1050,29 @@ async function checkAllDeliveries() {
 
     const processDelivery = async (del) => {
       const sendTime = del.SendDateTime || null;
+      const statusStr = String(del.Status).toLowerCase();
       
+      let isDelivered = false;
+      let newSmsStatus = 'sent';
+
+      // آموت: 1=در انتظار، 2=تحویل شده، 3=ناموفق، Success=تحویل شده
+      if (['2', 'delivered', 'success'].includes(statusStr)) {
+        isDelivered = true;
+      } else if (['3', 'failed'].includes(statusStr)) {
+        newSmsStatus = 'failed';
+      }
+
       const { error: updErr } = await sb.from('safety_finereward')
         .update({ 
-          sms_is_delivered: true, 
+          sms_is_delivered: isDelivered, 
           sms_delivery_status: del.Status,
-          sms_status: 'sent',
+          sms_status: newSmsStatus,
           sms_send_datetime: sendTime,
-          sms_delivery_datetime: sendTime
+          sms_delivery_datetime: isDelivered ? sendTime : null
         })
         .eq('sms_message_id', del.MessageID);
 
-      if (updErr) throw new Error('خطا در ذخیره زمان تحویل در دیتابیس: ' + updErr.message);
+      if (updErr) throw new Error('خطا در ذخیره وضعیت در دیتابیس: ' + updErr.message);
     };
 
     const res = await getDeliveries(messageIds);
@@ -1077,10 +1080,8 @@ async function checkAllDeliveries() {
     if (res.success && res.data.Status !== 'Failed') {
       const deliveries = res.data?.Data || res.data?.data || [];
       for (const del of deliveries) {
-        if (['2', 'delivered', 'success'].includes(String(del.Status).toLowerCase())) {
-          await processDelivery(del);
-          updatedCount++;
-        }
+        await processDelivery(del);
+        updatedCount++;
       }
     } else {
       console.warn('استعلام گروهی خطا داد، در حال بررسی تک‌تک...');
@@ -1097,18 +1098,16 @@ async function checkAllDeliveries() {
         } else {
           const deliveries = singleRes.data?.Data || singleRes.data?.data || [];
           for (const del of deliveries) {
-            if (['2', 'delivered', 'success'].includes(String(del.Status).toLowerCase())) {
-              await processDelivery(del);
-              updatedCount++;
-            }
+            await processDelivery(del);
+            updatedCount++;
           }
         }
         await new Promise(r => setTimeout(r, 300));
       }
     }
 
-    let msg = `استعلام پایان یافت. ${updatedCount} پیامک تحویل شد.`;
-    if (invalidCount > 0) msg += ` (${invalidCount} شناسه نامعتبر نادیده گرفته شد)`;
+    let msg = `استعلام پایان یافت. ${updatedCount} پیامک بررسی و بروزرسانی شد.`;
+    if (invalidCount > 0) msg += ` (${invalidCount} شناسه نامعتبر)`;
     toast(msg, 'success');
     
     loadSMSStatusList();
