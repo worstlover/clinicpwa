@@ -39,19 +39,18 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
-// ⭐ فرمت‌بندی تاریخ بدون تغییر ساعت (حل مشکل اختلاف ۳.۵ ساعت)
+// ⭐ فرمت‌بندی تاریخ بدون تغییر ساعت (رفع مشکل ۳.۵ ساعت)
 const formatDateTime = (isoStr) => {
   if (!isoStr) return '—';
   try {
-    // زمان آموت معمولاً به شکل 2026-10-17T14:09:47.62 است
     const parts = String(isoStr).split('T');
     if (parts.length !== 2) return '—';
     
-    const datePart = parts[0]; // 2026-10-17
-    const timePart = parts[1].split('.')[0]; // 14:09:47
+    const datePart = parts[0]; // yyyy-mm-dd
+    const timePart = parts[1].split('.')[0]; // hh:mm:ss
     
     const jDate = gregorianToJalali(datePart);
-    const hm = timePart.split(':').slice(0, 2).join(':'); // فقط ساعت و دقیقه
+    const hm = timePart.split(':').slice(0, 2).join(':');
     
     return `${jDate} - ${hm}`;
   } catch (e) { 
@@ -658,7 +657,7 @@ async function saveRecord() {
   const input = $('frWorkerSearch');
   const workerId = input.dataset.workerId;
   const phone = input.dataset.phone;
-  const patientName = input.value; // نام شخص برای متن پیامک
+  const patientName = input.value;
   if (!workerId) { toast('ابتدا کارگر را انتخاب کنید', 'warning'); return; }
 
   const reason = $('frReason').value.trim();
@@ -692,7 +691,6 @@ async function saveRecord() {
     const { data: inserted, error } = await sb.from('safety_finereward').insert(record).select().single();
     if (error) throw error;
 
-    // ارسال نام شخص به تابع ساخت متن
     const smsText = buildSmsText(record, patientName);
     const smsResult = await sendSMS(phone, smsText);
     
@@ -859,7 +857,6 @@ async function renderSMSStatus() {
         <div class="col-6"><input type="text" id="frSmsFilterTo" placeholder="تا تاریخ" value="${todayJalali()}" class="form-control" dir="ltr"></div>
       </div>
       <div class="row g-2 mt-2">
-        <!-- ⭐ فیلتر وضعیت -->
         <div class="col-6">
           <select id="frSmsFilterStatus" class="form-select">
             <option value="all">همه وضعیت‌ها</option>
@@ -1024,7 +1021,7 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل (اصلاح شده)
+// ⭐ تابع استعلام وضعیت تحویل (با مدیریت دقیق کدهای وضعیت آموت)
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -1035,7 +1032,7 @@ async function checkAllDeliveries() {
       .eq('sms_status', 'sent')
       .eq('sms_is_delivered', false)
       .not('sms_message_id', 'is', null)
-      .limit(50); // حذف شرط .or برای جلوگیری از گیر کردن پیامک‌ها
+      .limit(50);
 
     if (error) throw error;
     if (!pendingList || pendingList.length === 0) {
@@ -1048,18 +1045,20 @@ async function checkAllDeliveries() {
     let updatedCount = 0;
     let invalidCount = 0;
 
+    // ⭐ این همان تابع processDelivery است که وظیفه تفسیر کدها و آپدیت دیتابیس را دارد
     const processDelivery = async (del) => {
       const sendTime = del.SendDateTime || null;
-      const statusStr = String(del.Status).toLowerCase();
-      
-      let isDelivered = false;
-      let newSmsStatus = 'sent';
+      const statusCode = String(del.Status).toLowerCase();
 
-      // آموت: 1=در انتظار، 2=تحویل شده، 3=ناموفق، Success=تحویل شده
-      if (['2', 'delivered', 'success'].includes(statusStr)) {
-        isDelivered = true;
-      } else if (['3', 'failed'].includes(statusStr)) {
-        newSmsStatus = 'failed';
+      let isDelivered = false;
+      let newSmsStatus = 'sent'; // پیش‌فرض: ارسال شده
+
+      if (['1', 'success'].includes(statusCode)) {
+        isDelivered = true; // تحویل موفق
+      } else if (['2', '3', '5', '16', 'failed'].includes(statusCode)) {
+        newSmsStatus = 'failed'; // ناموفق
+      } else if (statusCode === '0') {
+        newSmsStatus = 'sent'; // در انتظار (هنوز تحویل نشده)
       }
 
       const { error: updErr } = await sb.from('safety_finereward')
@@ -1075,6 +1074,7 @@ async function checkAllDeliveries() {
       if (updErr) throw new Error('خطا در ذخیره وضعیت در دیتابیس: ' + updErr.message);
     };
 
+    // تلاش برای استعلام گروهی
     const res = await getDeliveries(messageIds);
     
     if (res.success && res.data.Status !== 'Failed') {
