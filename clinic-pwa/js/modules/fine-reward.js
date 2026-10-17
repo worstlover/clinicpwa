@@ -6,7 +6,7 @@ import { $, toast, escapeHtml, gregorianToJalali, jalaliToGregorian, todayJalali
 // ⚙️ تنظیمات پیامک (اینجا را ویرایش کنید)
 // ═══════════════════════════════════════════════════════
 const SMS_CONFIG = {
-  API_TOKEN: 'YOUR_API_TOKEN_HERE',   // 🔴 توکن API خود را اینجا قرار دهید
+  API_TOKEN: 'F411EDA9DFD8C4E96D521D29DFBC21BD58A5E7AA',   // 🔴 توکن API خود را اینجا قرار دهید
   LINE_NUMBER: 'Public',              // شماره خط فرستنده
   SEND_URL: 'https://portal.amootsms.com/rest/SendSimple',
   DELIVERY_URL: 'https://portal.amootsms.com/rest/GetDeliveries' // برای استعلام وضعیت
