@@ -1,7 +1,7 @@
 // js/modules/fine-reward.js
 import { sb } from '../sb.js';
 import { $, toast, escapeHtml, gregorianToJalali, jalaliToGregorian, todayJalali } from '../utils.js';
-import * as XLSX from 'https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js';
+// ⭐ ایمپورت XLSX حذف شد (از طریق index.html لود می‌شود)
 import { getAccountStatus, getDeliveries } from './amoot-api.js';
 
 // ═══════════════════════════════════════════════════════
@@ -40,7 +40,6 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
-// متن پیامک
 function buildSmsText(record) {
   const type = record.record_type;
   const amount = fmtMoney(record.amount);
@@ -57,7 +56,7 @@ function buildSmsText(record) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 📱 سرویس پیامک و Edge Function
+// 📱 سرویس پیامک
 // ═══════════════════════════════════════════════════════
 async function sendSMS(phone, text) {
   if (!phone) return { success: false, error: 'شماره موبایل ثبت نشده است' };
@@ -82,63 +81,84 @@ async function sendSMS(phone, text) {
 }
 
 // ═══════════════════════════════════════════════════════
-// 📤 خروجی اکسل (تضمینی با Data URI)
+// 📤 خروجی اکسل (استفاده از window.XLSX)
 // ═══════════════════════════════════════════════════════
 function exportToExcel(headers, rows, filename) {
-  const wsData = [headers, ...rows];
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-  if(!ws['!views']) ws['!views'] = [];
-  ws['!views'].push({ RTL: true });
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Report");
-  
-  // تبدیل به Base64 برای دانلود مطمئن در WebView
-  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
-  const dataUri = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${wbout}`;
-  
-  const link = document.createElement('a');
-  link.href = dataUri;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  if (!window.XLSX) {
+    toast('کتابخانه اکسل لود نشده است', 'danger');
+    return;
+  }
+  try {
+    const wsData = [headers, ...rows];
+    const ws = window.XLSX.utils.aoa_to_sheet(wsData);
+    if(!ws['!views']) ws['!views'] = [];
+    ws['!views'].push({ RTL: true });
+    
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, "Report");
+    window.XLSX.writeFile(wb, filename);
+    toast('✅ فایل اکسل دانلود شد', 'success');
+  } catch (e) {
+    console.error('Excel Error:', e);
+    toast('خطا در تولید فایل اکسل', 'danger');
+  }
 }
 
 // ═══════════════════════════════════════════════════════
-// 📤 خروجی PDF (تضمینی با jsPDF)
+// 📤 خروجی PDF (با استفاده از html2canvas برای فارسی صحیح)
 // ═══════════════════════════════════════════════════════
-function exportToPDF(title, headers, rows, filename) {
-  if (!window.jspdf || !window.jspdf.jsPDF) {
-    toast('کتابخانه PDF لود نشده است. صفحه را رفرش کنید.', 'danger');
+async function exportToPDF(title, headers, rows, filename) {
+  if (!window.html2canvas || !window.jspdf) {
+    toast('کتابخانه‌های PDF لود نشده‌اند', 'danger');
     return;
   }
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+
+  const tempDiv = document.createElement('div');
+  tempDiv.style.position = 'fixed';
+  tempDiv.style.left = '-9999px';
+  tempDiv.style.top = '0';
+  tempDiv.style.width = '800px';
+  tempDiv.style.background = '#fff';
+  tempDiv.style.direction = 'rtl';
+  tempDiv.style.fontFamily = 'Tahoma, Arial, sans-serif';
+  tempDiv.style.padding = '20px';
+
+  const tableRows = rows.map(row => `<tr>${row.map(cell => `<td style="border:1px solid #000; padding:8px; text-align:center;">${cell}</td>`).join('')}</tr>`).join('');
   
-  doc.autoTable({
-    head: [headers],
-    body: rows,
-    startY: 30,
-    theme: 'grid',
-    headStyles: { halign: 'center', fillColor: [41, 128, 185], textColor: 255 },
-    bodyStyles: { halign: 'center' },
-    styles: { font: 'Tahoma', fontSize: 9 },
-    didDrawPage: function (data) {
-      doc.setFontSize(16);
-      doc.text(title, 105, 15, { align: 'center' });
-      doc.setFontSize(10);
-      doc.text(`تاریخ چاپ: ${todayJalali()}`, 190, 25, { align: 'right' });
-    }
-  });
-  
-  // تبدیل به Data URI برای دانلود مطمئن
-  const pdfDataUri = doc.output('datauristring');
-  const link = document.createElement('a');
-  link.href = pdfDataUri;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  tempDiv.innerHTML = `
+    <h2 style="text-align:center; margin-bottom: 20px;">${title}</h2>
+    <p style="text-align:left; font-size:12px;">تاریخ چاپ: ${todayJalali()}</p>
+    <table style="width:100%; border-collapse:collapse; text-align:center; font-size:12px;">
+      <thead>
+        <tr style="background:#f3f4f6;">
+          ${headers.map(h => `<th style="border:1px solid #000; padding:8px;">${h}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+  `;
+  document.body.appendChild(tempDiv);
+
+  try {
+    toast('در حال آماده‌سازی PDF...', 'info');
+    const canvas = await window.html2canvas(tempDiv, { scale: 2 });
+    const imgData = canvas.toDataURL('image/png');
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+    pdf.addImage(imgData, 'PNG', 0, 10, pdfWidth, pdfHeight);
+    pdf.save(filename);
+    
+    toast('✅ PDF با موفقیت دانلود شد', 'success');
+  } catch (err) {
+    console.error('PDF Error:', err);
+    toast('خطا در تولید PDF', 'danger');
+  } finally {
+    document.body.removeChild(tempDiv);
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -666,7 +686,7 @@ async function saveRecord() {
 }
 
 // ═══════════════════════════════════════════════════════
-// تب مالی
+// تب مالی (با خروجی PDF جدید)
 // ═══════════════════════════════════════════════════════
 async function renderFinance() {
   const body = $('frBody');
@@ -686,7 +706,12 @@ async function renderFinance() {
       <div class="fr-finance-section">
         <div class="fr-finance-header pending">
           <div><i class="bi bi-hourglass-split"></i> ${pending.length} مورد ارسال‌نشده</div>
-          ${pending.length ? `<button class="btn btn-success btn-sm" id="frSendAll"><i class="bi bi-file-earmark-excel"></i> خروجی اکسل</button>` : '<span class="badge-soft success">همه ارسال شده</span>'}
+          ${pending.length ? `
+            <div class="d-flex gap-1">
+              <button class="btn btn-success btn-sm" id="frSendAll"><i class="bi bi-file-earmark-excel"></i> اکسل</button>
+              <button class="btn btn-outline-danger btn-sm" id="frExportPendingPDF"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+            </div>
+          ` : '<span class="badge-soft success">همه ارسال شده</span>'}
         </div>
         ${pending.length ? `<div class="fr-list">${pending.map(renderFinanceItem).join('')}</div>` : ''}
       </div>
@@ -695,14 +720,19 @@ async function renderFinance() {
         <div class="fr-finance-section" style="margin-top:20px;">
           <div class="fr-finance-header sent">
             <div><i class="bi bi-check2-circle"></i> ${sent.length} مورد ارسال‌شده</div>
-            <button class="btn btn-outline-success btn-sm" id="frExportSent"><i class="bi bi-download"></i> خروجی اکسل</button>
+            <div class="d-flex gap-1">
+              <button class="btn btn-outline-success btn-sm" id="frExportSent"><i class="bi bi-file-earmark-excel"></i> اکسل</button>
+              <button class="btn btn-outline-danger btn-sm" id="frExportSentPDF"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+            </div>
           </div>
           <div class="fr-list">${sent.slice(0, 50).map(renderFinanceItem).join('')}</div>
         </div>` : ''}
     `;
 
-    if ($('frSendAll')) $('frSendAll').onclick = () => exportAndMark(pending);
-    if ($('frExportSent')) $('frExportSent').onclick = () => exportExcel(sent, 'sent-finance');
+    if ($('frSendAll')) $('frSendAll').onclick = () => exportAndMark(pending, 'excel');
+    if ($('frExportPendingPDF')) $('frExportPendingPDF').onclick = () => exportAndMark(pending, 'pdf');
+    if ($('frExportSent')) $('frExportSent').onclick = () => exportFinance(sent, 'excel');
+    if ($('frExportSentPDF')) $('frExportSentPDF').onclick = () => exportFinance(sent, 'pdf');
   } catch (e) {
     body.innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
   }
@@ -721,7 +751,7 @@ function renderFinanceItem(it) {
   `;
 }
 
-async function exportAndMark(records) {
+async function exportAndMark(records, format) {
   if (!records.length) return;
   const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ'];
   const rows = records.map(r => [
@@ -732,7 +762,11 @@ async function exportAndMark(records) {
     r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
   ]);
 
-  exportToExcel(headers, rows, `finance-pending-${todayJalali().replace(/\//g,'-')}.xlsx`);
+  if (format === 'excel') {
+    exportToExcel(headers, rows, `finance-pending-${todayJalali().replace(/\//g,'-')}.xlsx`);
+  } else {
+    exportToPDF('گزارش مالی ارسال‌نشده', headers, rows, `finance-pending-${todayJalali().replace(/\//g,'-')}.pdf`);
+  }
   
   const ids = records.map(r => r.id);
   const now = new Date().toISOString();
@@ -740,7 +774,7 @@ async function exportAndMark(records) {
   toast('✅ گزارش دانلود و علامت‌گذاری شد', 'success'); renderFinance();
 }
 
-function exportExcel(records, prefix) {
+function exportFinance(records, format) {
   const headers = ['نام', 'کد پرسنلی', 'کد ملی', 'موبایل', 'نوع', 'مبلغ (ریال)', 'علت', 'محل ثبت', 'تاریخ'];
   const rows = records.map(r => [
     `${r.patient?.first_name||''} ${r.patient?.last_name||''}`.trim(),
@@ -749,11 +783,16 @@ function exportExcel(records, prefix) {
     r.amount || 0, (r.reason || '').replace(/,/g, ' '), (r.location || '').replace(/,/g, ' '),
     r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
   ]);
-  exportToExcel(headers, rows, `${prefix}-${todayJalali().replace(/\//g,'-')}.xlsx`);
+  
+  if (format === 'excel') {
+    exportToExcel(headers, rows, `finance-sent-${todayJalali().replace(/\//g,'-')}.xlsx`);
+  } else {
+    exportToPDF('گزارش مالی ارسال‌شده', headers, rows, `finance-sent-${todayJalali().replace(/\//g,'-')}.pdf`);
+  }
 }
 
 // ═══════════════════════════════════════════════════════
-// تب پیامک‌ها (با استعلام وضعیت تحویل)
+// تب پیامک‌ها
 // ═══════════════════════════════════════════════════════
 async function renderSMSStatus() {
   const body = $('frBody');
@@ -777,7 +816,7 @@ async function renderSMSStatus() {
           <div style="font-size:0.8rem; color:#64748b;">اعتبار پنل پیامک:</div>
           <div class="fw-bold" style="font-size:1.1rem; color:#0f172a;">${creditInfo ? fmtMoney(creditInfo.RemaindCredit) + ' ریال' : 'نامشخص'}</div>
         </div>
-        <a href="https://hub.amootsoft.com/panel/credit/increase" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-circle"></i> شارژ</a>
+        <a href="https://hub.amootsoft.com/panel/" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-circle"></i> شارژ</a>
       </div>
     </div>
 
@@ -814,7 +853,7 @@ async function loadSMSStatusList() {
   try {
     let query = sb.from('safety_finereward')
       .select('*, patient:core_patient(first_name, last_name, personnel_number, phone_number)')
-      .not('sms_status', 'eq', 'pending') // فقط ارسال شده‌ها یا ناموفق‌ها
+      .not('sms_status', 'eq', 'pending')
       .order('created_at', { ascending: false });
 
     const fromG = from ? jalaliToGregorian(from) : null;
@@ -871,7 +910,6 @@ async function loadSMSStatusList() {
       </div>
     `;
 
-    // خروجی اکسل
     $('frExportFailedExcel').onclick = async () => {
       const headers = ['نام', 'کد پرسنلی', 'موبایل', 'وضعیت ارسال', 'وضعیت تحویل', 'علت خطا', 'تاریخ'];
       const rows = list.map(r => [
@@ -889,7 +927,6 @@ async function loadSMSStatusList() {
       toast('✅ خروجی اکسل ذخیره شد', 'success');
     };
 
-    // خروجی PDF
     $('frExportFailedPDF').onclick = () => {
       const headers = ['ردیف', 'نام', 'موبایل', 'وضعیت', 'علت خطا'];
       const rows = list.map((r, idx) => [
@@ -902,7 +939,6 @@ async function loadSMSStatusList() {
       exportToPDF('گزارش وضعیت پیامک‌ها', headers, rows, `sms-report-${todayJalali().replace(/\//g,'-')}.pdf`);
     };
 
-    // ارسال مجدد ناموفق‌ها
     $('frResendFailed').onclick = async () => {
       const failedItems = list.filter(it => it.sms_status === 'failed');
       if (!failedItems.length) { toast('پیامک ناموفقی در این لیست نیست', 'info'); return; }
@@ -933,19 +969,18 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل (Delivery Status)
+// ⭐ تابع استعلام وضعیت تحویل (با نمایش دقیق خطا)
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
 
   try {
-    // پیدا کردن پیامک‌هایی که ارسال شده‌اند اما وضعیت تحویلشان مشخص نیست
     const { data: pendingList, error } = await sb.from('safety_finereward')
       .select('id, sms_message_id')
       .eq('sms_status', 'sent')
       .eq('sms_is_delivered', false)
       .not('sms_message_id', 'is', null)
-      .limit(50); // حداکثر ۵۰ تا در هر بار استعلام
+      .limit(50);
 
     if (error) throw error;
     if (!pendingList || pendingList.length === 0) {
@@ -955,18 +990,21 @@ async function checkAllDeliveries() {
     }
 
     const messageIds = pendingList.map(p => p.sms_message_id);
-    
-    // فراخوانی متد GetDeliveries از API آموت
     const res = await getDeliveries(messageIds);
     
-    if (!res.success) throw new Error(res.error || 'خطا در استعلام تحویل');
+    // ⭐ بررسی دقیق پاسخ آموت
+    if (!res.success) {
+      throw new Error(res.error || 'خطا در استعلام از سمت آموت');
+    }
 
-    // بررسی پاسخ آموت (معمولاً در res.data.Data برمی‌گردد)
+    if (res.data.Status === 'Failed') {
+      throw new Error('آموت پاسخ Failed داد. احتمالاً توکن نامعتبر است یا MessageID منقضی شده است.');
+    }
+
     const deliveries = res.data?.Data || res.data?.data || [];
     let updatedCount = 0;
 
     for (const del of deliveries) {
-      // اگر وضعیت تحویل با موفقیت برگشت (معمولاً کد 2 یا وضعیت "Delivered")
       if (String(del.Status) === '2' || String(del.Status).toLowerCase() === 'delivered') {
         await sb.from('safety_finereward')
           .update({ sms_is_delivered: true, sms_delivery_status: del.Status })
