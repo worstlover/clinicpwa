@@ -39,7 +39,7 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
-// ⭐ فرمت‌بندی تاریخ بدون تغییر ساعت (رفع مشکل ۳.۵ ساعت)
+// ⭐ فرمت‌بندی تاریخ بدون تغییر ساعت (حل مشکل ۳.۵ ساعت)
 const formatDateTime = (isoStr) => {
   if (!isoStr) return '—';
   try {
@@ -1021,7 +1021,7 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل (با مدیریت دقیق کدهای وضعیت آموت)
+// ⭐ تابع استعلام وضعیت تحویل (با بررسی‌های سخت‌گیرانه)
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -1043,21 +1043,20 @@ async function checkAllDeliveries() {
 
     const messageIds = pendingList.map(p => p.sms_message_id);
     let updatedCount = 0;
-    let invalidCount = 0;
 
     const processDelivery = async (del) => {
       const sendTime = del.SendDateTime || null;
       const statusCode = String(del.Status).toLowerCase();
 
       let isDelivered = false;
-      let newSmsStatus = 'sent'; // پیش‌فرض: ارسال شده
+      let newSmsStatus = 'sent';
 
       if (['1', 'success'].includes(statusCode)) {
-        isDelivered = true; // تحویل موفق
+        isDelivered = true; 
       } else if (['2', '3', '5', '16', 'failed'].includes(statusCode)) {
-        newSmsStatus = 'failed'; // ناموفق
+        newSmsStatus = 'failed'; 
       } else if (statusCode === '0') {
-        newSmsStatus = 'sent'; // در انتظار (هنوز تحویل نشده)
+        newSmsStatus = 'sent'; 
       }
 
       const { error: updErr } = await sb.from('safety_finereward')
@@ -1073,42 +1072,37 @@ async function checkAllDeliveries() {
       if (updErr) throw new Error('خطا در ذخیره وضعیت در دیتابیس: ' + updErr.message);
     };
 
-    // تلاش برای استعلام گروهی
     const res = await getDeliveries(messageIds);
-    
-    if (res.success && res.data.Status !== 'Failed') {
-      const deliveries = res.data?.Data || res.data?.data || [];
-      for (const del of deliveries) {
-        await processDelivery(del);
-        updatedCount++;
-      }
-    } else {
-      console.warn('استعلام گروهی خطا داد، در حال بررسی تک‌تک...');
-      toast('استعلام گروهی خطا داد. در حال بررسی تک‌تک پیام‌ها...', 'warning');
+    console.log('[AMOOT] Delivery response:', res);
 
-      for (const msgId of messageIds) {
-        const singleRes = await getDeliveries([msgId]);
-        
-        if (!singleRes.success || singleRes.data.Status === 'Failed') {
-          await sb.from('safety_finereward')
-            .update({ sms_delivery_status: 'invalid' })
-            .eq('sms_message_id', msgId);
-          invalidCount++;
-        } else {
-          const deliveries = singleRes.data?.Data || singleRes.data?.data || [];
-          for (const del of deliveries) {
-            await processDelivery(del);
-            updatedCount++;
-          }
-        }
-        await new Promise(r => setTimeout(r, 300));
-      }
+    if (!res?.success) {
+      throw new Error(res?.error || 'ارتباط با سرویس استعلام دلیوری ناموفق بود');
     }
 
-    let msg = `استعلام پایان یافت. ${updatedCount} پیامک بررسی و بروزرسانی شد.`;
-    if (invalidCount > 0) msg += ` (${invalidCount} شناسه نامعتبر)`;
-    toast(msg, 'success');
-    
+    const deliveries = res.data?.Data ?? res.data?.data;
+
+    if (!Array.isArray(deliveries)) {
+      console.error('[AMOOT] Unexpected response structure:', res.data);
+      throw new Error('ساختار پاسخ دلیوری آموت قابل شناسایی نیست');
+    }
+
+    if (deliveries.length === 0) {
+      console.warn('[AMOOT] No delivery records returned', messageIds);
+      toast('آموت برای این شناسه‌ها رکورد دلیوری برنگرداند', 'warning');
+      btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
+      return;
+    }
+
+    for (const del of deliveries) {
+      if (!del || del.MessageID == null || del.Status == null) {
+        console.warn('[AMOOT] Invalid delivery item:', del);
+        continue;
+      }
+      await processDelivery(del);
+      updatedCount++;
+    }
+
+    toast(`استعلام پایان یافت. ${updatedCount} پیامک بررسی شد.`, 'success');
     loadSMSStatusList();
 
   } catch (e) {
