@@ -11,11 +11,47 @@ const state = {
   query: ''
 };
 
+// ⭐ تابع کمکی برای پیدا کردن یا ساختن کانتینر
+function getOrCreateContainer() {
+  // ۱. اول occupationalContent را امتحان کن
+  let c = document.getElementById('occupationalContent');
+  if (c) return c;
+
+  // ۲. اگر نبود، occContent را امتحان کن
+  c = document.getElementById('occContent');
+  if (c) return c;
+
+  // ۳. اگر نبود، داخل screenOccupational یک div بساز
+  const screen = document.getElementById('screenOccupational');
+  if (!screen) {
+    console.error('❌ [OCC] نه occupationalContent و نه screenOccupational پیدا نشد!');
+    return null;
+  }
+
+  // ساخت div محتوا
+  c = document.createElement('div');
+  c.id = 'occupationalContent';
+  c.className = 'content';
+  
+  // اضافه کردن بعد از هدر (اگر وجود دارد)
+  const header = screen.querySelector('.app-header');
+  if (header && header.nextSibling) {
+    screen.insertBefore(c, header.nextSibling);
+  } else {
+    screen.appendChild(c);
+  }
+  
+  console.log('✅ [OCC] کانتینر occupationalContent ساخته شد و به صفحه اضافه شد.');
+  return c;
+}
+
 export async function openOccupational() {
   showScreen('Occupational');
-  const wrap = $('occupationalContent');
+  
+  const wrap = getOrCreateContainer();
   if (!wrap) {
-    console.error('❌ [OCC] عنصر occupationalContent در HTML پیدا نشد!');
+    console.error('❌ [OCC] نمی‌توانم محتوا را رندر کنم. نه element وجود دارد نه می‌توانم بسازم.');
+    toast('خطا: بخش طب کار در HTML پیدا نشد', 'danger');
     return;
   }
 
@@ -24,7 +60,6 @@ export async function openOccupational() {
       <h4 class="mb-0"><i class="bi bi-clipboard2-pulse text-primary"></i> مدیریت معاینات طب کار</h4>
     </div>
 
-    <!-- ⭐ بخش فیلترها -->
     <div class="card mb-3 border-0 shadow-sm">
       <div class="card-body p-3">
         <div class="row g-2">
@@ -108,7 +143,6 @@ async function loadExams() {
 
     let list = data;
     
-    // فیلترها
     if (state.query) {
       const ql = state.query.toLowerCase();
       list = list.filter(ex => {
@@ -148,7 +182,6 @@ function renderList() {
 
   c.innerHTML = `<div class="row g-3">` + state.exams.map(ex => {
     const name = ex.patient ? `${ex.patient.first_name || ''} ${ex.patient.last_name || ''}`.trim() : '—';
-    // در صورتی که تاریخ خالی باشد، از ثبت خطا جلوگیری می‌کند
     const jd = ex.exam_date ? gregorianToJalali(ex.exam_date) : 'ثبت نشده';
     const typeFa = {
       pre_employment: 'بدو استخدام',
@@ -173,7 +206,6 @@ function renderList() {
               <span class="small text-muted">نتیجه ثبت‌شده:</span>
               <div class="fw-bold small text-dark">${escapeHtml(ex.final_opinion_text || 'ثبت نشده')}</div>
             </div>
-            <!-- ⭐ دکمه اقدام اصلاحی -->
             <button class="btn btn-sm btn-outline-primary w-100" onclick="window._openCorrectiveAction(${ex.id}, ${ex.patient?.id || 'null'})">
               <i class="bi bi-tools"></i> اقدام اصلاحی / تاریخچه
             </button>
@@ -234,12 +266,11 @@ async function openCorrectiveActionModal(examId, patientId) {
   let currentAction = null;
 
   try {
-    // ۱. خواندن اقدام فعلی
     const { data: actions, error: e1 } = await sb.from('occupational_corrective_actions')
       .select('*').eq('exam_id', examId).order('created_at', { ascending: false }).limit(1);
     
     if (e1) {
-       console.warn('[CA] خطا در خواندن اقدامات (شاید جدول وجود ندارد):', e1);
+       console.warn('[CA] خطا در خواندن اقدامات:', e1);
     } else if (actions && actions.length > 0) {
       currentAction = actions[0];
       textarea.value = currentAction.action_text || '';
@@ -248,7 +279,6 @@ async function openCorrectiveActionModal(examId, patientId) {
       }
     }
 
-    // ۲. خواندن تاریخچه
     const { data: history, error: e2 } = await sb.from('occupational_corrective_actions_history')
       .select('*').eq('exam_id', examId).order('changed_at', { ascending: false });
 
@@ -264,7 +294,6 @@ async function openCorrectiveActionModal(examId, patientId) {
     historyContainer.innerHTML = `<div class="alert alert-danger small">خطا: ${escapeHtml(e.message)}</div>`;
   }
 
-  // ذخیره (ثبت جدید یا ویرایش)
   saveBtn.onclick = async () => {
     const text = textarea.value.trim();
     if (!text) { toast('متن اقدام را وارد کنید', 'warning'); return; }
@@ -276,7 +305,6 @@ async function openCorrectiveActionModal(examId, patientId) {
       const userEmail = user?.email || 'نامشخص';
 
       if (currentAction) {
-        // ویرایش
         if (currentAction.action_text === text) { toast('تغییری اعمال نشد', 'info'); return; }
         
         const oldData = { action_text: currentAction.action_text, status: currentAction.status };
@@ -298,7 +326,6 @@ async function openCorrectiveActionModal(examId, patientId) {
         toast('✅ اقدام اصلاحی ویرایش شد', 'success');
         currentAction.action_text = text;
       } else {
-        // ثبت جدید
         const { data: newAction, error: eIns } = await sb.from('occupational_corrective_actions').insert({
           exam_id: examId,
           patient_id: patientId,
@@ -333,7 +360,6 @@ async function openCorrectiveActionModal(examId, patientId) {
     }
   };
 
-  // علامت‌گذاری به عنوان انجام شده
   completeBtn.onclick = async () => {
     if (!currentAction) return;
     if (!confirm('آیا این اقدام اصلاحی انجام شده است؟')) return;
@@ -376,9 +402,6 @@ async function openCorrectiveActionModal(examId, patientId) {
   };
 }
 
-// ═══════════════════════════════════════════════════════
-// رندر تاریخچه
-// ═══════════════════════════════════════════════════════
 function renderHistory(history) {
   const container = $('caHistoryContainer');
   if (!container) return;
