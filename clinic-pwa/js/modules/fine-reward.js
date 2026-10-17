@@ -45,12 +45,17 @@ const formatDateTime = (isoStr) => {
   try {
     const parts = String(isoStr).split('T');
     if (parts.length !== 2) return '—';
+    
     const datePart = parts[0]; // yyyy-mm-dd
     const timePart = parts[1].split('.')[0]; // hh:mm:ss
+    
     const jDate = gregorianToJalali(datePart);
     const hm = timePart.split(':').slice(0, 2).join(':');
+    
     return `${jDate} - ${hm}`;
-  } catch (e) { return '—'; }
+  } catch (e) { 
+    return '—'; 
+  }
 };
 
 // ⭐ متن پیامک دقیقاً طبق فرمت درخواستی شما
@@ -1022,7 +1027,7 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل (با اصلاح قدر مطلق هزینه)
+// ⭐ تابع استعلام وضعیت تحویل (با منطق دقیق کدهای وضعیت و قدر مطلق هزینه)
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -1048,21 +1053,24 @@ async function checkAllDeliveries() {
     const processDelivery = async (del) => {
       const sendTime = del.SendDateTime || null;
       const statusCode = String(del.Status).toLowerCase();
-      const cost = Math.abs(Number(del.Cost) || 0); // ⭐ استفاده از قدر مطلق
+      const cost = Math.abs(Number(del.Cost) || 0); // استفاده از قدر مطلق
 
       let isDelivered = false;
       let newSmsStatus = 'sent';
 
-      if (['1', 'success'].includes(statusCode)) {
+      // بر اساس مستندات آموت: 1 = تحویل به گوشی، 2 = عدم تحویل به گوشی، 8 = تحویل به اپراتور، 0 = در صف
+      if (statusCode === '1' || statusCode === 'success') {
         if (cost > 0) {
           isDelivered = true; 
         } else {
+          // اگر هزینه صفر باشد، یعنی هنوز هزینه‌ای کسر نشده (شاید شماره مسدود بوده یا تاخیر در صورتحساب)
           isDelivered = false; 
           newSmsStatus = 'sent'; 
         }
-      } else if (['2', '3', '5', '16', 'failed'].includes(statusCode)) {
-        newSmsStatus = 'failed'; 
-      } else if (statusCode === '0') {
+      } else if (['2', '16', 'failed'].includes(statusCode)) {
+        newSmsStatus = 'failed'; // عدم تحویل به گوشی یا اپراتور
+      } else {
+        // کدهای 0 یا 8 (یا سایر کدها) یعنی هنوز در جریان است
         newSmsStatus = 'sent'; 
       }
 
