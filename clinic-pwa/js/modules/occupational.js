@@ -6,15 +6,18 @@ import { showScreen } from '../ui.js';
 const state = {
   exams: [],
   loading: false,
-  filterKind: 'all',   // فیلتر نوع معاینه
-  filterStatus: 'all', // فیلتر نتیجه معاینه
+  filterKind: 'all',
+  filterStatus: 'all',
   query: ''
 };
 
 export async function openOccupational() {
   showScreen('Occupational');
   const wrap = $('occupationalContent');
-  if (!wrap) return;
+  if (!wrap) {
+    console.error('❌ [OCC] عنصر occupationalContent در HTML پیدا نشد!');
+    return;
+  }
 
   wrap.innerHTML = `
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -60,7 +63,6 @@ export async function openOccupational() {
     </div>
   `;
 
-  // اتصال رویدادها
   $('occApplyFilter').onclick = () => {
     state.query = $('occSearch').value.trim();
     state.filterKind = $('occFilterKind').value;
@@ -73,15 +75,17 @@ export async function openOccupational() {
 }
 
 // ═══════════════════════════════════════════════════════
-// بارگذاری لیست معاینات
+// بارگذاری لیست معاینات (همراه با دیباگ)
 // ═══════════════════════════════════════════════════════
 async function loadExams() {
   const c = $('occListContainer');
+  if (!c) return;
+
   c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+  console.log('🔍 [OCC] شروع خواندن لیست معاینات از دیتابیس...');
 
   try {
-    // واکشی معاینات همراه با اطلاعات بیمار
-    let q = sb.from('lab_results_periodicexamination')
+    const { data, error } = await sb.from('lab_results_periodicexamination')
       .select(`
         id, exam_date, exam_type, final_opinion_text, 
         patient:core_patient(id, first_name, last_name, national_code, personnel_number)
@@ -89,12 +93,22 @@ async function loadExams() {
       .order('exam_date', { ascending: false })
       .limit(100);
 
-    const { data, error } = await q;
-    if (error) throw error;
+    if (error) {
+      console.error('❌ [OCC] خطای دیتابیس:', error);
+      throw error;
+    }
 
-    // اعمال فیلترها در سمت کلاینت (چون دیتابیس شما ساختار ثابتی برای این فیلدها ندارد، از کلاینت استفاده می‌کنیم)
-    let list = data || [];
+    console.log('✅ [OCC] داده‌های دریافتی:', data);
+
+    if (!data || data.length === 0) {
+      console.warn('⚠️ [OCC] دیتابیس خالی است یا RLS دسترسی را بسته است.');
+      c.innerHTML = '<div class="alert alert-warning text-center">هیچ معاینه‌ای در دیتابیس یافت نشد. (احتمالاً RLS یا جدول خالی است)</div>';
+      return;
+    }
+
+    let list = data;
     
+    // فیلترها
     if (state.query) {
       const ql = state.query.toLowerCase();
       list = list.filter(ex => {
@@ -107,10 +121,8 @@ async function loadExams() {
       list = list.filter(ex => ex.exam_type === state.filterKind);
     }
 
-    // برای فیلتر نتیجه، از فیلد `final_opinion_text` که در فرم ۴۹ ذخیره می‌شود استفاده می‌کنیم
     if (state.filterStatus !== 'all') {
       list = list.filter(ex => {
-        // نگاشت ساده برای تشخیص متن نتیجه
         if (state.filterStatus === 'full' && ex.final_opinion_text?.includes('کامل')) return true;
         if (state.filterStatus === 'relative' && ex.final_opinion_text?.includes('نسبی')) return true;
         if (state.filterStatus === 'conditional' && (ex.final_opinion_text?.includes('مشروط') || ex.final_opinion_text?.includes('شرط'))) return true;
@@ -122,8 +134,8 @@ async function loadExams() {
     renderList();
 
   } catch (e) {
-    console.error('[OCC] load error:', e);
-    c.innerHTML = `<div class="alert alert-danger">خطا در خواندن لیست: ${escapeHtml(e.message)}</div>`;
+    console.error('❌ [OCC] خطای قطعی:', e);
+    c.innerHTML = `<div class="alert alert-danger"><strong>خطا در لود طب کار:</strong><br>${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -136,13 +148,14 @@ function renderList() {
 
   c.innerHTML = `<div class="row g-3">` + state.exams.map(ex => {
     const name = ex.patient ? `${ex.patient.first_name || ''} ${ex.patient.last_name || ''}`.trim() : '—';
-    const jd = gregorianToJalali(ex.exam_date);
+    // در صورتی که تاریخ خالی باشد، از ثبت خطا جلوگیری می‌کند
+    const jd = ex.exam_date ? gregorianToJalali(ex.exam_date) : 'ثبت نشده';
     const typeFa = {
       pre_employment: 'بدو استخدام',
       periodic: 'دوره‌ای',
       return_to_work: 'بازگشت به کار',
       job_change: 'جابجایی شغلی'
-    }[ex.exam_type] || ex.exam_type;
+    }[ex.exam_type] || ex.exam_type || 'نامشخص';
 
     return `
       <div class="col-12 col-md-6">
@@ -161,7 +174,7 @@ function renderList() {
               <div class="fw-bold small text-dark">${escapeHtml(ex.final_opinion_text || 'ثبت نشده')}</div>
             </div>
             <!-- ⭐ دکمه اقدام اصلاحی -->
-            <button class="btn btn-sm btn-outline-primary w-100" onclick="window._openCorrectiveAction(${ex.id}, ${ex.patient?.id})">
+            <button class="btn btn-sm btn-outline-primary w-100" onclick="window._openCorrectiveAction(${ex.id}, ${ex.patient?.id || 'null'})">
               <i class="bi bi-tools"></i> اقدام اصلاحی / تاریخچه
             </button>
           </div>
@@ -170,7 +183,6 @@ function renderList() {
     `;
   }).join('') + `</div>`;
 
-  // تعریف تابع گلوبال برای دسترسی دکمه‌ها
   window._openCorrectiveAction = (examId, patientId) => {
     openCorrectiveActionModal(examId, patientId);
   };
@@ -183,7 +195,6 @@ async function openCorrectiveActionModal(examId, patientId) {
   const modalId = 'correctiveActionModal';
   document.getElementById(modalId)?.remove();
 
-  // ساختار مودال
   const modalHtml = `
     <div class="modal fade" id="${modalId}" tabindex="-1" data-bs-backdrop="static">
       <div class="modal-dialog modal-dialog-centered modal-lg">
@@ -193,7 +204,6 @@ async function openCorrectiveActionModal(examId, patientId) {
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
-            <!-- فرم ثبت/ویرایش اقدام -->
             <div class="mb-4">
               <label class="form-label fw-bold">متن اقدام اصلاحی:</label>
               <textarea class="form-control" id="caText" rows="3" placeholder="اقدامات اصلاحی مورد نیاز برای این پرسنل..."></textarea>
@@ -203,7 +213,6 @@ async function openCorrectiveActionModal(examId, patientId) {
               </div>
             </div>
 
-            <!-- تاریخچه -->
             <h6 class="fw-bold border-bottom pb-2 mb-3">تاریخچه تغییرات</h6>
             <div id="caHistoryContainer" style="max-height: 300px; overflow-y: auto;">
               <div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>
@@ -222,7 +231,6 @@ async function openCorrectiveActionModal(examId, patientId) {
   const completeBtn = $('caCompleteBtn');
   const historyContainer = $('caHistoryContainer');
 
-  // دریافت اقدامات فعلی و تاریخچه
   let currentAction = null;
 
   try {
@@ -230,15 +238,13 @@ async function openCorrectiveActionModal(examId, patientId) {
     const { data: actions, error: e1 } = await sb.from('occupational_corrective_actions')
       .select('*').eq('exam_id', examId).order('created_at', { ascending: false }).limit(1);
     
-    if (e1) throw e1;
-
-    if (actions && actions.length > 0) {
+    if (e1) {
+       console.warn('[CA] خطا در خواندن اقدامات (شاید جدول وجود ندارد):', e1);
+    } else if (actions && actions.length > 0) {
       currentAction = actions[0];
       textarea.value = currentAction.action_text || '';
       if (currentAction.status === 'pending') {
         completeBtn.style.display = 'inline-block';
-      } else {
-        completeBtn.style.display = 'none';
       }
     }
 
@@ -246,8 +252,12 @@ async function openCorrectiveActionModal(examId, patientId) {
     const { data: history, error: e2 } = await sb.from('occupational_corrective_actions_history')
       .select('*').eq('exam_id', examId).order('changed_at', { ascending: false });
 
-    if (e2) throw e2;
-    renderHistory(history || []);
+    if (e2) {
+       console.warn('[CA] خطا در خواندن تاریخچه:', e2);
+       historyContainer.innerHTML = `<div class="alert alert-warning small">جدول تاریخچه یافت نشد یا دسترسی ندارد.</div>`;
+    } else {
+       renderHistory(history || []);
+    }
 
   } catch (e) {
     console.error('[CA] load error:', e);
@@ -277,7 +287,6 @@ async function openCorrectiveActionModal(examId, patientId) {
           .eq('id', currentAction.id);
         if (eUpd) throw eUpd;
 
-        // ثبت در تاریخچه
         await sb.from('occupational_corrective_actions_history').insert({
           action_id: currentAction.id,
           exam_id: examId,
@@ -299,7 +308,6 @@ async function openCorrectiveActionModal(examId, patientId) {
         }).select().single();
         if (eIns) throw eIns;
 
-        // ثبت در تاریخچه
         await sb.from('occupational_corrective_actions_history').insert({
           action_id: newAction.id,
           exam_id: examId,
@@ -313,7 +321,6 @@ async function openCorrectiveActionModal(examId, patientId) {
         completeBtn.style.display = 'inline-block';
       }
 
-      // رفرش تاریخچه
       const { data: history } = await sb.from('occupational_corrective_actions_history')
         .select('*').eq('exam_id', examId).order('changed_at', { ascending: false });
       renderHistory(history || []);
