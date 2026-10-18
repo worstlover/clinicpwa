@@ -1,29 +1,68 @@
 // js/modules/profile.js
 import { sb } from '../sb.js';
-import { $, escapeHtml, toast, beep } from '../utils.js';
+import { $, escapeHtml, toast, beep, gregorianToJalali } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { currentUser } from '../auth.js';
 
-export function openProfile() {
+export async function openProfile() {
   showScreen('Profile');
-  renderProfile();
+  await renderProfile();
 }
 
-function renderProfile() {
+async function renderProfile() {
   const c = $('profileContent');
+  if (!c) return;
+
+  c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+
   const email = currentUser?.email || '—';
   const username = email.split('@')[0];
   const meta = currentUser?.user_metadata || {};
-  const fullName = meta.full_name || meta.django_username || username;
-  const isStaff = meta.is_staff || false;
-  const isSuperuser = meta.is_superuser || false;
-
-  const created = currentUser?.created_at 
-    ? new Date(currentUser.created_at).toLocaleDateString('fa-IR') 
-    : '—';
-  const lastSignIn = currentUser?.last_sign_in_at 
+  
+  // مقادیر پیش‌فرض در صورتی که در دیتابیس پیدا نشدند
+  let fullName = meta.full_name || username;
+  let roleName = 'کاربر';
+  let joinedDate = '—';
+  let lastSignIn = currentUser?.last_sign_in_at 
     ? new Date(currentUser.last_sign_in_at).toLocaleString('fa-IR') 
     : '—';
+
+  try {
+    // ⬅️ دریافت اطلاعات از جدول اختصاصی جنگو (auth_user)
+    const { data: userData, error } = await sb.from('auth_user')
+      .select('*, groups:auth_user_groups(group:auth_group(name))')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (userData) {
+      // اگر کاربر در جدول پیدا شد
+      fullName = `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || username;
+      
+      if (userData.date_joined) {
+        joinedDate = gregorianToJalali(userData.date_joined.slice(0, 10));
+      }
+      
+      if (userData.groups && userData.groups.length > 0) {
+        // گرفتن نام نقش با حروف بزرگ و کوچک دقیق
+        roleName = userData.groups[0].group.name;
+      }
+    }
+  } catch (err) {
+    console.error('[PROFILE] error fetching user data:', err);
+  }
+
+  // تعیین رنگ و برچسب برای نقش
+  let roleBadge = `<div class="badge-soft primary mt-2" style="display:inline-flex;">${escapeHtml(roleName)}</div>`;
+  
+  if (roleName === 'doctor') {
+    roleBadge = '<div class="badge-soft success mt-2" style="display:inline-flex;">پزشک</div>';
+  } else if (roleName === 'Nurse') {
+    roleBadge = '<div class="badge-soft warning mt-2" style="display:inline-flex;">پرستار</div>';
+  } else if (roleName === 'safety') {
+    roleBadge = '<div class="badge-soft danger mt-2" style="display:inline-flex;">افسر ایمنی</div>';
+  } else if (roleName === 'Supervisor') {
+    roleBadge = '<div class="badge-soft primary mt-2" style="display:inline-flex;">سوپروایزر</div>';
+  }
 
   c.innerHTML = `
     <div class="card" style="padding:24px;text-align:center;">
@@ -34,9 +73,7 @@ function renderProfile() {
       </div>
       <h5 style="margin:0 0 6px;font-weight:700;">${escapeHtml(fullName)}</h5>
       <div class="muted small" style="direction:ltr;">${escapeHtml(email)}</div>
-      ${isSuperuser ? '<div class="badge-soft danger mt-2" style="display:inline-flex;">مدیر ارشد</div>' : 
-        isStaff ? '<div class="badge-soft warning mt-2" style="display:inline-flex;">مدیر</div>' : 
-        '<div class="badge-soft primary mt-2" style="display:inline-flex;">کاربر</div>'}
+      ${roleBadge}
     </div>
 
     <div class="card">
@@ -54,7 +91,7 @@ function renderProfile() {
         </div>
         <div class="row-item d-flex justify-content-between">
           <span class="muted">تاریخ عضویت</span>
-          <span>${created}</span>
+          <span>${joinedDate}</span>
         </div>
         <div class="row-item d-flex justify-content-between">
           <span class="muted">آخرین ورود</span>
@@ -86,7 +123,7 @@ function renderProfile() {
     </div>
 
     <div style="text-align:center;font-size:0.75rem;color:#94a3b8;padding:20px;">
-      نسخه ۱.۰ - داروخانه کلینیک
+      نسخه ۱.۰ - کلینیک صنعتی گندله‌سازی بهاباد
     </div>
   `;
 
@@ -94,15 +131,14 @@ function renderProfile() {
   $('btnLogoutProfile').onclick = async () => {
     if (!confirm('از حساب خارج می‌شوید؟')) return;
     await sb.auth.signOut();
-    location.reload();
+    window.location.reload();
   };
 }
 
 // ═══════════════════════════════════════════════════════
-// مودال تغییر رمز
+// مودال تغییر رمز (بدون تغییر از کد خودتان)
 // ═══════════════════════════════════════════════════════
 function openChangePasswordModal() {
-  // ساخت مودال به صورت داینامیک
   const existing = document.getElementById('changePasswordModal');
   if (existing) existing.remove();
 
@@ -164,7 +200,6 @@ function openChangePasswordModal() {
   `;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-  // توابع کمکی
   window.togglePw = (id, btn) => {
     const el = document.getElementById(id);
     el.type = el.type === 'password' ? 'text' : 'password';
@@ -175,7 +210,6 @@ function openChangePasswordModal() {
   const modal = new bootstrap.Modal(document.getElementById('changePasswordModal'));
   modal.show();
 
-  // نمایش قدرت رمز
   document.getElementById('cpNew').addEventListener('input', e => {
     const v = e.target.value;
     const strength = calculateStrength(v);
@@ -187,7 +221,6 @@ function openChangePasswordModal() {
     checkMatch();
   });
 
-  // بررسی تطابق
   function checkMatch() {
     const n = document.getElementById('cpNew').value;
     const c = document.getElementById('cpConfirm').value;
@@ -201,7 +234,6 @@ function openChangePasswordModal() {
   }
   document.getElementById('cpConfirm').addEventListener('input', checkMatch);
 
-  // ذخیره
   document.getElementById('cpSave').onclick = async () => {
     const current = document.getElementById('cpCurrent').value;
     const newPw = document.getElementById('cpNew').value;
@@ -211,7 +243,6 @@ function openChangePasswordModal() {
 
     msg.innerHTML = '';
 
-    // اعتبارسنجی
     if (!current || !newPw || !confirm) {
       msg.innerHTML = '<div class="alert alert-danger py-2 small">همه فیلدها را پر کنید</div>';
       return;
@@ -233,7 +264,6 @@ function openChangePasswordModal() {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ذخیره...';
 
     try {
-      // ۱. تأیید رمز فعلی با یک بار signIn
       const email = currentUser?.email;
       if (!email) throw new Error('کاربر یافت نشد');
 
@@ -245,18 +275,15 @@ function openChangePasswordModal() {
         throw new Error('رمز فعلی اشتباه است');
       }
 
-      // ۲. تغییر رمز
       const { error: updateErr } = await sb.auth.updateUser({
         password: newPw
       });
       if (updateErr) throw updateErr;
 
-      // ۳. موفقیت
       msg.innerHTML = '<div class="alert alert-success py-2 small">✅ رمز با موفقیت تغییر یافت</div>';
       beep();
       toast('رمز عبور با موفقیت تغییر یافت', 'success');
 
-      // بستن بعد از ۱.۵ ثانیه
       setTimeout(() => {
         modal.hide();
         setTimeout(() => {
