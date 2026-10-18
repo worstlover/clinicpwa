@@ -12,7 +12,6 @@
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>کلینیک گندله سازی بهاباد</title>
-<!-- اسکنر ZXing (WASM) -->
 
 <link href="lib/vazirmatn.css" rel="stylesheet">
 <link href="lib/bootstrap.rtl.min.css" rel="stylesheet">
@@ -159,6 +158,15 @@
           </div>
           <div class="home-card-label">ویزیت‌ها</div>
           <div class="home-card-sub">مشاهده و مدیریت ویزیت بیماران</div>
+          <i class="bi bi-chevron-left home-card-arrow"></i>
+        </button>
+
+        <button class="home-card" data-nav="patients">
+          <div class="home-card-icon" style="background:#e0e7ff;color:#4f46e5;">
+            <i class="bi bi-people-fill"></i>
+          </div>
+          <div class="home-card-label">مدیریت بیماران</div>
+          <div class="home-card-sub">پرونده و سوابق بیماران</div>
           <i class="bi bi-chevron-left home-card-arrow"></i>
         </button>
 
@@ -316,6 +324,7 @@
 
 <!-- ═════════════ صفحات ═════════════ -->
 <div id="screenVisit"          class="screen"><div class="content" id="visitContent"></div></div>
+<div id="screenPatients"       class="screen"><div class="content" id="patientContent"></div></div> <!-- ⬅️ صفحه مدیریت بیماران -->
 <div id="screenInventory"      class="screen"><div class="content" id="invContent"></div></div>
 <div id="screenReceive"        class="screen"><div class="content" id="recvContent"></div></div>
 <div id="screenDisposal"       class="screen"><div class="content" id="disp2Content"></div></div>
@@ -414,10 +423,7 @@
 <!-- ═════════════ ناحیه چاپ فرم ═════════════ -->
 <div id="formPrintArea"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <!-- برای خروجی اکسل (XLSX) -->
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-
-<!-- برای خروجی PDF (jsPDF و html2canvas) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>  
