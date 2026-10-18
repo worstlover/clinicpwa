@@ -12,8 +12,7 @@ const SKIP = new Set([
   'package.json', 'package-lock.json', 'build.mjs',
   'wrangler.toml', 'wrangler.json', 'wrangler.jsonc',
   '.gitignore', 'README.md',
-  // ⚠️ پوشه lib/firebase باید حذف شده باشد. اگر هنوز هست، اینجا اضافه‌اش کن:
-  // 'lib/firebase',
+  'scripts', // ⬅️ پوشه اسکریپت‌ها را نادیده بگیر
 ]);
 
 async function walk(dir, base = dir) {
@@ -43,6 +42,9 @@ await build({
   format: 'esm',
   target: 'es2020',
   minify: true,
+  // ⭐ این دو خط اضافه شدند تا خطاها دقیقاً به فایل اصلی اشاره کنند ⭐
+  sourcemap: true,
+  sourcesContent: true,
   external: [
     'https://*',
     'http://*',
@@ -58,7 +60,7 @@ await build({
 // ۳) ساخت لیست precache
 const files = (await walk(OUT)).filter(p => {
   if (p === 'service-worker.js' || p === 'index.html') return false;
-  if (p.endsWith('-sw.js') || p.endsWith('.map')) return false;
+  if (p.endsWith('-sw.js') || p.endsWith('.map')) return false; // فایل‌های مپ کش نمی‌شوند
   if (p.startsWith('.well-known/')) return false;
   // JSهای جداگانه‌ی js/ دیگه استفاده نمی‌شن؛ فقط app.js و chunkها
   if (p.startsWith('js/') && p.endsWith('.js')
