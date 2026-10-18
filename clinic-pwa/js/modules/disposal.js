@@ -73,16 +73,24 @@ function renderList() {
   });
 }
 
+// ═══ منطق جدید تاریخ ═══
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
 
-  // ⭐ منطق انتخاب تاریخ
-  if (parsed.exps && parsed.exps.length > 1) {
-    const selectedDate = await promptExpirySelection(parsed.exps);
-    if (!selectedDate) {
-      return; 
+  if (parsed.exps && parsed.exps.length > 0) {
+    const isInvalid = !parsed.exp.includes('-');
+    
+    if (parsed.exps.length > 1 || isInvalid) {
+      const selectedDate = await promptExpirySelection(parsed.exps);
+      if (!selectedDate) return; 
+      
+      if (selectedDate.includes('-')) {
+        parsed.exp = selectedDate;
+      } else {
+        toast('شما یک تاریخ نامعتبر را انتخاب کردید. لطفا تاریخ را در فرم دستی وارد کنید.', 'warning');
+        parsed.exp = '';
+      }
     }
-    parsed.exp = selectedDate; 
   }
 
   const gtin = cleanGTIN(parsed.gtin);
