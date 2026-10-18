@@ -1,6 +1,7 @@
 // js/ui.js
 export function showScreen(screenName) {
   const screens = {
+    'Login':        'screenLogin',
     'Home':         'screenHome',
     'Pharmacy':     'screenPharmacy',
     'Visit':        'screenVisit',
@@ -11,12 +12,32 @@ export function showScreen(screenName) {
     'Profile':      'screenProfile',
     'Occupational': 'screenOccupational',
     'Forms':        'screenForms',
-    'FormsMenu':    'screenFormsMenu',
-    'FormsArchive': 'screenFormsArchive',
     'Guide':        'screenGuide',
-    'VisitReports': 'screenVisitReports',
-    'FineReward':   'screenFineReward',
   };
+
+  const targetId = screens[screenName];
+  if (!targetId) {
+    console.warn('[UI] صفحه ناشناخته:', screenName);
+    return;
+  }
+
+  document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+
+  const target = document.getElementById(targetId);
+  if (target) target.classList.add('active');
+
+  const appHeader = document.getElementById('appHeader');
+  const bottomNav = document.getElementById('bottomNav');
+  const btnBack = document.getElementById('btnBack');
+  const headerTitle = document.getElementById('headerTitle');
+
+  if (screenName === 'Login') {
+    if (appHeader) appHeader.classList.add('hidden');
+    if (bottomNav) bottomNav.classList.add('hidden');
+  } else {
+    if (appHeader) appHeader.classList.remove('hidden');
+    if (bottomNav) bottomNav.classList.remove('hidden');
+  }
 
   const titles = {
     'Home':         'کلینیک',
@@ -29,38 +50,22 @@ export function showScreen(screenName) {
     'Profile':      'پروفایل',
     'Occupational': 'طب کار',
     'Forms':        'فرم‌ها',
-    'FormsMenu':    'فرآیندها و فرم‌ها',
-    'FormsArchive': 'بایگانی فرم‌ها', // ⬅️ تغییر برای جلوگیری از خطا
     'Guide':        'راهنمای فرآیندها',
-    'VisitReports': 'گزارش ویزیت‌ها',
-    'FineReward':   'جریمه و تشویقی',
   };
-
-  const targetId = screens[screenName];
-  if (!targetId) return; 
-
-  document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
-  const target = document.getElementById(targetId);
-  if (target) target.classList.add('active');
-
-  const bottomNav = document.getElementById('bottomNav');
-  if (bottomNav) {
-    if (['Home', 'Pharmacy', 'Visit', 'Profile', 'Inventory'].includes(screenName)) {
-      bottomNav.classList.remove('hidden');
-    } else {
-      bottomNav.classList.add('hidden');
-    }
-  }
-
-  const headerTitle = document.getElementById('headerTitle');
   if (headerTitle) headerTitle.textContent = titles[screenName] || 'کلینیک';
 
-  const btnBack = document.getElementById('btnBack');
   if (btnBack) {
-    if (['Home', 'Pharmacy', 'Visit', 'Profile'].includes(screenName)) {
+    if (screenName === 'Home' || screenName === 'Login') {
       btnBack.classList.add('hidden');
     } else {
       btnBack.classList.remove('hidden');
     }
   }
+
+  document.querySelectorAll('.bottom-nav a').forEach(a => {
+    a.classList.remove('active');
+    if (a.dataset.nav === screenName.toLowerCase()) {
+      a.classList.add('active');
+    }
+  });
 }
