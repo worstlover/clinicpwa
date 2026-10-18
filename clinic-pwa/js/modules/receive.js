@@ -6,7 +6,7 @@ import {
 } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { openScanner } from '../scanner.js';
-import { askQty, openDrugSearch } from '../modals.js';
+import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js'; // ⭐ ایمپورت شد
 
 // ═══════════════════════════════════════════════════════════
 // State
@@ -528,10 +528,20 @@ function renderList() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// پردازش بارکد — با بازگشت خودکار به اسکنر
+// پردازش بارکد — با بررسی چند تاریخ انقضا ⭐
 // ═══════════════════════════════════════════════════════════
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
+
+  // ⭐ اگر بیش از یک تاریخ معتبر وجود دارد، از کاربر بپرس
+  if (parsed.exps && parsed.exps.length > 1) {
+    const selectedDate = await promptExpirySelection(parsed.exps);
+    if (!selectedDate) {
+      return; // کاربر انصراف داد
+    }
+    parsed.exp = selectedDate; 
+  }
+
   const gtin = cleanGTIN(parsed.gtin);
   const padded = gtin.padStart(14, '0');
   const { data: bc } = await sb.from('drugs_drugbarcode')
