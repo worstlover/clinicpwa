@@ -3,7 +3,7 @@ import { sb } from './sb.js';
 import { showScreen } from './ui.js';
 import { $, toast } from './utils.js';
 
-// ⬅️ این متغیرها باید Export شوند تا بقیه فایل‌ها بتوانند از آن‌ها استفاده کنند
+// ⬅️ Export کردن متغیرها برای استفاده در سایر فایل‌ها (مثل app.js)
 export let currentUser = null;
 export let isAdmin = false;
 
@@ -19,7 +19,6 @@ export const checkAuth = async () => {
       currentUser = session.user;
       
       // تعیین سطح دسترسی (Admin)
-      // اگر ایمیل شامل admin باشد یا در گروه خاصی باشد
       isAdmin = currentUser?.email?.includes('admin') || currentUser?.user_metadata?.role === 'Supervisor';
       
       // نمایش ایمیل در هدر و سایدبار
@@ -40,15 +39,21 @@ export const checkAuth = async () => {
 };
 
 // ═══════════════════════════════════════════════════════
-// ورود به سیستم
+// ورود به سیستم (با مدیریت هوشمند نام کاربری و ایمیل)
 // ═══════════════════════════════════════════════════════
 export const doLogin = async () => {
-  const email = $('loginEmail').value.trim();
+  const inputVal = $('loginEmail').value.trim();
   const password = $('loginPass').value.trim();
   
-  if (!email || !password) {
+  if (!inputVal || !password) {
     toast('لطفا نام کاربری و رمز عبور را وارد کنید', 'warning');
     return;
+  }
+
+  // ⬅️ منطق هوشمند: اگر کاربر @ نداشت، پسوند را اضافه می‌کنیم
+  let finalEmail = inputVal;
+  if (!finalEmail.includes('@')) {
+    finalEmail = `${finalEmail}@clinic.local`;
   }
 
   const btn = $('btnLogin');
@@ -58,9 +63,9 @@ export const doLogin = async () => {
   }
 
   try {
-    // ورود با استاندارد Supabase (اگر از سیستم اختصاصی استفاده می‌کنید، این قسمت را تغییر دهید)
+    // ارسال ایمیل نهایی به سوپابیس
     const { data, error } = await sb.auth.signInWithPassword({
-      email: email,
+      email: finalEmail,
       password: password
     });
 
@@ -75,7 +80,16 @@ export const doLogin = async () => {
     window.location.reload();
 
   } catch (err) {
-    toast(err.message || 'نام کاربری یا رمز عبور اشتباه است', 'danger');
+    console.error('Login error:', err);
+    // نمایش پیام خطای مناسب
+    let errorMsg = 'نام کاربری یا رمز عبور اشتباه است';
+    if (err.message === 'Invalid login credentials') {
+      errorMsg = 'نام کاربری یا رمز عبور اشتباه است';
+    } else if (err.message) {
+      errorMsg = err.message;
+    }
+    toast(errorMsg, 'danger');
+    
     if (btn) {
       btn.disabled = false;
       btn.innerHTML = 'ورود';
@@ -92,7 +106,7 @@ export const doLogout = async () => {
     currentUser = null;
     isAdmin = false;
     
-    // مخفی کردن المان‌های UI به صورت دستی قبل از رفرش
+    // ⬅️ مخفی کردن المان‌های UI قبل از رفرش (برای جلوگیری از نمایش منو در صفحه لاگین)
     document.getElementById('appHeader')?.classList.add('hidden');
     document.getElementById('bottomNav')?.classList.add('hidden');
     document.getElementById('sideNav')?.classList.add('hidden');
