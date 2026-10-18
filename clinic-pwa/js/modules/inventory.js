@@ -7,9 +7,17 @@ import {
 import { showScreen } from '../ui.js';
 import { openScanner } from '../scanner.js';
 import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js';
-import { isAdmin, currentUser } from '../auth.js'; // ⬅️ currentUser اضافه شد
+import { isAdmin, currentUser } from '../auth.js'; 
 
 const state = { session: null, items: [] };
+
+// ⬅️ تابع کمکی برای گرفتن نام کاربر
+const getUserName = () => {
+  return currentUser?.user_metadata?.display_name || 
+         currentUser?.user_metadata?.name || 
+         currentUser?.email || 
+         'نامشخص';
+};
 
 export function openInventory() {
   showScreen('Inventory');
@@ -41,11 +49,13 @@ function renderStart() {
 async function startSession() {
   const title = $('invTitle').value.trim() || 'انبارگردانی';
   const { data: code } = await sb.rpc('gen_inv_code');
+  
   const { data, error } = await sb.from('inv_sessions').insert({ 
     code, 
     title, 
     status: 'in_progress',
-    created_by_email: currentUser?.email || null // ⬅️ ثبت سازنده
+    created_by_email: currentUser?.email || null,
+    created_by_name: getUserName() // ⬅️ ذخیره نام
   }).select().single();
   
   if (error) { toast(error.message, 'danger'); return; }
@@ -63,13 +73,12 @@ async function continueSession() {
   if (['completed', 'applied'].includes(data.status)) { toast('این سند بسته شده است', 'warning'); return; }
   state.session = data;
   const { data: items } = await sb.from('inv_count_items').select('*').eq('session_id', id);
-  
-  // ⬅️ خواندن ایمیل شمارش‌کننده از دیتابیس
   state.items = (items || []).map(i => ({
     drug_id: i.drug_id, drug_name: i.drug_name, drug_form: i.drug_form || '',
     batch_number: i.batch_number, expiry_date: i.expiry_date,
     counted_quantity: i.counted_quantity, barcode: i.barcode,
-    counted_by_email: i.counted_by_email 
+    counted_by_email: i.counted_by_email,
+    counted_by_name: i.counted_by_name // ⬅️ خواندن نام
   }));
   renderScan();
 }
@@ -113,8 +122,8 @@ function renderList() {
   list.innerHTML = state.items.slice().reverse().map((it, idx) => {
     const realIdx = state.items.length - 1 - idx;
     
-    // ⬅️ نمایش ایمیل کاربر
-    const userLabel = it.counted_by_email ? `<span class="badge bg-light text-dark border ms-2" style="font-size:0.7rem;"><i class="bi bi-person"></i> ${escapeHtml(it.counted_by_email)}</span>` : '';
+    // ⬅️ استفاده از نام به جای ایمیل
+    const userLabel = it.counted_by_name ? `<span class="badge bg-light text-dark border ms-2" style="font-size:0.7rem;"><i class="bi bi-person"></i> ${escapeHtml(it.counted_by_name)}</span>` : '';
 
     return `
       <div class="item-card">
@@ -180,7 +189,8 @@ async function editItem(idx) {
   }
 
   it.counted_quantity = res.qty;
-  it.counted_by_email = currentUser?.email || 'نامشخص'; // ⬅️ ثبت ایمیل ویرایش‌کننده
+  it.counted_by_email = currentUser?.email || null;
+  it.counted_by_name = getUserName(); // ⬅️ ثبت نام ویرایش‌کننده
 
   await sb.from('inv_count_items').upsert({
     session_id: state.session.id,
@@ -190,7 +200,8 @@ async function editItem(idx) {
     expiry_date: it.expiry_date,
     counted_quantity: res.qty,
     barcode: it.barcode,
-    counted_by_email: it.counted_by_email // ⬅️ ذخیره در دیتابیس
+    counted_by_email: it.counted_by_email,
+    counted_by_name: it.counted_by_name // ⬅️ ذخیره در دیتابیس
   }, { onConflict: 'session_id,drug_id,batch_number,expiry_date' });
 
   renderScan();
@@ -293,7 +304,8 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     return false;
   }
 
-  const userEmail = currentUser?.email || 'نامشخص'; // ⬅️ کاربر فعلی
+  const userEmail = currentUser?.email || null;
+  const userName = getUserName(); // ⬅️ نام شمارش‌کننده
 
   const existing = state.items.find(it =>
     it.drug_id === drug.id && (it.batch_number || '') === computedBatch && (it.expiry_date || '') === res.expiry_gregorian
@@ -301,7 +313,8 @@ async function addDrug(drug, barcode = '', parsed = {}) {
   
   if (existing) {
     existing.counted_quantity += res.qty;
-    existing.counted_by_email = userEmail; // ⬅️ به‌روزرسانی کاربر در صورت جمع شدن تعداد
+    existing.counted_by_email = userEmail; 
+    existing.counted_by_name = userName; // ⬅️ به‌روزرسانی نام
   } else {
     state.items.push({
       drug_id: drug.id,
@@ -311,7 +324,8 @@ async function addDrug(drug, barcode = '', parsed = {}) {
       expiry_date: res.expiry_gregorian,
       counted_quantity: res.qty,
       barcode: barcode || null,
-      counted_by_email: userEmail // ⬅️ ثبت کاربر برای آیتم جدید
+      counted_by_email: userEmail,
+      counted_by_name: userName // ⬅️ ثبت نام
     });
   }
 
@@ -327,7 +341,8 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     expiry_date: row.expiry_date,
     counted_quantity: row.counted_quantity,
     barcode: row.barcode,
-    counted_by_email: row.counted_by_email // ⬅️ ارسال به دیتابیس
+    counted_by_email: row.counted_by_email,
+    counted_by_name: row.counted_by_name // ⬅️ ذخیره در دیتابیس
   }, { onConflict: 'session_id,drug_id,batch_number,expiry_date' });
 
   renderScan();
