@@ -1,3 +1,4 @@
+// js/utils.js
 import jalaali from '../lib/jalaali.js';
 
 export const $ = id => document.getElementById(id);
@@ -5,8 +6,7 @@ export const $ = id => document.getElementById(id);
 export const faNum = n => String(n ?? '').replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]);
 
 // ═══════════════════════════════════════════════════════
-// 🌟 جدید: تبدیل اعداد فارسی/عربی به انگلیسی
-// برای جستجوی صحیح در دیتابیس (کد ملی، شماره پرسنلی و...)
+// 🌟 تبدیل اعداد فارسی/عربی به انگلیسی
 // ═══════════════════════════════════════════════════════
 export const faToEn = (str) => {
   if (!str) return str;
@@ -51,6 +51,7 @@ export const jalaliToGregorian = (str) => {
     return `${g.gy}-${String(g.gm).padStart(2,'0')}-${String(g.gd).padStart(2,'0')}`;
   } catch (e) { return null; }
 };
+
 export const cleanGTIN = (raw) => {
   if (!raw) return '';
   // حذف تمام کاراکترهای غیر عددی (مثل فاصله، خط تیره و...)
@@ -63,6 +64,7 @@ export const cleanGTIN = (raw) => {
   
   return digits;
 };
+
 export const parseGS1 = (raw) => {
   // ⭐ اضافه شدن exps (آرایه تاریخ‌ها) به خروجی
   const r = { gtin: null, exp: null, exps: [], batch: null, serial: null };
@@ -150,8 +152,13 @@ export const parseGS1 = (raw) => {
 
   return r;
 };
+
+// ⭐ تعریف audioCtx برای جلوگیری از خطای Runtime در تابع beep
+const audioCtx = window.AudioContext || window.webkitAudioContext ? new (window.AudioContext || window.webkitAudioContext)() : null;
+
 export function beep(freq = 880, dur = 0.12) {
   try {
+    if (!audioCtx) return;
     if (audioCtx.state === 'suspended') audioCtx.resume();
     const o = audioCtx.createOscillator(), g = audioCtx.createGain();
     o.connect(g); g.connect(audioCtx.destination);
@@ -198,4 +205,4 @@ export function checkExpiry(greg) {
     if (days <= 180)  return { level: 'warning', days, msg: `🟡 کمتر از ۶ ماه (${days} روز)` };
     return { level: 'ok', days, msg: `✅ ${days} روز تا انقضا` };
   } catch (e) { return null; }
-
+} // ⬅️ این آکولاد در فایل قبلی شما کم بود و باعث خطای بیلد شده بود
