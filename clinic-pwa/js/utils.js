@@ -82,62 +82,52 @@ export const parseGS1 = (raw) => {
     .replace(/[\r\n\t]+/g, ' ')
     .trim();
 
-  // ═══ ۱. GTIN (بررسی ۱۴ رقمی و ۱۳ رقمی) ═══
+  // ۱. GTIN
   let m01 = s.match(/(?:^|[^0-9])01(\d{14})/);
   if (!m01) m01 = s.match(/(?:^|[^0-9])01(\d{13})/);
   if (!m01) m01 = s.match(/01(\d{14})/);
   if (!m01) m01 = s.match(/01(\d{13})/);
   if (m01) r.gtin = m01[1];
 
-  // ═══ ۲. تاریخ‌های انقضا (پیدا کردن همه 17 ها) ═══
-  const expMatches = [...s.matchAll(/(?:^|[^0-9])17(\d{6})(?=\D|$)/g)];
-  
-  const now = new Date();
-  const maxFuture = new Date();
-  maxFuture.setFullYear(now.getFullYear() + 5);
+  // ═══ ۲. منطق جدید تاریخ ═══
+  // پیدا کردن تمام تاریخ‌های بعد از 17
+  const expMatches = [...s.matchAll(/17(\d{6})/g)].map(m => m[1]);
+  r.exps = expMatches;
 
-  const validExps = [];
-
-  expMatches.forEach(m => {
-    const ds = m[1];
-    const yy = parseInt(ds.substring(0, 2), 10);
-    const mm = parseInt(ds.substring(2, 4), 10);
-    const dd = parseInt(ds.substring(4, 6), 10);
+  if (expMatches.length > 0) {
+    // اگر دو تا یا بیشتر بود، دومی را بردار. اگر یکی بود، همان یکی را بردار.
+    let targetRaw = expMatches.length >= 2 ? expMatches[1] : expMatches[0];
+    
+    // اعتبارسنجی ساده و پایه
+    const yy = parseInt(targetRaw.substring(0, 2), 10);
+    const mm = parseInt(targetRaw.substring(2, 4), 10);
+    const dd = parseInt(targetRaw.substring(4, 6), 10);
     const year = yy < 70 ? 2000 + yy : 1900 + yy;
 
+    let isValid = false;
     if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
       const expDate = new Date(year, mm - 1, dd);
       if (expDate.getMonth() === mm - 1 && expDate.getDate() === dd) {
-        if (expDate <= maxFuture) {
-          const expStr = `${year}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
-          if (!validExps.includes(expStr)) {
-            validExps.push(expStr);
-          }
-        }
+        isValid = true;
       }
     }
-  });
 
-  r.exps = validExps;
-  if (validExps.length > 0) {
-    r.exp = validExps[0];
+    if (isValid) {
+      // اگر نرمال بود، تاریخ میلادی استاندارد را قرار بده
+      r.exp = `${year}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+    } else {
+      // اگر نرمال نبود، همان عدد خام (مثلا 251399) را نگه دار تا در مودال نمایش داده شود
+      r.exp = targetRaw; 
+    }
   }
 
-  // ═══ ۳. AIهای متغیر (10 = بچ، 21 = سریال) ═══
+  // ۳. AIهای متغیر
   if (s.includes('|')) {
     const parts = s.split('|');
     for (let k = 0; k < parts.length; k++) {
       const p = parts[k];
-      if (/^10/.test(p) && !r.batch) {
-        r.batch = p.slice(2).trim();
-      } else if (/^21/.test(p) && !r.serial) {
-        r.serial = p.slice(2).trim();
-      }
-    }
-    const last = parts[parts.length - 1];
-    if (last && !r.batch) {
-      const bm = last.match(/10([^|]*?)(?:17|21|$)/);
-      if (bm) r.batch = bm[1].trim();
+      if (/^10/.test(p) && !r.batch) r.batch = p.slice(2).trim();
+      else if (/^21/.test(p) && !r.serial) r.serial = p.slice(2).trim();
     }
   } else {
     if (!r.batch) {
