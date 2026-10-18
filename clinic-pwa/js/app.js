@@ -59,10 +59,8 @@ function finishLoadingProgress() {
     bar.style.width = '100%'; 
     percent.textContent = '100%';
     setTimeout(() => {
-      // فقط صفحه لودینگ را مخفی می‌کنیم
       document.getElementById('screenLoading')?.classList.remove('active');
-      
-      // ⬅️ خطوط مربوط به appHeader و bottomNav حذف شدند تا نمایش آن‌ها به عهده ui.js باشد
+      // ⬅️ هدر و منوها توسط ui.js مدیریت می‌شوند
     }, 400);
   }
 }
@@ -116,7 +114,7 @@ document.querySelectorAll('[data-nav]').forEach(el => {
 });
 
 // ═══════════════════════════════════════════════════════
-// 📊 بارگذاری آمار داشبورد (به‌روزرسانی ایمن)
+// 📊 بارگذاری آمار داشبورد (اصلاح شده با نام جداول واقعی)
 // ═══════════════════════════════════════════════════════
 async function loadDashboardStats() {
   try {
@@ -141,15 +139,23 @@ async function loadDashboardStats() {
     const { count: occCount, error: occErr } = await sb.from('lab_results_periodicexamination').select('*', { count: 'exact', head: true }).gte('exam_date', monthStart);
     setStat('examsMonth', occErr ? 0 : occCount);
 
-    // ۴. جریمه و تشویقی
+    // ۴. جریمه و تشویقی (جدول: safety_finereward)
     try {
-      const { count: fineCount, error: fineErr } = await sb.from('fine_rewards').select('*', { count: 'exact', head: true }).gte('created_at', monthStart);
-      setStat('finesMonth', fineErr ? 0 : fineCount);
+      let fineCount = 0;
+      const { count: c1, error: e1 } = await sb.from('safety_finereward').select('*', { count: 'exact', head: true }).gte('created_at', monthStart);
+      if (!e1) {
+        fineCount = c1;
+      } else {
+        // اگر ستون created_at وجود نداشت، کل رکوردها را می‌شماریم
+        const { count: c2 } = await sb.from('safety_finereward').select('*', { count: 'exact', head: true });
+        fineCount = c2;
+      }
+      setStat('finesMonth', fineCount);
     } catch(e) { setStat('finesMonth', 0); }
 
-    // ۵. فرم‌ها
+    // ۵. فرم‌ها (جدول: form_records)
     try {
-      const { count: formCount, error: formErr } = await sb.from('forms_submission').select('*', { count: 'exact', head: true });
+      const { count: formCount, error: formErr } = await sb.from('form_records').select('*', { count: 'exact', head: true });
       setStat('formsCount', formErr ? 0 : formCount);
     } catch(e) { setStat('formsCount', 0); }
 
