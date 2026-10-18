@@ -5,6 +5,7 @@ export function showScreen(screenName) {
     'Home':         'screenHome',
     'Pharmacy':     'screenPharmacy',
     'Visit':        'screenVisit',
+    'Patients':     'screenPatients', // ⬅️ اضافه شد
     'Inventory':    'screenInventory',
     'Receive':      'screenReceive',
     'Disposal':     'screenDisposal',
@@ -13,6 +14,8 @@ export function showScreen(screenName) {
     'Occupational': 'screenOccupational',
     'Forms':        'screenForms',
     'Guide':        'screenGuide',
+    'VisitReports': 'screenVisitReports',
+    'FineReward':   'screenFineReward',
   };
 
   const targetId = screens[screenName];
@@ -43,6 +46,7 @@ export function showScreen(screenName) {
     'Home':         'کلینیک',
     'Pharmacy':     'داروخانه',
     'Visit':        'ویزیت‌ها',
+    'Patients':     'مدیریت بیماران', // ⬅️ اضافه شد
     'Inventory':    'انبارگردانی',
     'Receive':      'دریافت دارو',
     'Disposal':     'خروج منقضی',
@@ -51,6 +55,8 @@ export function showScreen(screenName) {
     'Occupational': 'طب کار',
     'Forms':        'فرم‌ها',
     'Guide':        'راهنمای فرآیندها',
+    'VisitReports': 'گزارش ویزیت‌ها',
+    'FineReward':   'جریمه و تشویقی',
   };
   if (headerTitle) headerTitle.textContent = titles[screenName] || 'کلینیک';
 
