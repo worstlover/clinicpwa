@@ -2,7 +2,7 @@
 import { sb } from '../sb.js';
 import { faNum, escapeHtml, gregorianToJalali, toast } from '../utils.js';
 import { printA4 } from './list-print.js';
-import { currentUser, isAdmin } from '../auth.js'; // ⬅️ ایمپورت برای بررسی نقش
+import { currentUser, isAdmin } from '../auth.js';
 
 const PAGE_SIZE = 20;
 
@@ -12,11 +12,9 @@ const state = {
   rows: [], loading: false,
 };
 
-// ⬅️ بررسی دسترسی برای حذف (مدیر یا نقش‌های خاص)
 const canDelete = () => {
   if (isAdmin) return true;
   const role = currentUser?.user_metadata?.role;
-  // اگر نقش کاربر superuser یا supervisor بود
   return role === 'superuser' || role === 'supervisor';
 };
 
@@ -141,12 +139,7 @@ async function loadRows() {
 
     if (state.rows.length) {
       const ids = state.rows.map(r => r.id);
-      
-      const { data: items } = await sb.from('inv_count_items')
-        .select('session_id, drug_name, counted_quantity, counted_by_name, created_at')
-        .in('session_id', ids)
-        .order('created_at', { ascending: false });
-
+      const { data: items } = await sb.from('inv_count_items').select('session_id, drug_name, counted_quantity, counted_by_name, created_at').in('session_id', ids).order('created_at', { ascending: false });
       const { data: disc }  = await sb.from('inv_discrepancies').select('session_id').in('session_id', ids);
 
       const itemCount = {}, discCount = {}, lastItems = {};
@@ -154,9 +147,7 @@ async function loadRows() {
       (items || []).forEach(i => {
         itemCount[i.session_id] = (itemCount[i.session_id] || 0) + 1;
         if (!lastItems[i.session_id]) lastItems[i.session_id] = [];
-        if (lastItems[i.session_id].length < 3) {
-          lastItems[i.session_id].push(i);
-        }
+        if (lastItems[i.session_id].length < 3) lastItems[i.session_id].push(i);
       });
       
       (disc || []).forEach(d => discCount[d.session_id] = (discCount[d.session_id] || 0) + 1);
@@ -203,9 +194,7 @@ function renderRows() {
     const lastEditTime = r.updated_at || r.created_at;
     const timeStr = lastEditTime ? new Date(lastEditTime).toLocaleString('fa-IR') : 'نامشخص';
     
-    // ⬅️ استفاده از نام (اگر نبود از ایمیل استفاده می‌کند)
     const editorName = r.updated_by_name || r.created_by_name || r.updated_by_email || r.created_by_email || 'نامشخص';
-    
     const createDateStr = r.created_at ? gregorianToJalali(r.created_at.slice(0, 10)) : 'نامشخص';
 
     const itemsSummary = r._lastItems.length > 0 
@@ -217,7 +206,6 @@ function renderRows() {
         `).join('')
       : '<div class="small text-muted">قلمی ثبت نشده</div>';
 
-    // ⬅️ دکمه حذف
     const deleteBtn = canDelete() ? `
       <button class="btn btn-sm btn-outline-danger mt-2 w-100" data-delete="${r.id}" onclick="event.stopPropagation();">
         <i class="bi bi-trash"></i> حذف این سند
@@ -225,9 +213,7 @@ function renderRows() {
     ` : '';
 
     return `
-      <div class="list-row ${isClosed ? 'opacity-75' : ''}" 
-           style="${isClosed ? 'cursor: default;' : 'cursor: pointer;'}"
-           data-id="${r.id}" data-closed="${isClosed}">
+      <div class="list-row" style="cursor: pointer;" data-id="${r.id}">
         <div class="list-row-head">
           <span class="fw-bold text-primary">${escapeHtml(r.code || '-')}</span>
           <span class="badge ${st.cls}">${st.label}</span>
@@ -260,46 +246,138 @@ function renderRows() {
       </div>`;
   }).join('');
 
-  // ⬅️ رویداد کلیک برای باز کردن سند
+  // ⬅️ باز کردن مدال جزئیات با کلیک روی ردیف
   body.querySelectorAll('.list-row').forEach(el => {
     el.onclick = () => {
-      const isClosed = el.dataset.closed === 'true';
       const sessionId = el.dataset.id;
-      if (isClosed) {
-        toast('این سند بسته شده و قابل تغییر نیست.', 'warning');
-        return;
-      }
-      localStorage.setItem('inv_session_id', sessionId);
-      document.getElementById('invListWrap').classList.remove('active');
-      document.body.style.overflow = '';
-      import('./inventory.js').then(m => m.openInventory());
+      const row = state.rows.find(x => String(x.id) === sessionId);
+      if (row) openDetailModal(row);
     };
   });
 
-  // ⬅️ رویداد کلیک برای دکمه حذف
   body.querySelectorAll('[data-delete]').forEach(btn => {
     btn.onclick = async (e) => {
       e.stopPropagation();
       const id = btn.dataset.delete;
       if (!confirm('آیا مطمئنید؟ تمام اقلام و مغایرت‌های این سند نیز حذف خواهند شد.')) return;
-      
       try {
-        // حذف اقلام
         await sb.from('inv_count_items').delete().eq('session_id', id);
-        // حذف مغایرت‌ها
         await sb.from('inv_discrepancies').delete().eq('session_id', id);
-        // حذف خود جلسه
         await sb.from('inv_sessions').delete().eq('id', id);
-        
         toast('سند با موفقیت حذف شد', 'success');
-        loadRows(); // رفرش لیست
-      } catch (err) {
-        toast('خطا در حذف: ' + err.message, 'danger');
-      }
+        loadRows();
+      } catch (err) { toast('خطا در حذف: ' + err.message, 'danger'); }
     };
   });
 
   updatePager();
+}
+
+// ⬅️ تابع جدید برای نمایش جزئیات و چاپ
+async function openDetailModal(row) {
+  const modalId = 'invDetailModal';
+  document.getElementById(modalId)?.remove();
+
+  const isClosed = ['completed', 'applied'].includes(row.status);
+
+  const html = `
+    <div class="modal fade" id="${modalId}" tabindex="-1" data-bs-backdrop="static">
+      <div class="modal-dialog modal-dialog-scrollable modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-list-ul"></i> جزئیات سند ${row.code}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body" id="invDetailBody">
+            <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+          </div>
+          <div class="modal-footer d-flex justify-content-between">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">بستن</button>
+            <div>
+              <button class="btn btn-success" id="btnPrintDetail"><i class="bi bi-printer"></i> چاپ این سند</button>
+              ${!isClosed ? `<button class="btn btn-warning ms-2" id="btnContinueDetail"><i class="bi bi-pencil"></i> ادامه شمارش</button>` : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', html);
+  const modalEl = document.getElementById(modalId);
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+
+  const body = modalEl.querySelector('#invDetailBody');
+  
+  try {
+    const { data: items } = await sb.from('inv_count_items').select('*').eq('session_id', row.id).order('created_at', { ascending: true });
+    
+    if (!items || !items.length) {
+      body.innerHTML = '<div class="alert alert-info text-center">هیچ دارویی در این جلسه شمارش نشده است.</div>';
+    } else {
+      body.innerHTML = `
+        <table class="table table-sm table-bordered align-middle text-center">
+          <thead class="table-light">
+            <tr>
+              <th>#</th>
+              <th>نام دارو</th>
+              <th>بچ</th>
+              <th>انقضا</th>
+              <th>تعداد</th>
+              <th>شمارش‌کننده</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map((it, idx) => `
+              <tr>
+                <td>${faNum(idx + 1)}</td>
+                <td class="text-end">${escapeHtml(it.drug_name)}</td>
+                <td><code dir="ltr">${escapeHtml(it.batch_number || '-')}</code></td>
+                <td>${escapeHtml(gregorianToJalali(it.expiry_date))}</td>
+                <td class="fw-bold text-primary">${faNum(it.counted_quantity)}</td>
+                <td><span class="badge bg-secondary">${escapeHtml(it.counted_by_name || 'نامشخص')}</span></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    // دکمه چاپ
+    modalEl.querySelector('#btnPrintDetail').onclick = () => {
+      printA4({
+        title: `سند انبارگردانی ${row.code}`,
+        subtitle: row.title,
+        primaryColor: '#0d6efd',
+        headerMeta: { date: gregorianToJalali(new Date().toISOString().slice(0, 10)), status: row.status },
+        columns: [
+          { label: '#', formatter: (r, i) => faNum(i + 1) },
+          { label: 'نام دارو', key: 'drug_name', align: 'right' },
+          { label: 'بچ', key: 'batch_number' },
+          { label: 'انقضا', formatter: r => gregorianToJalali(r.expiry_date) },
+          { label: 'تعداد', formatter: r => faNum(r.counted_quantity) },
+          { label: 'شمارش‌کننده', formatter: r => r.counted_by_name || 'نامشخص' }
+        ],
+        rows: items || [],
+        signatures: ['شمارش‌کننده', 'مدیر انبار']
+      });
+    };
+
+    // دکمه ادامه
+    if (!isClosed) {
+      modalEl.querySelector('#btnContinueDetail').onclick = () => {
+        modal.hide();
+        setTimeout(() => modalEl.remove(), 300);
+        document.getElementById('invListWrap').classList.remove('active');
+        document.body.style.overflow = '';
+        import('./inventory.js').then(m => m.openInventory(row.id));
+      };
+    }
+
+  } catch (err) {
+    body.innerHTML = `<div class="alert alert-danger">خطا در دریافت اطلاعات: ${escapeHtml(err.message)}</div>`;
+  }
 }
 
 function updatePager() {
