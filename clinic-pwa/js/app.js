@@ -14,30 +14,101 @@ import { openOccupational } from './modules/occupational.js';
 import { openVisits } from './modules/visit/index.js';
 import { openForms } from './forms/engine.js';
 import { openGuide } from './process/guide.js';
-import { initFCM } from './fcm.js';
-
-// ماژول‌هایی که در کد اصلی شما بودند و باید برگردند:
 import { openFormsMenu } from './modules/forms-menu.js';
 import { openFormsArchive } from './modules/forms-archive.js';
 import { openVisitReports } from './modules/visit-reports.js';
 import { openFineReward } from './modules/fine-reward.js';
+import { initFCM } from './fcm.js';
 
-initQtyModal();
-initSearchModal();
-initScannerButtons();
+console.log('[APP] module loaded');
 
-// لاگین
-$('btnLogin').onclick = doLogin;
-$('loginPass').addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    doLogin();
+// ═══════════════════════════════════════════════════════
+// انیمیشن نوار پیشرفت صفحه‌ی لودینگ
+// ═══════════════════════════════════════════════════════
+function startLoadingProgress() {
+  const bar = document.getElementById('loadingProgressBar');
+  const percent = document.getElementById('loadingPercent');
+  if (!bar || !percent) return;
+
+  bar.style.width = '0%';
+  percent.textContent = '0%';
+
+  if (window.__loadingInterval) {
+    clearInterval(window.__loadingInterval);
+    window.__loadingInterval = null;
   }
-});
 
-// هدر
-$('btnBack').onclick = () => showScreen('Home');
-$('btnLogout').onclick = doLogout;
+  let value = 0;
+  window.__loadingInterval = setInterval(() => {
+    value += Math.random() * 12 + 4;
+    if (value >= 95) {
+      value = 95;
+      clearInterval(window.__loadingInterval);
+      window.__loadingInterval = null;
+    }
+    bar.style.width = value + '%';
+    percent.textContent = Math.floor(value) + '%';
+  }, 280);
+}
+
+function finishLoadingProgress() {
+  const bar = document.getElementById('loadingProgressBar');
+  const percent = document.getElementById('loadingPercent');
+  if (window.__loadingInterval) {
+    clearInterval(window.__loadingInterval);
+    window.__loadingInterval = null;
+  }
+  if (bar && percent) {
+    bar.style.width = '100%';
+    percent.textContent = '100%';
+    setTimeout(() => {
+      // بستن صفحه لودینگ بعد از رسیدن به ۱۰۰
+      document.getElementById('screenLoading')?.classList.remove('active');
+      document.getElementById('appHeader')?.classList.remove('hidden');
+      document.getElementById('bottomNav')?.classList.remove('hidden');
+    }, 400);
+  }
+}
+
+// ⭐ در دسترس قرار دادن برای استفاده در auth.js
+window.startLoadingProgress = startLoadingProgress;
+window.finishLoadingProgress = finishLoadingProgress;
+
+// اجرای اولیه در بارگذاری صفحه (بدون نیاز به active بودن)
+try {
+  startLoadingProgress();
+} catch (e) {
+  console.error('[APP] loading progress:', e);
+}
+
+// ═══════════════════════════════════════════════════════
+// راه‌اندازی ماژول‌ها
+// ═══════════════════════════════════════════════════════
+try { initQtyModal(); }        catch (e) { console.error('[APP] initQtyModal:', e); }
+try { initSearchModal(); }     catch (e) { console.error('[APP] initSearchModal:', e); }
+try { initScannerButtons(); }  catch (e) { console.error('[APP] initScannerButtons:', e); }
+
+// ═══════════════════════════════════════════════════════
+// لاگین و هدر
+// ═══════════════════════════════════════════════════════
+const btnLogin = $('btnLogin');
+if (btnLogin) btnLogin.onclick = doLogin;
+
+const loginPass = $('loginPass');
+if (loginPass) {
+  loginPass.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      doLogin();
+    }
+  });
+}
+
+const btnBack = $('btnBack');
+if (btnBack) btnBack.onclick = () => showScreen('Home');
+
+const btnLogout = $('btnLogout');
+if (btnLogout) btnLogout.onclick = doLogout;
 
 const btnProfile = $('btnProfile');
 if (btnProfile) btnProfile.onclick = () => openProfile();
@@ -49,7 +120,7 @@ if (userEmailEl) {
 }
 
 // ═══════════════════════════════════════════════════════
-// ناوبری (برگردانده شد به حالت اصلی + تغییر انبارگردانی)
+// ناوبری
 // ═══════════════════════════════════════════════════════
 document.querySelectorAll('[data-nav]').forEach(el => {
   el.addEventListener('click', e => {
@@ -59,7 +130,7 @@ document.querySelectorAll('[data-nav]').forEach(el => {
       if (n === 'home') showScreen('Home');
       else if (n === 'pharmacy') showScreen('Pharmacy');
       else if (n === 'visits') openVisits();
-      else if (n === 'inventory') openInventoryList(); // ⬅️ تغییر اصلی: رفتن به لیست
+      else if (n === 'inventory') openInventoryList(); // ⬅️ رفتن به لیست
       else if (n === 'receive') openReceive();
       else if (n === 'disposal') openDisposal();
       else if (n === 'report') openReport();
@@ -84,7 +155,9 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
 // نصب PWA
+// ═══════════════════════════════════════════════════════
 let deferredInstallPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
@@ -96,11 +169,11 @@ window.addEventListener('appinstalled', () => {
   deferredInstallPrompt = null;
   const btn = document.getElementById('btnInstallPWA');
   if (btn) btn.style.display = 'none';
-  alert('✅ اپ با موفقیت نصب شد!');
+  alert('اپ با موفقیت نصب شد!');
 });
 window._triggerInstall = async () => {
   if (!deferredInstallPrompt) {
-    alert('مرورگر شما از نصب خودکار پشتیبانی نمی‌کند.\n\nلطفاً از منوی مرورگر:\n• Android Chrome: منو ⋮ → Install app\n• iOS Safari: Share → Add to Home Screen');
+    alert('مرورگر شما از نصب خودکار پشتیبانی نمی‌کند. لطفا از منوی مرورگر اقدام کنید.');
     return;
   }
   deferredInstallPrompt.prompt();
@@ -108,12 +181,25 @@ window._triggerInstall = async () => {
   deferredInstallPrompt = null;
 };
 
-// راه‌اندازی اولیه
+// ═══════════════════════════════════════════════════════
+// راه‌اندازی اولیه (Auth + FCM) و اتمام لودینگ
+// ═══════════════════════════════════════════════════════
 (async () => {
-  await checkAuth();
-  await initFCM();
+  try {
+    await checkAuth();
+  } catch (e) {
+    console.error('[APP] checkAuth:', e);
+  } finally {
+    // ⬅️ بعد از اینکه وضعیت لاگین مشخص شد، لودینگ را می‌بندیم
+    finishLoadingProgress();
+  }
+  
+  try { await initFCM(); } catch (e) { console.error('[APP] initFCM:', e); }
 })();
 
+// ═══════════════════════════════════════════════════════
+// Service Worker
+// ═══════════════════════════════════════════════════════
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./service-worker.js', { scope: './' }).catch(console.error);
 }
