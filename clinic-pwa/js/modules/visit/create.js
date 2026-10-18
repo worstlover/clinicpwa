@@ -1,6 +1,6 @@
 // js/modules/visit/create.js
 import { sb } from '../../sb.js';
-import { $, faNum, faToEn, escapeHtml, jalaliToGregorian, todayJalali, toast, beep } from '../../utils.js';
+import { $, faNum, faToEn, escapeHtml, jalaliToGregorian, gregorianToJalali, todayJalali, toast, beep } from '../../utils.js';
 import { state, saveFormState, resetFormData, loadRefs, calcGCS, calcBMI, INJURY_MAP } from './state.js';
 import { getMyDjangoId, getIncLabel } from './helpers.js';
 import { renderBodyMap } from './bodymap.js';
@@ -11,12 +11,20 @@ import { saveVisitExtra, loadPatientExtra, savePatientExtra, timeToIso } from '.
 import { mountProcessBanner } from '../../process/banner.js';
 
 // ═══════════════════════════════════════════════════════
-// تشخیص دارو از لوازم مصرفی (form === 'other')
+// توابع کمکی (روز هفته و تشخیص دارو)
 // ═══════════════════════════════════════════════════════
 const isConsumableDrug = (drug) => {
   const f = (drug?.form || '').toString().toLowerCase();
   return f === 'other' || f.includes('سایر');
 };
+
+function getDayOfWeek(gregorianDate) {
+  if (!gregorianDate) return '';
+  const d = new Date(gregorianDate);
+  if (isNaN(d)) return '';
+  const days = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'];
+  return days[d.getDay()];
+}
 
 // ═══════════════════════════════════════════════════════
 // بارگذاری سوابق بیمار
@@ -36,11 +44,21 @@ async function loadPatientHistory(patientId) {
 
     const visitCount = visits?.length || 0;
     const lastReason = visits && visits.length > 0 ? (visits[0].reason?.name || 'نامشخص') : 'ندارد';
+    
+    // ۳. محاسبه تاریخ آخرین مراجعه با روز هفته
+    let lastVisitStr = 'ندارد';
+    if (visits && visits.length > 0) {
+      const lastDate = visits[0].visit_date;
+      const jDate = gregorianToJalali(lastDate);
+      const dayName = getDayOfWeek(lastDate);
+      lastVisitStr = `${dayName} ${jDate}`;
+    }
 
-    // ۳. وضعیت طب کار (فرض بر وجود جدول occupational_exams)
+    // ۴. وضعیت طب کار (فعلاً با یک جدول فرضی چک می‌شود)
     let occStatus = 'ثبت نشده';
     try {
-      const { data: occ } = await sb.from('occupational_exams')
+      // ⚠️ این نام جدول باید با دیتابیس شما تطبیق داده شود
+      const { data: occ } = await sb.from('visits_occupationalexam')
         .select('result, created_at')
         .eq('patient_id', patientId)
         .order('created_at', { ascending: false })
@@ -50,7 +68,8 @@ async function loadPatientHistory(patientId) {
         occStatus = occ[0].result || 'تایید شده';
       }
     } catch(e) {
-      // اگر جدول طب کار وجود نداشت، خطا را نادیده می‌گیریم
+      // اگر جدول وجود نداشت، خطا را نادیده می‌گیریم
+      console.log('جدول طب کار یافت نشد یا ساختار آن متفاوت است.');
     }
 
     state.patientHistory = {
@@ -58,6 +77,7 @@ async function loadPatientHistory(patientId) {
       medicalHistory: pInfo?.medical_history || '',
       visitCount,
       lastReason,
+      lastVisitStr, // ⬅️ اضافه شد
       occStatus
     };
 
@@ -71,7 +91,7 @@ export async function openCreate() {
   state.view = 'create';
   state.step = 1; state.maxStep = 1;
   state.patientId = null; state.patientName = '';
-  state.patientHistory = null; // ⬅️ ریست کردن سوابق
+  state.patientHistory = null;
   state.isIncident = false; state.incidentType = 'none';
   state.selectedInjuries = []; state.items = [];
   state.alertBroadcasted = false;
@@ -102,7 +122,7 @@ function renderWizard() {
     { n: 7, label: 'تشخیص' }
   ];
 
-  // ساخت بنر سوابق بیمار
+  // ساخت بنر سوابق بیمار با تاریخ و روز هفته
   let historyBanner = '';
   if (state.patientId && state.patientHistory) {
     const h = state.patientHistory;
@@ -116,8 +136,8 @@ function renderWizard() {
           <span class="badge bg-primary">تعداد ویزیت: ${faNum(h.visitCount)}</span>
         </div>
         <div class="small text-dark mb-2">
-          <strong>علت آخرین ویزیت:</strong> ${escapeHtml(h.lastReason)} 
-          <span class="mx-2">|</span> 
+          <strong>علت آخرین ویزیت:</strong> ${escapeHtml(h.lastReason)} <br>
+          <strong>آخرین مراجعه:</strong> ${escapeHtml(h.lastVisitStr)} <br> <!-- ⬅️ اضافه شد -->
           <strong>طب کار:</strong> ${escapeHtml(h.occStatus)}
         </div>
         <div class="d-flex flex-wrap gap-1">
@@ -1000,13 +1020,13 @@ function openQuickPatientModal() {
       const payload = {
         first_name: firstName,
         last_name: lastName,
-        gender: selectedGender === 'male' ? 'm' : 'f', // ⬅️ رفع مشکل varchar(1)
+        gender: selectedGender === 'male' ? 'm' : 'f', 
         is_foreign_national: !!passportNo && !nationalCode,
         national_code: nationalCode || null,
         personnel_number: personnelNo || null,
         company_id: companyId,
         
-        // ⬅️ رفع مشکل NOT NULL
+        // رفع مشکل NOT NULL
         registered_at: new Date().toISOString(),
         allergies: '',
         medical_history: '',
@@ -1043,7 +1063,7 @@ function openQuickPatientModal() {
       state.patientId = newPatient.id;
       state.patientName = fullName;
       
-      // ⬅️ دریافت سوابق بیمار جدید (احتمالاً خالی است)
+      // دریافت سوابق بیمار جدید (احتمالاً خالی است)
       await loadPatientHistory(newPatient.id);
       
       state.step = 2;
@@ -1139,7 +1159,6 @@ function openNationalCodeFixModal(patient) {
       state.patientId = patient.id;
       state.patientName = `${patient.first_name || ''} ${patient.last_name || ''}`.trim();
       
-      // ⬅️ دریافت سوابق پس از تکمیل
       await loadPatientHistory(patient.id);
       
       state.step = 2;
@@ -1229,7 +1248,7 @@ async function pickPatient(id, name, nationalCode, passportNumber) {
   state.patientId = id;
   state.patientName = name;
   
-  // ⬅️ دریافت سوابق بیمار
+  // دریافت سوابق بیمار
   await loadPatientHistory(id);
   
   state.step = 2;
