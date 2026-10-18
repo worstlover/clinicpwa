@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
-   styles/theme-v2.css — تم جدید «کلینیک گندله»
+   styles/theme.css — تم جدید «کلینیک گندله»
    روشن/تاریک • موبایل (نوار پایین شناور) • دسکتاپ (سایدبار راست)
-   ترتیب لینک در index.html:  bootstrap → main.css (اگر هست) → theme-v2.css (آخر)
+   ترتیب لینک در index.html:  bootstrap → main.css (اگر هست) → theme.css (آخر)
    ═══════════════════════════════════════════════════════════════ */
 
 /* ───────────── ۱) توکن‌ها ───────────── */
@@ -76,7 +76,8 @@ body.dark-mode {
 /* ───────────── ۲) پایه ───────────── */
 html { -webkit-text-size-adjust: 100%; }
 body {
-  font-family: 'Vazirmatn', Tahoma, sans-serif;
+  /* ⬅️ فونت استعداد جایگزین شد */
+  font-family: 'Estedad', 'Vazirmatn', Tahoma, sans-serif;
   background: var(--bg);
   color: var(--text);
   font-size: 15px; line-height: 1.65;
@@ -369,7 +370,7 @@ body.dark-mode .btn-close { filter: invert(1) grayscale(1); }
 .archive-sheet, .list-sheet { background: var(--card); color: var(--text); border-radius: 26px 26px 0 0; }
 body.dark-mode .archive-sheet, body.dark-mode .list-sheet { background: linear-gradient(180deg, #14202b, #0c141b); }
 
-/* ابزارهای تاریک برای کلاس‌های بوت‌استرپ که در ماژول‌ها استفاده شده */
+/* ابزارهای تاریک */
 body.dark-mode .bg-white, body.dark-mode .bg-light { background: rgba(255,255,255,.04) !important; color: var(--text) !important; }
 body.dark-mode .text-dark { color: var(--text) !important; }
 body.dark-mode .border, body.dark-mode .border-top, body.dark-mode .border-bottom { border-color: var(--border) !important; }
@@ -377,7 +378,7 @@ body.dark-mode .table { --bs-table-color: var(--text); --bs-table-bg: transparen
 body.dark-mode .alert { border-color: var(--border); }
 body.dark-mode code { color: var(--primary); background: var(--primary-soft); }
 
-/* اجزای صفحه جزئیات (مطابق طراحی‌های مرجع) */
+/* اجزای صفحه جزئیات */
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; font-size: .78rem; font-weight: 800; background: var(--tone-soft, var(--primary-soft)); color: var(--tone, var(--primary)); border: 1px solid color-mix(in srgb, var(--tone, var(--primary)) 22%, transparent); }
 .info-tile { display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: 16px; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--shadow-1); text-align: center; align-items: center; }
 .info-tile .ic { font-size: 1.7rem; color: var(--tone, var(--accent)); }
