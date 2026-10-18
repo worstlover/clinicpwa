@@ -3,7 +3,7 @@ import { sb } from '../sb.js';
 import { $, faNum, escapeHtml, gregorianToJalali, parseGS1, cleanGTIN, toast, beep } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { openScanner } from '../scanner.js';
-import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js'; // ⭐ ایمپورت شد
+import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js';
 import { currentUser } from '../auth.js';
 
 const state = { items: [] };
@@ -73,17 +73,14 @@ function renderList() {
   });
 }
 
-// ═══════════════════════════════════════════════════════════
-// پردازش بارکد — با بررسی چند تاریخ انقضا ⭐
-// ═══════════════════════════════════════════════════════════
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
 
-  // ⭐ اگر بیش از یک تاریخ معتبر وجود دارد، از کاربر بپرس
+  // ⭐ منطق انتخاب تاریخ
   if (parsed.exps && parsed.exps.length > 1) {
     const selectedDate = await promptExpirySelection(parsed.exps);
     if (!selectedDate) {
-      return; // کاربر انصراف داد
+      return; 
     }
     parsed.exp = selectedDate; 
   }
