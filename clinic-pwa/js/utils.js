@@ -53,7 +53,6 @@ export const jalaliToGregorian = (str) => {
 };
 
 export const parseGS1 = (raw) => {
-  // ⭐ اضافه شدن exps (آرایه تاریخ‌ها) به خروجی
   const r = { gtin: null, exp: null, exps: [], batch: null, serial: null };
   if (!raw) return r;
 
@@ -71,8 +70,7 @@ export const parseGS1 = (raw) => {
   if (!m01) m01 = s.match(/01(\d{14})/);
   if (m01) r.gtin = m01[1];
 
-  // ═══ ۲. تاریخ‌های انقضا (پیدا کردن همه 17 ها) ═══
-  // استفاده از matchAll برای پیدا کردن تمام موارد 17 که 6 رقم بعدشان است
+  // ═══ ۲. استخراج تمام تاریخ‌های 17 ═══
   const expMatches = [...s.matchAll(/(?:^|[^0-9])17(\d{6})(?=\D|$)/g)];
   
   const now = new Date();
@@ -88,12 +86,12 @@ export const parseGS1 = (raw) => {
     const dd = parseInt(ds.substring(4, 6), 10);
     const year = yy < 70 ? 2000 + yy : 1900 + yy;
 
-    // ⭐ اعتبارسنجی دقیق
+    // اعتبارسنجی دقیق تاریخ
     if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
       const expDate = new Date(year, mm - 1, dd);
-      // چک کردن اینکه تاریخ در دیتابیس سرریز نشده باشد (مثلا 31 فوریه)
+      // جلوگیری از سرریز تاریخ (مثلا 31 فوریه)
       if (expDate.getMonth() === mm - 1 && expDate.getDate() === dd) {
-        // چک کردن حداکثر ۵ سال آینده
+        // جلوگیری از تاریخ‌های خیلی دور (بیشتر از ۵ سال آینده)
         if (expDate <= maxFuture) {
           const expStr = `${year}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
           if (!validExps.includes(expStr)) {
@@ -105,9 +103,43 @@ export const parseGS1 = (raw) => {
   });
 
   r.exps = validExps;
+  // اگر حداقل یک تاریخ معتبر پیدا شد، اولین تاریخ را به عنوان پیش‌فرض می‌گذاریم
+  // (اگر ۱ تاریخ بود، خودکار انتخاب می‌شود. اگر چند تاریخ بود، در handleBarcode مودال باز می‌شود)
   if (validExps.length > 0) {
-    r.exp = validExps[0]; // پیش‌فرض را اولین تاریخ معتبر قرار می‌دهیم
+    r.exp = validExps[0]; 
   }
+
+  // ═══ ۳. AIهای متغیر (10 = بچ، 21 = سریال) ═══
+  if (s.includes('|')) {
+    const parts = s.split('|');
+    for (let k = 0; k < parts.length; k++) {
+      const p = parts[k];
+      if (/^10/.test(p) && !r.batch) {
+        r.batch = p.slice(2).trim();
+      } else if (/^21/.test(p) && !r.serial) {
+        r.serial = p.slice(2).trim();
+      }
+    }
+    const last = parts[parts.length - 1];
+    if (last && !r.batch) {
+      const bm = last.match(/10([^|]*?)(?:17|21|$)/);
+      if (bm) r.batch = bm[1].trim();
+    }
+  } else {
+    if (!r.batch) {
+      const bm = s.match(/10([^]*?)(?=17\d{6}|21|$)/);
+      if (bm) r.batch = bm[1].replace(/\|/g, '').trim();
+    }
+    if (!r.serial) {
+      const sm = s.match(/21([^]*?)$/);
+      if (sm) r.serial = sm[1].replace(/\|/g, '').trim();
+    }
+  }
+
+  if (!r.gtin) r.gtin = s.replace(/\|/g, '');
+
+  return r;
+};
 
   // ═══ ۳. AIهای متغیر (10 = بچ، 21 = سریال) ═══
   if (s.includes('|')) {
