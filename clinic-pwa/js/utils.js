@@ -223,4 +223,4 @@ export function checkExpiry(greg) {
     if (days <= 180)  return { level: 'warning', days, msg: `🟡 کمتر از ۶ ماه (${days} روز)` };
     return { level: 'ok', days, msg: `✅ ${days} روز تا انقضا` };
   } catch (e) { return null; }
-}
+
