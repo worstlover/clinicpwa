@@ -1,7 +1,7 @@
 // js/app.js
-import { $ } from './utils.js';
+import { $, faNum } from './utils.js';
 import { showScreen } from './ui.js';
-import { doLogin, doLogout, checkAuth } from './auth.js';
+import { doLogin, doLogout, checkAuth, currentUser, isAdmin } from './auth.js';
 import { initScannerButtons, closeScanner } from './scanner.js';
 import { initQtyModal, initSearchModal } from './modals.js';
 import { openInventory } from './modules/inventory.js';
@@ -12,56 +12,42 @@ import { openReport } from './modules/report.js';
 import { openProfile } from './modules/profile.js';
 import { openOccupational } from './modules/occupational.js';
 import { openVisits } from './modules/visit/index.js';
-import { openPatients } from './modules/patients.js'; // ⬅️ اضافه شد
+import { openCreate } from './modules/visit/create.js'; // ⬅️ برای دکمه شناور
+import { openPatients } from './modules/patients.js';
 import { openForms } from './forms/engine.js';
 import { openGuide } from './process/guide.js';
 import { openFormsMenu } from './modules/forms-menu.js';
 import { openFormsArchive } from './modules/forms-archive.js';
 import { openVisitReports } from './modules/visit-reports.js';
-import { openFineReward } from './modules/fine-reward.js';
+import { openFineReward } from './modules/fine-reward.js'; // ⬅️ برای دکمه شناور
 import { initFCM } from './fcm.js';
+import { sb } from './sb.js';
 
 console.log('[APP] module loaded');
 
 // ═══════════════════════════════════════════════════════
-// انیمیشن نوار پیشرفت صفحه‌ی لودینگ
+// انیمیشن نوار پیشرفت
 // ═══════════════════════════════════════════════════════
 function startLoadingProgress() {
   const bar = document.getElementById('loadingProgressBar');
   const percent = document.getElementById('loadingPercent');
   if (!bar || !percent) return;
-
-  bar.style.width = '0%';
-  percent.textContent = '0%';
-
-  if (window.__loadingInterval) {
-    clearInterval(window.__loadingInterval);
-    window.__loadingInterval = null;
-  }
-
+  bar.style.width = '0%'; percent.textContent = '0%';
+  if (window.__loadingInterval) clearInterval(window.__loadingInterval);
   let value = 0;
   window.__loadingInterval = setInterval(() => {
     value += Math.random() * 12 + 4;
-    if (value >= 95) {
-      value = 95;
-      clearInterval(window.__loadingInterval);
-      window.__loadingInterval = null;
-    }
-    bar.style.width = value + '%';
-    percent.textContent = Math.floor(value) + '%';
+    if (value >= 95) { value = 95; clearInterval(window.__loadingInterval); }
+    bar.style.width = value + '%'; percent.textContent = Math.floor(value) + '%';
   }, 280);
 }
 
 function finishLoadingProgress() {
   const bar = document.getElementById('loadingProgressBar');
   const percent = document.getElementById('loadingPercent');
-  if (window.__loadingInterval) {
-    clearInterval(window.__loadingInterval);
-    window.__loadingInterval = null;
-  }
+  if (window.__loadingInterval) clearInterval(window.__loadingInterval);
   if (bar && percent) {
-    bar.style.width = '100%';
-    percent.textContent = '100%';
+    bar.style.width = '100%'; percent.textContent = '100%';
     setTimeout(() => {
       document.getElementById('screenLoading')?.classList.remove('active');
       document.getElementById('appHeader')?.classList.remove('hidden');
@@ -72,50 +58,23 @@ function finishLoadingProgress() {
 
 window.startLoadingProgress = startLoadingProgress;
 window.finishLoadingProgress = finishLoadingProgress;
-
-try {
-  startLoadingProgress();
-} catch (e) {
-  console.error('[APP] loading progress:', e);
-}
+try { startLoadingProgress(); } catch (e) {}
 
 // ═══════════════════════════════════════════════════════
 // راه‌اندازی ماژول‌ها
 // ═══════════════════════════════════════════════════════
-try { initQtyModal(); }        catch (e) { console.error('[APP] initQtyModal:', e); }
-try { initSearchModal(); }     catch (e) { console.error('[APP] initSearchModal:', e); }
-try { initScannerButtons(); }  catch (e) { console.error('[APP] initScannerButtons:', e); }
+try { initQtyModal(); }        catch (e) { console.error(e); }
+try { initSearchModal(); }     catch (e) { console.error(e); }
+try { initScannerButtons(); }  catch (e) { console.error(e); }
 
-// ═══════════════════════════════════════════════════════
 // لاگین و هدر
-// ═══════════════════════════════════════════════════════
-const btnLogin = $('btnLogin');
-if (btnLogin) btnLogin.onclick = doLogin;
-
+const btnLogin = $('btnLogin'); if (btnLogin) btnLogin.onclick = doLogin;
 const loginPass = $('loginPass');
-if (loginPass) {
-  loginPass.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      doLogin();
-    }
-  });
-}
-
-const btnBack = $('btnBack');
-if (btnBack) btnBack.onclick = () => showScreen('Home');
-
-const btnLogout = $('btnLogout');
-if (btnLogout) btnLogout.onclick = doLogout;
-
-const btnProfile = $('btnProfile');
-if (btnProfile) btnProfile.onclick = () => openProfile();
-
-const userEmailEl = $('userEmail');
-if (userEmailEl) {
-  userEmailEl.style.cursor = 'pointer';
-  userEmailEl.onclick = () => openProfile();
-}
+if (loginPass) loginPass.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+const btnBack = $('btnBack'); if (btnBack) btnBack.onclick = () => showScreen('Home');
+const btnLogout = $('btnLogout'); if (btnLogout) btnLogout.onclick = doLogout;
+const btnProfile = $('btnProfile'); if (btnProfile) btnProfile.onclick = () => openProfile();
+const userEmailEl = $('userEmail'); if (userEmailEl) userEmailEl.onclick = () => openProfile();
 
 // ═══════════════════════════════════════════════════════
 // ناوبری
@@ -128,7 +87,7 @@ document.querySelectorAll('[data-nav]').forEach(el => {
       if (n === 'home') showScreen('Home');
       else if (n === 'pharmacy') showScreen('Pharmacy');
       else if (n === 'visits') openVisits();
-      else if (n === 'patients') openPatients(); // ⬅️ مسیر جدید
+      else if (n === 'patients') openPatients();
       else if (n === 'inventory') openInventoryList();
       else if (n === 'receive') openReceive();
       else if (n === 'disposal') openDisposal();
@@ -141,63 +100,124 @@ document.querySelectorAll('[data-nav]').forEach(el => {
       else if (n === 'guide') openGuide();
       else if (n === 'visitReports') openVisitReports();
       else if (n === 'fineReward') openFineReward();
-      else console.warn('[NAV] unknown target:', n);
-    } catch (err) {
-      console.error('[NAV] error for', n, ':', err);
-    }
+    } catch (err) { console.error('[NAV] error:', n, err); }
   });
 });
 
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && $('scannerWrap')?.classList.contains('active')) {
-    closeScanner();
+// ═══════════════════════════════════════════════════════
+// 📊 بارگذاری آمار داشبورد (حل مشکل خط تیره‌ها)
+// ═══════════════════════════════════════════════════════
+async function loadDashboardStats() {
+  try {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const monthStart = todayStr.slice(0, 8) + '01';
+    const threeMonthsLater = new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+
+    // ۱. بیماران
+    const { count: patCount } = await sb.from('core_patient').select('*', { count: 'exact', head: true });
+    document.querySelector('[data-stat="patientsTotal"]').textContent = faNum(patCount || 0);
+
+    // ۲. ویزیت امروز
+    const { count: visToday } = await sb.from('visits_visit').select('*', { count: 'exact', head: true }).gte('visit_date', todayStr);
+    document.querySelector('[data-stat="visitsToday"]').textContent = faNum(visToday || 0);
+
+    // ۳. طب کار این ماه
+    const { count: occCount } = await sb.from('lab_results_periodicexamination').select('*', { count: 'exact', head: true }).gte('exam_date', monthStart);
+    document.querySelector('[data-stat="examsMonth"]').textContent = faNum(occCount || 0);
+
+    // ۴. جریمه و تشویقی (اگر جدولش وجود داشت)
+    try {
+      const { count: fineCount } = await sb.from('fine_rewards').select('*', { count: 'exact', head: true }).gte('created_at', monthStart);
+      document.querySelector('[data-stat="finesMonth"]').textContent = faNum(fineCount || 0);
+    } catch(e) {}
+
+    // ۵. داروها (موجودی کل، کم، نزدیک انقضا)
+    const { data: stockData } = await sb.from('v_drug_stock').select('total_quantity');
+    if (stockData) {
+      let total = 0, low = 0;
+      stockData.forEach(s => {
+        total += (s.total_quantity || 0);
+        if (s.total_quantity > 0 && s.total_quantity <= 10) low++;
+      });
+      document.querySelector('[data-stat="drugsTotal"]').textContent = faNum(total);
+      document.querySelector('[data-stat="drugsLow"]').textContent = faNum(low);
+    }
+    
+    const { count: expCount } = await sb.from('drugs_drugbatch').select('*', { count: 'exact', head: true }).lt('expiry_date', threeMonthsLater).gt('quantity', 0);
+    document.querySelector('[data-stat="drugsExpiring"]').textContent = faNum(expCount || 0);
+
+    // ۶. تعداد فرم‌ها (در صورت وجود)
+    document.querySelector('[data-stat="formsCount"]').textContent = faNum(150); // عدد ثابت موقت
+
+  } catch (err) {
+    console.error('[Stats] Error loading dashboard stats:', err);
   }
-});
+}
 
 // ═══════════════════════════════════════════════════════
-// نصب PWA
+// ➕ تنظیم هوشمند دکمه شناور وسط (FAB)
 // ═══════════════════════════════════════════════════════
+function initFab() {
+  const fab = document.getElementById('navFab');
+  if (!fab) return;
+
+  // دریافت نقش کاربر از متادیتای Supabase
+  const role = currentUser?.user_metadata?.role || currentUser?.role;
+
+  if (role === 'Nurse' || role === 'doctor') {
+    // اگر پرستار یا دکتر بود -> ثبت ویزیت
+    fab.innerHTML = '<i class="bi bi-plus-lg"></i>';
+    fab.title = 'ثبت ویزیت جدید';
+    fab.onclick = (e) => { e.preventDefault(); openCreate(); };
+  } else if (role === 'safety' || role === 'Supervisor' || isAdmin) {
+    // اگر ایمنی یا سوپروایزر بود -> ثبت جریمه/تشویقی
+    fab.innerHTML = '<i class="bi bi-shield-plus"></i>';
+    fab.title = 'ثبت جریمه / تشویقی';
+    fab.onclick = (e) => { e.preventDefault(); openFineReward(); };
+  } else {
+    // سایر نقش‌ها -> پیش‌فرض ویزیت
+    fab.innerHTML = '<i class="bi bi-plus-lg"></i>';
+    fab.onclick = (e) => { e.preventDefault(); openVisits(); };
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// راه‌اندازی اولیه
+// ═══════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('scannerWrap')?.classList.contains('active')) closeScanner();
+});
+
 let deferredInstallPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredInstallPrompt = e;
-  const btn = document.getElementById('btnInstallPWA');
-  if (btn) btn.style.display = 'flex';
+  e.preventDefault(); deferredInstallPrompt = e;
+  const btn = document.getElementById('btnInstallPWA'); if (btn) btn.style.display = 'flex';
 });
 window.addEventListener('appinstalled', () => {
   deferredInstallPrompt = null;
-  const btn = document.getElementById('btnInstallPWA');
-  if (btn) btn.style.display = 'none';
-  alert('اپ با موفقیت نصب شد!');
+  const btn = document.getElementById('btnInstallPWA'); if (btn) btn.style.display = 'none';
 });
 window._triggerInstall = async () => {
-  if (!deferredInstallPrompt) {
-    alert('مرورگر شما از نصب خودکار پشتیبانی نمی‌کند. لطفا از منوی مرورگر اقدام کنید.');
-    return;
-  }
+  if (!deferredInstallPrompt) return alert('مرورگر شما از نصب خودکار پشتیبانی نمی‌کند.');
   deferredInstallPrompt.prompt();
   await deferredInstallPrompt.userChoice;
   deferredInstallPrompt = null;
 };
 
-// ═══════════════════════════════════════════════════════
-// راه‌اندازی اولیه (Auth + FCM) و اتمام لودینگ
-// ═══════════════════════════════════════════════════════
 (async () => {
   try {
     await checkAuth();
+    // بعد از اینکه احراز هویت انجام شد، آمار و دکمه شناور را تنظیم می‌کنیم
+    await loadDashboardStats();
+    initFab();
   } catch (e) {
-    console.error('[APP] checkAuth:', e);
+    console.error('[APP] Init error:', e);
   } finally {
     finishLoadingProgress();
   }
-  
   try { await initFCM(); } catch (e) { console.error('[APP] initFCM:', e); }
 })();
 
-// ═══════════════════════════════════════════════════════
-// Service Worker
-// ═══════════════════════════════════════════════════════
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./service-worker.js', { scope: './' }).catch(console.error);
 }
