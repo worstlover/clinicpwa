@@ -6,7 +6,7 @@ import {
 } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { openScanner } from '../scanner.js';
-import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js'; // ⭐ ایمپورت شد
+import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js';
 import { isAdmin } from '../auth.js';
 
 const state = { session: null, items: [] };
@@ -188,12 +188,11 @@ async function cancelSession() {
   localStorage.removeItem('inv_session_id');
   state.session = null;
   state.items = [];
-  openInventory();
+  
+  document.getElementById('invContent').innerHTML = '';
+  import('./inventory-list.js').then(m => m.openInventoryList());
 }
 
-// ═══════════════════════════════════════════════════════════
-// ساخت بچ + بررسی هشدار
-// ═══════════════════════════════════════════════════════════
 async function buildBatchAndWarnings(drug, expiryGreg) {
   if (!expiryGreg) return '';
 
@@ -259,17 +258,14 @@ async function buildBatchAndWarnings(drug, expiryGreg) {
   return html;
 }
 
-// ═══════════════════════════════════════════════════════════
-// پردازش بارکد — با بررسی چند تاریخ انقضا ⭐
-// ═══════════════════════════════════════════════════════════
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
 
-  // ⭐ اگر بیش از یک تاریخ معتبر وجود دارد، از کاربر بپرس
+  // ⭐ منطق انتخاب تاریخ
   if (parsed.exps && parsed.exps.length > 1) {
     const selectedDate = await promptExpirySelection(parsed.exps);
     if (!selectedDate) {
-      return; // کاربر انصراف داد
+      return; 
     }
     parsed.exp = selectedDate; 
   }
@@ -297,9 +293,6 @@ function reopenScannerAuto() {
   }, 350);
 }
 
-// ═══════════════════════════════════════════════════════════
-// افزودن دارو — بچ خودکار + تاریخ انقضا اجباری
-// ═══════════════════════════════════════════════════════════
 async function addDrug(drug, barcode = '', parsed = {}) {
   if (barcode) {
     try {
@@ -307,7 +300,7 @@ async function addDrug(drug, barcode = '', parsed = {}) {
         drug_id: drug.id,
         gtin: barcode
       }, { onConflict: 'gtin' });
-    } catch (e) { /* احتمالاً قبلاً ثبت شده */ }
+    } catch (e) { }
   }
 
   const res = await askQty({
@@ -317,20 +310,18 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     defaultQty: 1,
     defaultExpiry: parsed?.exp || '',
     showExtras: true,
-    hideBatchInput: true,     // ← پرچم جدید برای modals.js
-    requireExpiry: true,      // ← پرچم جدید برای modals.js
+    hideBatchInput: true,     
+    requireExpiry: true,      
     batchCheckFn: (expiryGreg) => buildBatchAndWarnings(drug, expiryGreg)
   });
   if (res.qty < 0) return false;
 
-  // ═══ چک اجباری تاریخ انقضا ═══
   if (!res.expiry_gregorian) {
     toast('تاریخ انقضا الزامی است — قلم ذخیره نشد', 'danger');
     beep(300);
     return false;
   }
 
-  // ═══ بچ همیشه خودکار ═══
   const computedBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian);
   if (!computedBatch) {
     toast('ساخت بچ ناموفق — دوباره تلاش کنید', 'danger');
@@ -377,9 +368,6 @@ async function addDrug(drug, barcode = '', parsed = {}) {
   return true;
 }
 
-// ═══════════════════════════════════════════════════════════
-// پایان و بررسی مغایرت
-// ═══════════════════════════════════════════════════════════
 async function finish() {
   if (!state.items.length) { toast('هنوز قلمی ثبت نشده', 'warning'); return; }
   if (!confirm('پایان شمارش و بررسی مغایرت؟')) return;
@@ -430,11 +418,12 @@ function renderReport(discrepancies) {
         <h5 class="mt-3">بدون مغایرت!</h5>
         <p class="muted">موجودی سیستم با شمارش مطابقت دارد.</p>
       </div>
-      <button class="btn btn-primary w-100 btn-lg" id="btnNewSession">جلسه جدید</button>`;
+      <button class="btn btn-primary w-100 btn-lg" id="btnNewSession">بازگشت به لیست</button>`;
     $('btnNewSession').onclick = () => {
       state.session = null; state.items = [];
       localStorage.removeItem('inv_session_id');
-      openInventory();
+      document.getElementById('invContent').innerHTML = '';
+      import('./inventory-list.js').then(m => m.openInventoryList());
     };
     return;
   }
@@ -539,7 +528,8 @@ function renderApplyScreen(discrepancies) {
       setTimeout(() => {
         state.session = null; state.items = [];
         localStorage.removeItem('inv_session_id');
-        openInventory();
+        document.getElementById('invContent').innerHTML = '';
+        import('./inventory-list.js').then(m => m.openInventoryList());
       }, 1200);
     };
   } else {
@@ -548,7 +538,8 @@ function renderApplyScreen(discrepancies) {
       state.session = null; state.items = [];
       localStorage.removeItem('inv_session_id');
       toast('گزارش ثبت شد', 'success');
-      openInventory();
+      document.getElementById('invContent').innerHTML = '';
+      import('./inventory-list.js').then(m => m.openInventoryList());
     };
   }
 }
