@@ -1,10 +1,9 @@
 // js/app.js
-import { $, faNum } from './utils.js';
+import { $, faNum, toast } from './utils.js';
 import { showScreen } from './ui.js';
 import { doLogin, doLogout, checkAuth, currentUser, isAdmin } from './auth.js';
 import { initScannerButtons, closeScanner } from './scanner.js';
 import { initQtyModal, initSearchModal } from './modals.js';
-import { openInventory } from './modules/inventory.js';
 import { openInventoryList } from './modules/inventory-list.js';
 import { openReceive } from './modules/receive.js';
 import { openDisposal } from './modules/disposal.js';
@@ -26,27 +25,19 @@ import { sb } from './sb.js';
 console.log('[APP] module loaded');
 
 // ═══════════════════════════════════════════════════════
-// انیمیشن نوار پیشرفت (Progress Bar)
+// انیمیشن نوار پیشرفت
 // ═══════════════════════════════════════════════════════
 function startLoadingProgress() {
   const bar = document.getElementById('loadingProgressBar');
   const percent = document.getElementById('loadingPercent');
   if (!bar || !percent) return;
-  
-  bar.style.width = '0%'; 
-  percent.textContent = '0%';
-  
+  bar.style.width = '0%'; percent.textContent = '0%';
   if (window.__loadingInterval) clearInterval(window.__loadingInterval);
-  
   let value = 0;
   window.__loadingInterval = setInterval(() => {
     value += Math.random() * 12 + 4;
-    if (value >= 95) { 
-      value = 95; 
-      clearInterval(window.__loadingInterval); 
-    }
-    bar.style.width = value + '%'; 
-    percent.textContent = Math.floor(value) + '%';
+    if (value >= 95) { value = 95; clearInterval(window.__loadingInterval); }
+    bar.style.width = value + '%'; percent.textContent = Math.floor(value) + '%';
   }, 280);
 }
 
@@ -54,13 +45,10 @@ function finishLoadingProgress() {
   const bar = document.getElementById('loadingProgressBar');
   const percent = document.getElementById('loadingPercent');
   if (window.__loadingInterval) clearInterval(window.__loadingInterval);
-  
   if (bar && percent) {
-    bar.style.width = '100%'; 
-    percent.textContent = '100%';
+    bar.style.width = '100%'; percent.textContent = '100%';
     setTimeout(() => {
       document.getElementById('screenLoading')?.classList.remove('active');
-      // ⬅️ هدر و منوها توسط ui.js مدیریت می‌شوند
     }, 400);
   }
 }
@@ -84,6 +72,31 @@ const btnBack = $('btnBack'); if (btnBack) btnBack.onclick = () => showScreen('H
 const btnLogout = $('btnLogout'); if (btnLogout) btnLogout.onclick = doLogout;
 const btnProfile = $('btnProfile'); if (btnProfile) btnProfile.onclick = () => openProfile();
 const userEmailEl = $('userEmail'); if (userEmailEl) userEmailEl.onclick = () => openProfile();
+
+// ═══════════════════════════════════════════════════════
+// ➕ اتصال دکمه‌های هدر (حادثه و اعلان‌ها)
+// ═══════════════════════════════════════════════════════
+const btnQuickIncident = $('btnQuickIncident');
+if (btnQuickIncident) {
+  btnQuickIncident.onclick = () => {
+    // اگر تابع خاصی برای حادثه دارید، اینجا صدا بزنید. فعلاً به فرم ویزیت می‌رود
+    openCreate(); 
+  };
+}
+
+const btnAlertBell = $('btnAlertBell');
+if (btnAlertBell) {
+  btnAlertBell.onclick = async () => {
+    // تلاش برای باز کردن ماژول اعلان‌ها (در صورت وجود)
+    try {
+      const m = await import('./modules/alerts.js');
+      if (m && m.openAlerts) m.openAlerts();
+      else toast('اعلان جدیدی وجود ندارد', 'info');
+    } catch (e) {
+      toast('اعلان جدیدی وجود ندارد', 'info');
+    }
+  };
+}
 
 // ═══════════════════════════════════════════════════════
 // ناوبری
@@ -114,7 +127,7 @@ document.querySelectorAll('[data-nav]').forEach(el => {
 });
 
 // ═══════════════════════════════════════════════════════
-// 📊 بارگذاری آمار داشبورد (اصلاح شده با نام جداول واقعی)
+// 📊 بارگذاری آمار داشبورد
 // ═══════════════════════════════════════════════════════
 async function loadDashboardStats() {
   try {
@@ -127,39 +140,31 @@ async function loadDashboardStats() {
     const monthStart = todayStr.slice(0, 8) + '01';
     const threeMonthsLater = new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString().slice(0, 10);
 
-    // ۱. بیماران
     const { count: patCount, error: patErr } = await sb.from('core_patient').select('*', { count: 'exact', head: true });
     setStat('patientsTotal', patErr ? 0 : patCount);
 
-    // ۲. ویزیت امروز
     const { count: visToday, error: visErr } = await sb.from('visits_visit').select('*', { count: 'exact', head: true }).gte('visit_date', todayStr);
     setStat('visitsToday', visErr ? 0 : visToday);
 
-    // ۳. طب کار این ماه
     const { count: occCount, error: occErr } = await sb.from('lab_results_periodicexamination').select('*', { count: 'exact', head: true }).gte('exam_date', monthStart);
     setStat('examsMonth', occErr ? 0 : occCount);
 
-    // ۴. جریمه و تشویقی (جدول: safety_finereward)
     try {
       let fineCount = 0;
       const { count: c1, error: e1 } = await sb.from('safety_finereward').select('*', { count: 'exact', head: true }).gte('created_at', monthStart);
-      if (!e1) {
-        fineCount = c1;
-      } else {
-        // اگر ستون created_at وجود نداشت، کل رکوردها را می‌شماریم
+      if (!e1) fineCount = c1;
+      else {
         const { count: c2 } = await sb.from('safety_finereward').select('*', { count: 'exact', head: true });
         fineCount = c2;
       }
       setStat('finesMonth', fineCount);
     } catch(e) { setStat('finesMonth', 0); }
 
-    // ۵. فرم‌ها (جدول: form_records)
     try {
       const { count: formCount, error: formErr } = await sb.from('form_records').select('*', { count: 'exact', head: true });
       setStat('formsCount', formErr ? 0 : formCount);
     } catch(e) { setStat('formsCount', 0); }
 
-    // ۶. داروها
     const { data: stockData, error: stockErr } = await sb.from('v_drug_stock').select('drug_id, total_quantity');
     if (!stockErr && stockData) {
       const totalDrugTypes = stockData.length; 
