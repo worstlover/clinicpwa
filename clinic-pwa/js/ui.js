@@ -33,15 +33,14 @@ export function showScreen(screenName) {
   const btnBack = document.getElementById('btnBack');
   const headerTitle = document.getElementById('headerTitle');
 
-  // ⬅️ منطق مخفی و نمایش سایدبار
   if (screenName === 'Login') {
     if (appHeader) appHeader.classList.add('hidden');
     if (bottomNav) bottomNav.classList.add('hidden');
-    if (sideNav) sideNav.style.display = 'none'; // ⬅️ مخفی کردن قاطع سایدبار
+    if (sideNav) sideNav.style.display = 'none'; 
   } else {
     if (appHeader) appHeader.classList.remove('hidden');
     if (bottomNav) bottomNav.classList.remove('hidden');
-    if (sideNav) sideNav.style.display = ''; // نمایش مجدد
+    if (sideNav) sideNav.style.display = ''; 
   }
 
   const titles = {
