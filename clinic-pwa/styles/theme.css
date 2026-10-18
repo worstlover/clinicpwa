@@ -417,3 +417,7 @@ body.dark-mode code { color: var(--primary); background: var(--primary-soft); }
   .app-header, .bottom-nav, .side-nav { display: none !important; }
   #appHeader:not(.hidden) ~ .screen { margin-right: 0 !important; }
 }
+/* اطمینان از مخفی شدن سایدبار در صورت عدم لاگین */
+.hidden ~ .side-nav {
+  display: none !important;
+}
