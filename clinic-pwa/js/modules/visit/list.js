@@ -5,7 +5,7 @@ import { state, loadUserMapFromVisits } from './state.js';
 import { getMyDjangoId, isSuperuser, isSafetyOrSupervisor, getUserName, getTimeStr, getIncLabel } from './helpers.js';
 import { openCreate } from './create.js';
 import { openForm } from '../../forms/engine.js';
-import { logChange } from './changelog.js'; // ⭐ برای ثبت لاگ تکمیل گروهی
+import { logChange } from './changelog.js'; // ⭐ برای ثبت لاگ تکمیل
 
 export async function renderList() {
   const c = $('visitContent');
@@ -43,9 +43,102 @@ export async function renderList() {
   $('btnNewVisit').onclick = () => openCreate();
   $('btnBulkComplete').onclick = bulkCompleteVisits;
 
+  // 🌟 توابع سراسری برای دکمه‌های داخل لیست
   window._openForm34 = (visitId, e) => {
     if (e) e.stopPropagation();
     openForm('BR-FR-HS-34-00', { visitId: visitId });
+  };
+
+  // 🌟 تابع تکمیل از داخل لیست (بدون هدایت به صفحه جزئیات)
+  window._completeVisitFromList = async (visitId, btn, e) => {
+    if (e) e.stopPropagation();
+    if (!confirm('ویزیت تکمیل شود؟ موجودی انبار کسر می‌شود.')) return;
+
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> بررسی...';
+
+    try {
+      // ۱. دریافت اقلام ویزیت
+      const { data: items, error: e0 } = await sb.from('visits_visititem')
+        .select('drug_id, quantity, drug:drugs_drug(name)').eq('visit_id', visitId);
+      if (e0) throw e0;
+
+      // اگر دارویی ندارد، فقط تکمیل شود
+      if (!items || items.length === 0) {
+        const myId = getMyDjangoId();
+        const { error: e2 } = await sb.from('visits_visit').update({
+          status: 'completed', completed_at: new Date().toISOString(), completed_by_id: myId
+        }).eq('id', visitId);
+        if (e2) throw e2;
+        await logChange(visitId, 'complete', [], 'تکمیل ویزیت (بدون دارو)');
+        toast('✅ ویزیت تکمیل شد', 'success');
+        beep(); 
+        renderList();
+        return;
+      }
+
+      // ۲. بررسی موجودی
+      const shortages = [];
+      for (const it of items) {
+        const { data: stock } = await sb.from('v_drug_stock')
+          .select('total_quantity').eq('drug_id', it.drug_id).maybeSingle();
+        const available = stock?.total_quantity || 0;
+        if (available < it.quantity) {
+          shortages.push({
+            name: it.drug?.name || `#${it.drug_id}`,
+            required: it.quantity, available, missing: it.quantity - available
+          });
+        }
+      }
+
+      if (shortages.length) {
+        const lines = shortages.map(s =>
+          `• ${s.name}\n  نیاز: ${faNum(s.required)} | موجودی: ${faNum(s.available)} | کمبود: ${faNum(s.missing)}`
+        ).join('\n\n');
+        alert(`⚠️ ویزیت تکمیل نشد\n\nموجودی داروهای زیر کافی نیست:\n\n${lines}`);
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        return;
+      }
+
+      // ۳. کسر موجودی
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> کسر...';
+      const errors = [];
+      for (const it of items) {
+        const { error: e } = await sb.rpc('deduct_stock_fifo', {
+          p_drug_id: it.drug_id, p_quantity: it.quantity
+        });
+        if (e) errors.push(`${it.drug?.name}: ${e.message}`);
+      }
+
+      if (errors.length) {
+        alert(`❌ خطا در کسر موجودی:\n\n${errors.join('\n')}`);
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        return;
+      }
+
+      // ۴. تکمیل ویزیت
+      const myId = getMyDjangoId();
+      const { error: e2 } = await sb.from('visits_visit').update({
+        status: 'completed', completed_at: new Date().toISOString(), completed_by_id: myId
+      }).eq('id', visitId);
+      if (e2) throw e2;
+
+      await logChange(visitId, 'complete', [], `تکمیل ویزیت (${items.length} دارو کسر شد)`);
+      toast('✅ ویزیت تکمیل شد', 'success');
+      beep();
+      
+      // رفرش لیست (تا ویزیت تکمیل شده از لیست در انتظار حذف شود)
+      renderList();
+
+    } catch (err) {
+      console.error(err);
+      alert('❌ ' + err.message);
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
   };
 
   try {
@@ -103,10 +196,14 @@ export async function renderList() {
       const assigneeName = getUserName(v.assigned_to_id);
       const isMine = v.assigned_to_id === getMyDjangoId();
 
-      const form34Btn = v.status !== 'completed' ? `
-        <div class="mt-2">
-          <button class="btn btn-sm btn-outline-danger w-100" onclick="window._openForm34(${v.id}, event)">
-            <i class="bi bi-file-earmark-medical"></i> صدور فرم بستری موقت
+      // 🌟 اضافه شدن دکمه تکمیل در کنار فرم بستری
+      const actionButtons = v.status !== 'completed' ? `
+        <div class="d-flex gap-2 mt-2">
+          <button class="btn btn-sm btn-success flex-grow-1" onclick="window._completeVisitFromList(${v.id}, this, event)">
+            <i class="bi bi-check-circle-fill"></i> تکمیل ویزیت
+          </button>
+          <button class="btn btn-sm btn-outline-danger flex-grow-1" onclick="window._openForm34(${v.id}, event)">
+            <i class="bi bi-file-earmark-medical"></i> فرم بستری
           </button>
         </div>
       ` : '';
@@ -135,7 +232,7 @@ export async function renderList() {
                   ? ` | <i class="bi bi-person-check"></i> مسئول: <strong>${escapeHtml(assigneeName)}</strong>`
                   : ''}
               </div>
-              ${form34Btn}
+              ${actionButtons}
             </div>
             <i class="bi bi-chevron-left" style="font-size:1.5rem;color:#94a3b8;"></i>
           </div>
