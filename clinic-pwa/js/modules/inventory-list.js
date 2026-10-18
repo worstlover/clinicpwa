@@ -2,6 +2,7 @@
 import { sb } from '../sb.js';
 import { faNum, escapeHtml, gregorianToJalali, jalaliToGregorian, toast } from '../utils.js';
 import { printA4 } from './list-print.js';
+import { openInventory } from './inventory.js'; // ⬅️ ایمپورت برای ورود به جلسه
 
 const PAGE_SIZE = 20;
 
@@ -101,9 +102,9 @@ async function loadRows() {
   body.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
   try {
-    // واکشی فیلدهای اضافی برای زمان و کاربر ویرایش‌کننده
+    // استفاده از * برای جلوگیری از خطای عدم وجود ستون در دیتابیس
     let q = sb.from('inv_sessions')
-      .select('id, code, title, status, created_at, finished_at, updated_at, created_by_email, updated_by_email', { count: 'exact' })
+      .select('*', { count: 'exact' })
       .order('created_at', { ascending: false });
 
     if (state.query) {
@@ -129,7 +130,6 @@ async function loadRows() {
     if (state.rows.length) {
       const ids = state.rows.map(r => r.id);
       
-      // دریافت اقلام برای شمارش کل و پیدا کردن ۳ قلم آخر
       const { data: items } = await sb.from('inv_count_items')
         .select('session_id, drug_name, counted_quantity, created_at')
         .in('session_id', ids)
@@ -179,7 +179,6 @@ function renderRows() {
   }
 
   body.innerHTML = state.rows.map(r => {
-    // تشخیص وضعیت باز یا بسته
     const isClosed = ['completed', 'applied'].includes(r.status);
     const st = r.status === 'applied' ? { cls: 'bg-success', label: 'بسته شده (اعمال شده)' }
             : r.status === 'completed' ? { cls: 'bg-info text-white', label: 'بسته شده (ثبت گزارش)' }
@@ -189,20 +188,19 @@ function renderRows() {
       ? `<span class="badge bg-warning text-dark">${faNum(r._disc)} مغایرت</span>`
       : `<span class="badge bg-success">بدون مغایرت</span>`;
 
-    // محاسبه زمان دقیق آخرین ویرایش
+    // اگر ستون‌های دیتابیس وجود نداشته باشند، به تاریخ ساخت برمی‌گردیم
     const lastEditTime = r.updated_at || r.created_at;
-    const timeStr = new Date(lastEditTime).toLocaleString('fa-IR'); 
+    const timeStr = lastEditTime ? new Date(lastEditTime).toLocaleString('fa-IR') : 'نامشخص';
     const editorEmail = r.updated_by_email || r.created_by_email || 'نامشخص';
 
-    // ساخت خلاصه ۳ قلم آخر
     const itemsSummary = r._lastItems.length > 0 
       ? r._lastItems.map(i => `<div class="small text-muted">• ${escapeHtml(i.drug_name)} (${faNum(i.counted_quantity)} عدد)</div>`).join('')
       : '<div class="small text-muted">قلمی ثبت نشده</div>';
 
     return `
       <div class="list-row ${isClosed ? 'opacity-75' : ''}" 
-           style="${isClosed ? 'cursor: default; pointer-events: none;' : 'cursor: pointer;'}"
-           onclick="if(${!isClosed}) window.dispatchEvent(new CustomEvent('openInvSession', {detail: '${r.id}'}))">
+           style="${isClosed ? 'cursor: default;' : 'cursor: pointer;'}"
+           data-id="${r.id}" data-closed="${isClosed}">
         <div class="list-row-head">
           <span class="fw-bold text-primary">${escapeHtml(r.code || '-')}</span>
           <span class="badge ${st.cls}">${st.label}</span>
@@ -232,6 +230,23 @@ function renderRows() {
       </div>`;
   }).join('');
 
+  // ⭐ اضافه کردن رویداد کلیک برای باز کردن جلسه باز
+  body.querySelectorAll('.list-row').forEach(el => {
+    el.onclick = () => {
+      const isClosed = el.dataset.closed === 'true';
+      const sessionId = el.dataset.id;
+      if (isClosed) {
+        toast('این سند بسته شده و قابل ویرایش نیست.', 'warning');
+        return;
+      }
+      // هدایت به صفحه انبارگردانی و بازیابی جلسه
+      localStorage.setItem('inv_session_id', sessionId);
+      document.getElementById('invListWrap').classList.remove('active');
+      document.body.style.overflow = '';
+      openInventory();
+    };
+  });
+
   updatePager();
 }
 
@@ -254,20 +269,6 @@ async function printList() {
       date: dateStr,
       status: `تعداد: ${faNum(state.rows.length)} سند`,
     },
-    infoCards: [{
-      title: 'مشخصات گزارش',
-      rows: [
-        ['نام واحد', 'مجتمع گندله‌سازی بهاباد'],
-        ['شناسه ملی', '۱۰۸۶۱۸۳۵۴۷۰'],
-      ],
-    }, {
-      title: 'فیلترها',
-      rows: [
-        ['از تاریخ', state.dateFrom || '-'],
-        ['تا تاریخ', state.dateTo || '-'],
-        ['جستجو', state.query || '-'],
-      ],
-    }],
     columns: [
       { label: '#', formatter: (r, i) => faNum(i + 1) },
       { label: 'کد سند', key: 'code', cls: 'fw-bold' },
