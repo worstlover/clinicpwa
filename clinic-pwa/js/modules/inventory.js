@@ -759,7 +759,7 @@ async function renderStep8_Report() {
         { label: 'شمارش‌کننده', key: 'counted_by_name' }
       ],
       rows: state.items,
-      signatures: ['شمارش‌کننده', 'تأییدکننده', 'مدیر انبار'],
+      signatures: ['شمارش‌کننده', 'تأییدکننده', 'مدیر '],
     });
   };
 
