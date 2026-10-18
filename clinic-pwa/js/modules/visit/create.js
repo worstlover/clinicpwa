@@ -54,22 +54,24 @@ async function loadPatientHistory(patientId) {
       lastVisitStr = `${dayName} ${jDate}`;
     }
 
-    // ۴. وضعیت طب کار (فعلاً با یک جدول فرضی چک می‌شود)
+    // ۴. وضعیت طب کار (از جدول lab_results_periodicexamination)
     let occStatus = 'ثبت نشده';
     try {
-      // ⚠️ این نام جدول باید با دیتابیس شما تطبیق داده شود
-      const { data: occ } = await sb.from('visits_occupationalexam')
-        .select('result, created_at')
+      const { data: occ } = await sb.from('lab_results_periodicexamination')
+        .select('final_opinion_text, final_opinion_conditions, exam_date')
         .eq('patient_id', patientId)
-        .order('created_at', { ascending: false })
+        .order('exam_date', { ascending: false })
         .limit(1);
       
       if (occ && occ.length > 0) {
-        occStatus = occ[0].result || 'تایید شده';
+        let statusText = occ[0].final_opinion_text || 'تایید شده';
+        if (occ[0].final_opinion_conditions && occ[0].final_opinion_conditions.trim()) {
+          statusText += ` (${occ[0].final_opinion_conditions.trim()})`;
+        }
+        occStatus = statusText;
       }
     } catch(e) {
-      // اگر جدول وجود نداشت، خطا را نادیده می‌گیریم
-      console.log('جدول طب کار یافت نشد یا ساختار آن متفاوت است.');
+      console.log('خطا در دریافت اطلاعات طب کار:', e);
     }
 
     state.patientHistory = {
@@ -77,7 +79,7 @@ async function loadPatientHistory(patientId) {
       medicalHistory: pInfo?.medical_history || '',
       visitCount,
       lastReason,
-      lastVisitStr, // ⬅️ اضافه شد
+      lastVisitStr,
       occStatus
     };
 
@@ -137,7 +139,7 @@ function renderWizard() {
         </div>
         <div class="small text-dark mb-2">
           <strong>علت آخرین ویزیت:</strong> ${escapeHtml(h.lastReason)} <br>
-          <strong>آخرین مراجعه:</strong> ${escapeHtml(h.lastVisitStr)} <br> <!-- ⬅️ اضافه شد -->
+          <strong>آخرین مراجعه:</strong> ${escapeHtml(h.lastVisitStr)} <br>
           <strong>طب کار:</strong> ${escapeHtml(h.occStatus)}
         </div>
         <div class="d-flex flex-wrap gap-1">
@@ -150,7 +152,7 @@ function renderWizard() {
 
   c.innerHTML = `
     <div id="visitBannerMount"></div>
-    ${historyBanner} <!-- ⬅️ نمایش بنر سوابق بالای همه مراحل -->
+    ${historyBanner}
 
     <div class="card"><div class="card-body">
       <div class="wizard-steps">
@@ -1025,8 +1027,6 @@ function openQuickPatientModal() {
         national_code: nationalCode || null,
         personnel_number: personnelNo || null,
         company_id: companyId,
-        
-        // رفع مشکل NOT NULL
         registered_at: new Date().toISOString(),
         allergies: '',
         medical_history: '',
@@ -1063,7 +1063,6 @@ function openQuickPatientModal() {
       state.patientId = newPatient.id;
       state.patientName = fullName;
       
-      // دریافت سوابق بیمار جدید (احتمالاً خالی است)
       await loadPatientHistory(newPatient.id);
       
       state.step = 2;
@@ -1248,7 +1247,6 @@ async function pickPatient(id, name, nationalCode, passportNumber) {
   state.patientId = id;
   state.patientName = name;
   
-  // دریافت سوابق بیمار
   await loadPatientHistory(id);
   
   state.step = 2;
