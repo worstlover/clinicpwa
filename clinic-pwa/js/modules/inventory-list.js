@@ -114,7 +114,6 @@ async function loadRows() {
   body.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
   try {
-    // ⭐ استفاده از id برای مرتب‌سازی به جای created_at (تا کرش نکند)
     let q = sb.from('inv_sessions')
       .select('*', { count: 'exact' })
       .order('id', { ascending: false });
@@ -122,18 +121,6 @@ async function loadRows() {
     if (state.query) {
       q = q.or(`code.ilike.%${state.query}%,title.ilike.%${state.query}%`);
     }
-    
-    // فیلترهای تاریخی فعلاً غیرفعال هستند تا خطا ندهند (اگر created_at در دیتابیس نباشد)
-    /*
-    if (state.dateFrom) {
-      const g = jalaliToGregorian(state.dateFrom);
-      if (g) q = q.gte('created_at', `${g}T00:00:00`);
-    }
-    if (state.dateTo) {
-      const g = jalaliToGregorian(state.dateTo);
-      if (g) q = q.lte('created_at', `${g}T23:59:59`);
-    }
-    */
 
     const from = (state.page - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -146,8 +133,9 @@ async function loadRows() {
     if (state.rows.length) {
       const ids = state.rows.map(r => r.id);
       
+      // ⬅️ اضافه شدن counted_by_email به کوئری
       const { data: items } = await sb.from('inv_count_items')
-        .select('session_id, drug_name, counted_quantity, created_at')
+        .select('session_id, drug_name, counted_quantity, counted_by_email, created_at')
         .in('session_id', ids)
         .order('created_at', { ascending: false });
 
@@ -204,14 +192,19 @@ function renderRows() {
       ? `<span class="badge bg-warning text-dark">${faNum(r._disc)} مغایرت</span>`
       : `<span class="badge bg-success">بدون مغایرت</span>`;
 
-    // مدیریت نبودن ستون created_at
     const lastEditTime = r.updated_at || r.created_at;
     const timeStr = lastEditTime ? new Date(lastEditTime).toLocaleString('fa-IR') : 'نامشخص';
     const editorEmail = r.updated_by_email || r.created_by_email || 'نامشخص';
     const createDateStr = r.created_at ? gregorianToJalali(r.created_at.slice(0, 10)) : 'نامشخص';
 
+    // ⬅️ نمایش ایمیل شمارش‌کننده در خلاصه
     const itemsSummary = r._lastItems.length > 0 
-      ? r._lastItems.map(i => `<div class="small text-muted">• ${escapeHtml(i.drug_name)} (${faNum(i.counted_quantity)} عدد)</div>`).join('')
+      ? r._lastItems.map(i => `
+          <div class="small text-muted d-flex justify-content-between align-items-center mb-1">
+            <span>• ${escapeHtml(i.drug_name)} (${faNum(i.counted_quantity)} عدد)</span>
+            ${i.counted_by_email ? `<span class="badge bg-secondary" style="font-size:0.65rem;">${escapeHtml(i.counted_by_email)}</span>` : ''}
+          </div>
+        `).join('')
       : '<div class="small text-muted">قلمی ثبت نشده</div>';
 
     return `
