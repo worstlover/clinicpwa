@@ -1,7 +1,8 @@
 // js/modules/inventory-list.js
 import { sb } from '../sb.js';
-import { faNum, escapeHtml, gregorianToJalali, jalaliToGregorian, toast } from '../utils.js';
+import { faNum, escapeHtml, gregorianToJalali, toast } from '../utils.js';
 import { printA4 } from './list-print.js';
+import { currentUser, isAdmin } from '../auth.js'; // ⬅️ ایمپورت برای بررسی نقش
 
 const PAGE_SIZE = 20;
 
@@ -9,6 +10,14 @@ const state = {
   page: 1, total: 0,
   query: '', dateFrom: '', dateTo: '',
   rows: [], loading: false,
+};
+
+// ⬅️ بررسی دسترسی برای حذف (مدیر یا نقش‌های خاص)
+const canDelete = () => {
+  if (isAdmin) return true;
+  const role = currentUser?.user_metadata?.role;
+  // اگر نقش کاربر superuser یا supervisor بود
+  return role === 'superuser' || role === 'supervisor';
 };
 
 export function openInventoryList() {
@@ -133,9 +142,8 @@ async function loadRows() {
     if (state.rows.length) {
       const ids = state.rows.map(r => r.id);
       
-      // ⬅️ اضافه شدن counted_by_email به کوئری
       const { data: items } = await sb.from('inv_count_items')
-        .select('session_id, drug_name, counted_quantity, counted_by_email, created_at')
+        .select('session_id, drug_name, counted_quantity, counted_by_name, created_at')
         .in('session_id', ids)
         .order('created_at', { ascending: false });
 
@@ -194,18 +202,27 @@ function renderRows() {
 
     const lastEditTime = r.updated_at || r.created_at;
     const timeStr = lastEditTime ? new Date(lastEditTime).toLocaleString('fa-IR') : 'نامشخص';
-    const editorEmail = r.updated_by_email || r.created_by_email || 'نامشخص';
+    
+    // ⬅️ استفاده از نام (اگر نبود از ایمیل استفاده می‌کند)
+    const editorName = r.updated_by_name || r.created_by_name || r.updated_by_email || r.created_by_email || 'نامشخص';
+    
     const createDateStr = r.created_at ? gregorianToJalali(r.created_at.slice(0, 10)) : 'نامشخص';
 
-    // ⬅️ نمایش ایمیل شمارش‌کننده در خلاصه
     const itemsSummary = r._lastItems.length > 0 
       ? r._lastItems.map(i => `
           <div class="small text-muted d-flex justify-content-between align-items-center mb-1">
             <span>• ${escapeHtml(i.drug_name)} (${faNum(i.counted_quantity)} عدد)</span>
-            ${i.counted_by_email ? `<span class="badge bg-secondary" style="font-size:0.65rem;">${escapeHtml(i.counted_by_email)}</span>` : ''}
+            ${i.counted_by_name ? `<span class="badge bg-secondary" style="font-size:0.65rem;">${escapeHtml(i.counted_by_name)}</span>` : ''}
           </div>
         `).join('')
       : '<div class="small text-muted">قلمی ثبت نشده</div>';
+
+    // ⬅️ دکمه حذف
+    const deleteBtn = canDelete() ? `
+      <button class="btn btn-sm btn-outline-danger mt-2 w-100" data-delete="${r.id}" onclick="event.stopPropagation();">
+        <i class="bi bi-trash"></i> حذف این سند
+      </button>
+    ` : '';
 
     return `
       <div class="list-row ${isClosed ? 'opacity-75' : ''}" 
@@ -221,7 +238,7 @@ function renderRows() {
           </div>
           
           <div class="small text-muted mt-1">
-            <i class="bi bi-clock-history"></i> آخرین تغییر: <bdi dir="ltr">${timeStr}</bdi> توسط: ${escapeHtml(editorEmail)}
+            <i class="bi bi-clock-history"></i> آخرین تغییر: <bdi dir="ltr">${timeStr}</bdi> توسط: ${escapeHtml(editorName)}
           </div>
           
           <div class="small text-muted mt-1">
@@ -235,11 +252,15 @@ function renderRows() {
             ${itemsSummary}
           </div>
 
-          <div class="mt-2">${disc}</div>
+          <div class="mt-2 d-flex justify-content-between align-items-center">
+            ${disc}
+            ${deleteBtn}
+          </div>
         </div>
       </div>`;
   }).join('');
 
+  // ⬅️ رویداد کلیک برای باز کردن سند
   body.querySelectorAll('.list-row').forEach(el => {
     el.onclick = () => {
       const isClosed = el.dataset.closed === 'true';
@@ -252,6 +273,29 @@ function renderRows() {
       document.getElementById('invListWrap').classList.remove('active');
       document.body.style.overflow = '';
       import('./inventory.js').then(m => m.openInventory());
+    };
+  });
+
+  // ⬅️ رویداد کلیک برای دکمه حذف
+  body.querySelectorAll('[data-delete]').forEach(btn => {
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.delete;
+      if (!confirm('آیا مطمئنید؟ تمام اقلام و مغایرت‌های این سند نیز حذف خواهند شد.')) return;
+      
+      try {
+        // حذف اقلام
+        await sb.from('inv_count_items').delete().eq('session_id', id);
+        // حذف مغایرت‌ها
+        await sb.from('inv_discrepancies').delete().eq('session_id', id);
+        // حذف خود جلسه
+        await sb.from('inv_sessions').delete().eq('id', id);
+        
+        toast('سند با موفقیت حذف شد', 'success');
+        loadRows(); // رفرش لیست
+      } catch (err) {
+        toast('خطا در حذف: ' + err.message, 'danger');
+      }
     };
   });
 
