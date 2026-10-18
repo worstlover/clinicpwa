@@ -2,7 +2,7 @@
 import { sb } from '../sb.js';
 import { faNum, escapeHtml, gregorianToJalali, jalaliToGregorian, toast } from '../utils.js';
 import { printA4 } from './list-print.js';
-import { openInventory } from './inventory.js'; // ⬅️ ایمپورت برای ورود به جلسه
+import { openInventory } from './inventory.js';
 
 const PAGE_SIZE = 20;
 
@@ -31,7 +31,13 @@ function buildOverlay() {
           <i class="bi bi-clipboard-check text-primary"></i>
           <span class="fw-bold">سندهای انبارگردانی</span>
         </div>
-        <button class="list-close" id="invListClose"><i class="bi bi-x-lg"></i></button>
+        <div class="d-flex gap-2">
+          <!-- دکمه جدید برای ساخت انبارگردانی -->
+          <button class="btn btn-sm btn-primary" id="invListNewBtn">
+            <i class="bi bi-plus-lg"></i> جدید
+          </button>
+          <button class="list-close" id="invListClose"><i class="bi bi-x-lg"></i></button>
+        </div>
       </div>
 
       <div class="list-filters">
@@ -65,10 +71,18 @@ function buildOverlay() {
 
 function bindEvents() {
   const wrap = document.getElementById('invListWrap');
+  
   wrap.querySelector('#invListClose').onclick = () => {
     wrap.classList.remove('active');
     document.body.style.overflow = '';
   };
+  
+  wrap.querySelector('#invListNewBtn').onclick = () => {
+    wrap.classList.remove('active');
+    document.body.style.overflow = '';
+    openInventory(); 
+  };
+
   wrap.querySelector('#invListFilter').onclick = () => {
     state.query = wrap.querySelector('#invListQ').value.trim();
     state.dateFrom = wrap.querySelector('#invListFrom').value.trim();
@@ -102,7 +116,6 @@ async function loadRows() {
   body.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
   try {
-    // استفاده از * برای جلوگیری از خطای عدم وجود ستون در دیتابیس
     let q = sb.from('inv_sessions')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false });
@@ -188,7 +201,6 @@ function renderRows() {
       ? `<span class="badge bg-warning text-dark">${faNum(r._disc)} مغایرت</span>`
       : `<span class="badge bg-success">بدون مغایرت</span>`;
 
-    // اگر ستون‌های دیتابیس وجود نداشته باشند، به تاریخ ساخت برمی‌گردیم
     const lastEditTime = r.updated_at || r.created_at;
     const timeStr = lastEditTime ? new Date(lastEditTime).toLocaleString('fa-IR') : 'نامشخص';
     const editorEmail = r.updated_by_email || r.created_by_email || 'نامشخص';
@@ -230,7 +242,6 @@ function renderRows() {
       </div>`;
   }).join('');
 
-  // ⭐ اضافه کردن رویداد کلیک برای باز کردن جلسه باز
   body.querySelectorAll('.list-row').forEach(el => {
     el.onclick = () => {
       const isClosed = el.dataset.closed === 'true';
@@ -239,7 +250,6 @@ function renderRows() {
         toast('این سند بسته شده و قابل ویرایش نیست.', 'warning');
         return;
       }
-      // هدایت به صفحه انبارگردانی و بازیابی جلسه
       localStorage.setItem('inv_session_id', sessionId);
       document.getElementById('invListWrap').classList.remove('active');
       document.body.style.overflow = '';
