@@ -51,8 +51,20 @@ export const jalaliToGregorian = (str) => {
     return `${g.gy}-${String(g.gm).padStart(2,'0')}-${String(g.gd).padStart(2,'0')}`;
   } catch (e) { return null; }
 };
-
+export const cleanGTIN = (raw) => {
+  if (!raw) return '';
+  // حذف تمام کاراکترهای غیر عددی (مثل فاصله، خط تیره و...)
+  let digits = String(raw).replace(/[^0-9]/g, '');
+  
+  // استاندارد GTIN حداکثر ۱۴ رقم است. اگر بیشتر بود، ۱۴ رقم آخر را جدا می‌کنیم.
+  if (digits.length > 14) {
+    digits = digits.slice(-14);
+  }
+  
+  return digits;
+};
 export const parseGS1 = (raw) => {
+  // ⭐ اضافه شدن exps (آرایه تاریخ‌ها) به خروجی
   const r = { gtin: null, exp: null, exps: [], batch: null, serial: null };
   if (!raw) return r;
 
@@ -70,7 +82,7 @@ export const parseGS1 = (raw) => {
   if (!m01) m01 = s.match(/01(\d{14})/);
   if (m01) r.gtin = m01[1];
 
-  // ═══ ۲. استخراج تمام تاریخ‌های 17 ═══
+  // ═══ ۲. تاریخ‌های انقضا (پیدا کردن همه 17 ها) ═══
   const expMatches = [...s.matchAll(/(?:^|[^0-9])17(\d{6})(?=\D|$)/g)];
   
   const now = new Date();
@@ -86,12 +98,12 @@ export const parseGS1 = (raw) => {
     const dd = parseInt(ds.substring(4, 6), 10);
     const year = yy < 70 ? 2000 + yy : 1900 + yy;
 
-    // اعتبارسنجی دقیق تاریخ
+    // ⭐ اعتبارسنجی دقیق
     if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
       const expDate = new Date(year, mm - 1, dd);
-      // جلوگیری از سرریز تاریخ (مثلا 31 فوریه)
+      // چک کردن اینکه تاریخ سرریز نشده باشد (مثلا 31 فوریه)
       if (expDate.getMonth() === mm - 1 && expDate.getDate() === dd) {
-        // جلوگیری از تاریخ‌های خیلی دور (بیشتر از ۵ سال آینده)
+        // چک کردن حداکثر ۵ سال آینده
         if (expDate <= maxFuture) {
           const expStr = `${year}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
           if (!validExps.includes(expStr)) {
@@ -103,10 +115,8 @@ export const parseGS1 = (raw) => {
   });
 
   r.exps = validExps;
-  // اگر حداقل یک تاریخ معتبر پیدا شد، اولین تاریخ را به عنوان پیش‌فرض می‌گذاریم
-  // (اگر ۱ تاریخ بود، خودکار انتخاب می‌شود. اگر چند تاریخ بود، در handleBarcode مودال باز می‌شود)
   if (validExps.length > 0) {
-    r.exp = validExps[0]; 
+    r.exp = validExps[0]; // پیش‌فرض را اولین تاریخ معتبر قرار می‌دهیم
   }
 
   // ═══ ۳. AIهای متغیر (10 = بچ، 21 = سریال) ═══
@@ -140,41 +150,6 @@ export const parseGS1 = (raw) => {
 
   return r;
 };
-
-  // ═══ ۳. AIهای متغیر (10 = بچ، 21 = سریال) ═══
-  if (s.includes('|')) {
-    const parts = s.split('|');
-    for (let k = 0; k < parts.length; k++) {
-      const p = parts[k];
-      if (/^10/.test(p) && !r.batch) {
-        r.batch = p.slice(2).trim();
-      } else if (/^21/.test(p) && !r.serial) {
-        r.serial = p.slice(2).trim();
-      }
-    }
-    const last = parts[parts.length - 1];
-    if (last && !r.batch) {
-      const bm = last.match(/10([^|]*?)(?:17|21|$)/);
-      if (bm) r.batch = bm[1].trim();
-    }
-  } else {
-    if (!r.batch) {
-      const bm = s.match(/10([^]*?)(?=17\d{6}|21|$)/);
-      if (bm) r.batch = bm[1].replace(/\|/g, '').trim();
-    }
-    if (!r.serial) {
-      const sm = s.match(/21([^]*?)$/);
-      if (sm) r.serial = sm[1].replace(/\|/g, '').trim();
-    }
-  }
-
-  if (!r.gtin) r.gtin = s.replace(/\|/g, '');
-
-  return r;
-};
-export const cleanGTIN = s => String(s || '').replace(/^0+/, '');
-
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 export function beep(freq = 880, dur = 0.12) {
   try {
     if (audioCtx.state === 'suspended') audioCtx.resume();
