@@ -6,19 +6,14 @@ import {
 } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { openScanner } from '../scanner.js';
-import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js'; // ⭐ ایمپورت شد
+import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js';
 
-// ═══════════════════════════════════════════════════════════
-// State
-// ═══════════════════════════════════════════════════════════
 const state = {
-  view: 'list',           // 'list' | 'form'
-  // فرم
+  view: 'list',
   supplierId: null,
   supplierName: '',
   linkedInvoice: null,
   items: [],
-  // لیست
   listRows: [],
   listTotal: 0,
   listPage: 1,
@@ -31,9 +26,6 @@ const state = {
 const AUTOSAVE_KEY = 'recv_autosave';
 const PAGE_SIZE = 20;
 
-// ═══════════════════════════════════════════════════════════
-// ذخیره خودکار فرم هر ۱۰ ثانیه
-// ═══════════════════════════════════════════════════════════
 setInterval(() => {
   if (state.view === 'form' && state.items.length > 0) {
     localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
@@ -69,9 +61,6 @@ async function restoreReceiveState() {
   return false;
 }
 
-// ═══════════════════════════════════════════════════════════
-// ورودی اصلی — نمایش لیست
-// ═══════════════════════════════════════════════════════════
 export async function openReceive() {
   showScreen('Receive');
   state.view = 'list';
@@ -79,9 +68,6 @@ export async function openReceive() {
   await renderListView();
 }
 
-// ═══════════════════════════════════════════════════════════
-// نمای لیست رسیدها
-// ═══════════════════════════════════════════════════════════
 async function renderListView() {
   const c = $('recvContent');
   if (!c) return;
@@ -137,12 +123,10 @@ async function renderListView() {
     </div>
   `;
 
-  // بازیابی مقادیر فیلتر
   $('recvSearch').value = state.listQuery || '';
   $('recvFrom').value = state.listDateFrom || '';
   $('recvTo').value = state.listDateTo || '';
 
-  // رویدادها
   $('recvNewBtn').onclick = openNewReceive;
   $('recvFilter').onclick = () => {
     state.listQuery = $('recvSearch').value.trim();
@@ -168,9 +152,7 @@ async function renderListView() {
     if (state.listPage < maxPage) { state.listPage++; loadReceiptList(); }
   };
 
-  // تاریخ‌پیکر شمسی اگر وجود دارد
   initJalaliPickers();
-
   await loadReceiptList();
 }
 
@@ -228,7 +210,6 @@ async function loadReceiptList() {
   }
 }
 
-// ⭐ نمایش وضعیت سند به‌صورت badge با رنگ مناسب
 function statusBadge(status) {
   const map = {
     draft:     { cls: 'bg-warning text-dark', label: 'پیش‌نویس' },
@@ -297,9 +278,6 @@ function updatePager() {
   if (el) el.textContent = `صفحه ${faNum(state.listPage)} از ${faNum(maxPage)} • ${faNum(state.listTotal)} سند`;
 }
 
-// ═══════════════════════════════════════════════════════════
-// مودال جزئیات رسید
-// ═══════════════════════════════════════════════════════════
 async function openReceiptDetail(row) {
   const backdrop = document.createElement('div');
   backdrop.className = 'archive-backdrop';
@@ -334,7 +312,6 @@ async function openReceiptDetail(row) {
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
   backdrop.querySelector('#recvDetailClose').onclick = close;
 
-  // واکشی اقلام
   try {
     const { data: items, error } = await sb.from('drugs_receiptitem')
       .select('id, drug_id, received_quantity, batch_number, expiry_date, drug:drugs_drug(name, form)')
@@ -367,9 +344,6 @@ async function openReceiptDetail(row) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// فرم دریافت جدید
-// ═══════════════════════════════════════════════════════════
 async function openNewReceive() {
   const restore = await restoreReceiveState();
   state.view = 'form';
@@ -422,7 +396,6 @@ async function renderFormView() {
       <i class="bi bi-check-circle-fill"></i> ذخیره نهایی
     </button>`;
 
-  // رویدادها
   $('recvBackToList').onclick = () => { state.view = 'list'; renderListView(); };
   $('recvSupplier').onchange = e => {
     state.supplierId = parseInt(e.target.value) || null;
@@ -528,12 +501,13 @@ function renderList() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// پردازش بارکد — با بررسی چند تاریخ انقضا ⭐
+// پردازش بارکد — منطق دقیق انتخاب تاریخ
 // ═══════════════════════════════════════════════════════════
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
 
-  // ⭐ اگر بیش از یک تاریخ معتبر وجود دارد، از کاربر بپرس
+  // ⭐ اگر بیش از یک تاریخ معتبر پیدا شد، مودال باز می‌شود
+  // اگر 0 یا 1 تاریخ بود، خودکار در parsed.exp قرار گرفته است
   if (parsed.exps && parsed.exps.length > 1) {
     const selectedDate = await promptExpirySelection(parsed.exps);
     if (!selectedDate) {
@@ -565,9 +539,6 @@ function reopenScannerAuto() {
   }, 350);
 }
 
-// ═══════════════════════════════════════════════════════════
-// افزودن دارو — بچ همیشه خودکار + تاریخ انقضا اجباری
-// ═══════════════════════════════════════════════════════════
 async function addDrug(drug, barcode = '', parsed = {}) {
   if (barcode) {
     try {
@@ -652,9 +623,6 @@ async function addDrug(drug, barcode = '', parsed = {}) {
   return true;
 }
 
-// ═══════════════════════════════════════════════════════════
-// ذخیره نهایی
-// ═══════════════════════════════════════════════════════════
 async function finalize() {
   if (!state.supplierId) { toast('تامین‌کننده را انتخاب کنید', 'warning'); return; }
   if (!state.items.length) { toast('حداقل یک قلم', 'warning'); return; }
@@ -765,7 +733,6 @@ async function finalize() {
     state.supplierName = '';
     state.linkedInvoice = null;
 
-    // برگشت به لیست
     state.view = 'list';
     state.listPage = 1;
     await renderListView();
