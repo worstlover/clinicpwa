@@ -101,7 +101,7 @@ async function loadRows() {
   body.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
   try {
-    // اضافه کردن فیلدهای مربوط به زمان ویرایش و کاربر
+    // واکشی فیلدهای اضافی برای زمان و کاربر ویرایش‌کننده
     let q = sb.from('inv_sessions')
       .select('id, code, title, status, created_at, finished_at, updated_at, created_by_email, updated_by_email', { count: 'exact' })
       .order('created_at', { ascending: false });
@@ -129,7 +129,7 @@ async function loadRows() {
     if (state.rows.length) {
       const ids = state.rows.map(r => r.id);
       
-      // واکشی اقلام برای پیدا کردن تعداد کل و ۳ قلم آخر
+      // دریافت اقلام برای شمارش کل و پیدا کردن ۳ قلم آخر
       const { data: items } = await sb.from('inv_count_items')
         .select('session_id, drug_name, counted_quantity, created_at')
         .in('session_id', ids)
@@ -179,7 +179,7 @@ function renderRows() {
   }
 
   body.innerHTML = state.rows.map(r => {
-    // تشخیص وضعیت
+    // تشخیص وضعیت باز یا بسته
     const isClosed = ['completed', 'applied'].includes(r.status);
     const st = r.status === 'applied' ? { cls: 'bg-success', label: 'بسته شده (اعمال شده)' }
             : r.status === 'completed' ? { cls: 'bg-info text-white', label: 'بسته شده (ثبت گزارش)' }
@@ -189,19 +189,19 @@ function renderRows() {
       ? `<span class="badge bg-warning text-dark">${faNum(r._disc)} مغایرت</span>`
       : `<span class="badge bg-success">بدون مغایرت</span>`;
 
-    // زمان دقیق آخرین ویرایش
+    // محاسبه زمان دقیق آخرین ویرایش
     const lastEditTime = r.updated_at || r.created_at;
-    const timeStr = new Date(lastEditTime).toLocaleString('fa-IR'); // تاریخ، ساعت و دقیقه
+    const timeStr = new Date(lastEditTime).toLocaleString('fa-IR'); 
     const editorEmail = r.updated_by_email || r.created_by_email || 'نامشخص';
 
-    // خلاصه ۳ قلم آخر
+    // ساخت خلاصه ۳ قلم آخر
     const itemsSummary = r._lastItems.length > 0 
       ? r._lastItems.map(i => `<div class="small text-muted">• ${escapeHtml(i.drug_name)} (${faNum(i.counted_quantity)} عدد)</div>`).join('')
       : '<div class="small text-muted">قلمی ثبت نشده</div>';
 
     return `
       <div class="list-row ${isClosed ? 'opacity-75' : ''}" 
-           style="${isClosed ? 'cursor: default;' : 'cursor: pointer;'}"
+           style="${isClosed ? 'cursor: default; pointer-events: none;' : 'cursor: pointer;'}"
            onclick="if(${!isClosed}) window.dispatchEvent(new CustomEvent('openInvSession', {detail: '${r.id}'}))">
         <div class="list-row-head">
           <span class="fw-bold text-primary">${escapeHtml(r.code || '-')}</span>
@@ -242,5 +242,47 @@ function updatePager() {
 }
 
 async function printList() {
-  // ... (کد پرینت قبلی خود را اینجا قرار دهید)
+  if (!state.rows.length) { toast('لیست خالی است', 'warning'); return; }
+
+  const dateStr = gregorianToJalali(new Date().toISOString().slice(0, 10));
+
+  printA4({
+    title: 'لیست سندهای انبارگردانی',
+    subtitle: 'انبار دارو و ملزومات پزشکی',
+    primaryColor: '#0d6efd',
+    headerMeta: {
+      date: dateStr,
+      status: `تعداد: ${faNum(state.rows.length)} سند`,
+    },
+    infoCards: [{
+      title: 'مشخصات گزارش',
+      rows: [
+        ['نام واحد', 'مجتمع گندله‌سازی بهاباد'],
+        ['شناسه ملی', '۱۰۸۶۱۸۳۵۴۷۰'],
+      ],
+    }, {
+      title: 'فیلترها',
+      rows: [
+        ['از تاریخ', state.dateFrom || '-'],
+        ['تا تاریخ', state.dateTo || '-'],
+        ['جستجو', state.query || '-'],
+      ],
+    }],
+    columns: [
+      { label: '#', formatter: (r, i) => faNum(i + 1) },
+      { label: 'کد سند', key: 'code', cls: 'fw-bold' },
+      { label: 'عنوان', key: 'title', align: 'right' },
+      { label: 'تاریخ', formatter: (r) => escapeHtml(gregorianToJalali((r.created_at || '').slice(0, 10))) },
+      { label: 'اقلام', formatter: (r) => faNum(r._items || 0) },
+      { label: 'مغایرت', formatter: (r) => r._disc ? `${faNum(r._disc)} قلم` : 'ندارد' },
+      {
+        label: 'وضعیت',
+        formatter: (r) => r.status === 'applied' ? 'اعمال شده'
+                       : r.status === 'completed' ? 'ثبت‌شده'
+                       : 'در جریان',
+      },
+    ],
+    rows: state.rows,
+    signatures: ['شمارش‌کننده', 'تأییدکننده', 'مدیر انبار'],
+  });
 }
