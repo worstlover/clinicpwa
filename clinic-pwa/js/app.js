@@ -59,9 +59,10 @@ function finishLoadingProgress() {
     bar.style.width = '100%'; 
     percent.textContent = '100%';
     setTimeout(() => {
+      // فقط صفحه لودینگ را مخفی می‌کنیم
       document.getElementById('screenLoading')?.classList.remove('active');
-      document.getElementById('appHeader')?.classList.remove('hidden');
-      document.getElementById('bottomNav')?.classList.remove('hidden');
+      
+      // ⬅️ خطوط مربوط به appHeader و bottomNav حذف شدند تا نمایش آن‌ها به عهده ui.js باشد
     }, 400);
   }
 }
@@ -119,7 +120,6 @@ document.querySelectorAll('[data-nav]').forEach(el => {
 // ═══════════════════════════════════════════════════════
 async function loadDashboardStats() {
   try {
-    // تابع کمکی برای جلوگیری از خطای نال بودن المان‌ها
     const setStat = (key, val) => {
       const el = document.querySelector(`[data-stat="${key}"]`);
       if (el) el.textContent = faNum(val !== undefined && val !== null ? val : 0);
@@ -141,15 +141,14 @@ async function loadDashboardStats() {
     const { count: occCount, error: occErr } = await sb.from('lab_results_periodicexamination').select('*', { count: 'exact', head: true }).gte('exam_date', monthStart);
     setStat('examsMonth', occErr ? 0 : occCount);
 
-    // ۴. جریمه و تشویقی (با مدیریت خطا)
+    // ۴. جریمه و تشویقی
     try {
       const { count: fineCount, error: fineErr } = await sb.from('fine_rewards').select('*', { count: 'exact', head: true }).gte('created_at', monthStart);
       setStat('finesMonth', fineErr ? 0 : fineCount);
     } catch(e) { setStat('finesMonth', 0); }
 
-    // ۵. فرم‌ها (با مدیریت خطا)
+    // ۵. فرم‌ها
     try {
-      // در صورت نیاز نام جدول فرم‌ها را جایگزین کنید
       const { count: formCount, error: formErr } = await sb.from('forms_submission').select('*', { count: 'exact', head: true });
       setStat('formsCount', formErr ? 0 : formCount);
     } catch(e) { setStat('formsCount', 0); }
