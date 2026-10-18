@@ -6,17 +6,20 @@
 <meta name="theme-color" content="#f3f6f9" id="metaThemeColor">
 <title>کلینیک گندله سازی بهاباد</title>
 
+<!-- ⬅️ فونت مدرن استعداد (Estedad) -->
+<link href="https://cdn.jsdelivr.net/gh/aminabedi68/Estedad@latest/dist/Farsi/Estedad-FD[KSHD,wght].min.css" rel="stylesheet">
+
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 
-<link href="lib/vazirmatn.css" rel="stylesheet">
+<link href="lib/vazirmatn.css" rel="stylesheet"> <!-- به عنوان پشتیبان نگه داشته شد -->
 <link href="lib/bootstrap.rtl.min.css" rel="stylesheet">
 <link href="lib/bootstrap-icons.min.css" rel="stylesheet">
 <link href="styles/main.css" rel="stylesheet">
 <link href="js/forms/print.css" rel="stylesheet">
 <link href="js/forms/forms-theme.css" rel="stylesheet">
 <link href="js/process/process.css" rel="stylesheet">
-<link href="styles/theme.css" rel="stylesheet"> <!-- فایل تم شما -->
+<link href="styles/theme.css" rel="stylesheet">
 
 <style>
   .screen { display: none !important; }
@@ -188,11 +191,12 @@
         <span class="home-card-icon"><i class="bi bi-capsule-pill"></i></span>
         <span class="home-card-label">داروخانه کلینیک</span>
         <span class="home-card-sub">دریافت، تحویل، انبارگردانی و خروج منقضی</span>
-        <span class="hc-stats">
-          <span><b data-stat="drugsTotal">—</b><small>موجودی داروها</small></span>
-          <span class="tone-amber"><b data-stat="drugsLow">—</b><small>رو به اتمام</small></span>
-          <span class="tone-red"><b data-stat="drugsExpiring">—</b><small>نزدیک انقضا</small></span>
-        </span>
+        
+        <div class="hc-stats">
+          <div><b data-stat="drugsTotal">—</b><small>تنوع دارو</small></div>
+          <div class="tone-amber"><b data-stat="drugsLow">—</b><small>رو به اتمام</small></div>
+          <div class="tone-red"><b data-stat="drugsExpiring">—</b><small>نزدیک انقضا</small></div>
+        </div>
       </button>
 
       <button class="home-card card-half tone-amber" data-nav="visitReports" type="button">
@@ -225,7 +229,7 @@
   </div>
 </div>
 
-<!-- ═════════════ صفحه داروخانه (اصلاح شده) ═════════════ -->
+<!-- ═════════════ صفحه داروخانه ═════════════ -->
 <div id="screenPharmacy" class="screen">
   <div class="container-fluid p-0">
     <div class="home-greeting" style="margin-bottom: 20px;">
@@ -288,7 +292,6 @@
 <div class="bottom-nav" id="bottomNav">
   <a href="#" data-nav="home" class="active"><i class="bi bi-house-door-fill"></i>خانه</a>
   <a href="#" data-nav="visits"><i class="bi bi-calendar2-check"></i>ویزیت</a>
-  <!-- ⬅️ دکمه شناور وسط با ID برای کنترل در app.js -->
   <a href="#" id="navFab" class="nav-fab" aria-label="ثبت سریع"><i class="bi bi-plus-lg"></i></a>
   <a href="#" data-nav="patients"><i class="bi bi-people"></i>بیماران</a>
   <a href="#" data-nav="profile"><i class="bi bi-person"></i>پروفایل</a>
@@ -297,12 +300,10 @@
 <!-- ═════════════ اسکریپت‌ها ═════════════ -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
-
 <script src="lib/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script type="module" src="js/app.js"></script>
 <script>
-  // تغییر تم (هدر و سایدبار)
   document.addEventListener('DOMContentLoaded', function () {
     var btns = [document.getElementById('btnToggleTheme'), document.getElementById('sideThemeToggle')].filter(Boolean);
     var meta = document.getElementById('metaThemeColor');
