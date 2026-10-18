@@ -64,7 +64,7 @@ try { initQtyModal(); }        catch (e) { console.error(e); }
 try { initSearchModal(); }     catch (e) { console.error(e); }
 try { initScannerButtons(); }  catch (e) { console.error(e); }
 
-// لاگین و هدر (فقط موارد عمومی)
+// لاگین و هدر
 const btnLogin = $('btnLogin'); if (btnLogin) btnLogin.onclick = doLogin;
 const loginPass = $('loginPass');
 if (loginPass) loginPass.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
@@ -183,27 +183,27 @@ function initFab() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 📱 مدیریت نصب PWA
+// 📱 مدیریت نصب PWA (اصلاح‌شده)
 // ═══════════════════════════════════════════════════════
 let deferredInstallPrompt = null;
+const btnInstall = document.getElementById('btnInstallPWA');
 
+// اگر برنامه از قبل نصب شده باشد، دکمه را مخفی کن
 if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
-  const btn = document.getElementById('btnInstallPWA'); 
-  if (btn) btn.style.display = 'none';
+  if (btnInstall) btnInstall.style.display = 'none';
 } else {
-  const btn = document.getElementById('btnInstallPWA'); 
-  if (btn) btn.style.display = 'block';
+  if (btnInstall) btnInstall.style.display = 'flex'; // دکمه به صورت پیش‌فرض دیده شود
 }
 
 window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault(); 
+  e.preventDefault();
   deferredInstallPrompt = e;
+  if (btnInstall) btnInstall.style.display = 'flex';
 });
 
 window.addEventListener('appinstalled', () => {
   deferredInstallPrompt = null;
-  const btn = document.getElementById('btnInstallPWA'); 
-  if (btn) btn.style.display = 'none';
+  if (btnInstall) btnInstall.style.display = 'none';
   toast('✅ اپلیکیشن با موفقیت نصب شد', 'success');
 });
 
@@ -212,11 +212,12 @@ window._triggerInstall = async () => {
     alert('مرورگر شما از نصب خودکار پشتیبانی نمی‌کند.\n\nلطفاً از منوی مرورگر خود اقدام کنید:\n\n• در اندروید (کروم): منوی سه نقطه ⋮ ➔ Install app یا Add to Home screen\n• در آیفون (سافاری): دکمه Share ➔ Add to Home Screen\n• در دسکتاپ (کروم): آیکون نصب در نوار آدرس کنار ستاره');
     return;
   }
+  
   deferredInstallPrompt.prompt();
   const { outcome } = await deferredInstallPrompt.userChoice;
+  
   if (outcome === 'accepted') {
-    const btn = document.getElementById('btnInstallPWA'); 
-    if (btn) btn.style.display = 'none';
+    if (btnInstall) btnInstall.style.display = 'none';
   }
   deferredInstallPrompt = null;
 };
