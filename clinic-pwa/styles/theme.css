@@ -1,0 +1,183 @@
+/* ═══════════════════════════════════════════════════════
+   متغیرهای تم (حالت روشن و تاریک)
+   ═══════════════════════════════════════════════════════ */
+:root {
+  /* Light Theme */
+  --bg-app: #f4f7f6;
+  --bg-card: #ffffff;
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --primary: #059669;
+  --primary-light: #d1fae5;
+  --border-color: #e2e8f0;
+  --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  --danger-bg: linear-gradient(135deg, #ef4444, #dc2626);
+  --danger-text: #ffffff;
+  --nav-bg: #ffffff;
+  --nav-active: #059669;
+  --nav-inactive: #94a3b8;
+  --card-1-bg: #fce7f3; --card-1-color: #db2777; /* ویزیت */
+  --card-2-bg: #e0e7ff; --card-2-color: #4f46e5; /* بیماران */
+  --card-3-bg: #dbeafe; --card-3-color: #2563eb; /* طب کار */
+  --card-4-bg: #fee2e2; --card-4-color: #dc2626; /* جریمه */
+}
+
+/* Dark Theme */
+body.dark-mode {
+  --bg-app: #0b1120;
+  --bg-card: #151e2d;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --primary: #06b6d4;
+  --primary-light: rgba(6, 182, 212, 0.15);
+  --border-color: rgba(255, 255, 255, 0.05);
+  --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  --danger-bg: linear-gradient(135deg, #991b1b, #7f1d1d);
+  --danger-text: #fca5a5;
+  --nav-bg: #151e2d;
+  --nav-active: #06b6d4;
+  --nav-inactive: #64748b;
+  --card-1-bg: rgba(219, 39, 119, 0.15); --card-1-color: #f472b6;
+  --card-2-bg: rgba(79, 70, 229, 0.15); --card-2-color: #818cf8;
+  --card-3-bg: rgba(37, 99, 235, 0.15); --card-3-color: #60a5fa;
+  --card-4-bg: rgba(220, 38, 38, 0.15); --card-4-color: #f87171;
+}
+
+body {
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  font-family: 'Vazirmatn', sans-serif;
+  transition: background-color 0.3s, color 0.3s;
+  padding-bottom: 90px;
+}
+
+/* ═══════════════════════════════════════════════════════
+   هدر و بنر حادثه
+   ═══════════════════════════════════════════════════════ */
+.home-greeting {
+  padding: 16px 16px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.home-greeting-text { font-size: 1.6rem; font-weight: 900; margin-bottom: 4px; }
+.home-greeting-email { font-size: 0.85rem; color: var(--text-muted); direction: ltr; }
+
+.home-incident-btn {
+  display: flex;
+  align-items: center;
+  width: calc(100% - 32px);
+  margin: 0 16px 24px;
+  padding: 20px;
+  background: var(--danger-bg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  color: var(--danger-text);
+  box-shadow: 0 8px 20px rgba(239, 68, 68, 0.2);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s;
+  text-align: right;
+}
+body.dark-mode .home-incident-btn {
+  border: 1px solid #ef4444;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.2), inset 0 0 20px rgba(239, 68, 68, 0.1);
+}
+.home-incident-btn:active { transform: scale(0.98); }
+.home-incident-icon { font-size: 2.5rem; margin-left: 16px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }
+.home-incident-title { font-size: 1.3rem; font-weight: 900; margin-bottom: 6px; }
+.home-incident-sub { font-size: 0.85rem; opacity: 0.9; }
+
+/* ═══════════════════════════════════════════════════════
+   ⭐ گرید اصلی (چینش اختصاصی دسکتاپ و موبایل)
+   ═══════════════════════════════════════════════════════ */
+.home-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr); /* موبایل: ۲ ستون */
+  gap: 12px;
+  padding: 0 16px;
+  margin-bottom: 30px;
+}
+
+/* دسکتاپ: ۴ ستون */
+@media (min-width: 768px) {
+  .home-dashboard-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    padding: 0 24px;
+  }
+  .card-full { grid-column: span 4; } /* تمام عرض (مثل فرم‌ها) */
+  .card-half { grid-column: span 2; } /* نصف عرض (مثل داروخانه) */
+}
+
+/* ═══════════════════════════════════════════════════════
+   استایل کارت‌ها
+   ═══════════════════════════════════════════════════════ */
+.home-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: right;
+  position: relative;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+.home-card:active { transform: scale(0.97); }
+@media (hover: hover) {
+  .home-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); border-color: var(--primary-light); }
+}
+
+.home-card-icon {
+  width: 48px; height: 48px;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.5rem;
+  margin-bottom: 12px;
+}
+.home-card-label { font-size: 1.05rem; font-weight: 800; color: var(--text-main); margin-bottom: 4px; }
+.home-card-sub { font-size: 0.75rem; color: var(--text-muted); line-height: 1.5; }
+.home-card-arrow { position: absolute; bottom: 16px; left: 16px; color: var(--text-muted); opacity: 0.5; }
+
+/* کارت‌های تمام عرض (مثل فرم‌ها) */
+.card-full {
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+}
+.card-full .home-card-icon { margin-bottom: 0; width: 60px; height: 60px; font-size: 2rem; }
+.card-full .home-card-body { flex-grow: 1; }
+
+/* ═══════════════════════════════════════════════════════
+   منوی پایین
+   ═══════════════════════════════════════════════════════ */
+.bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 70px;
+  background: var(--nav-bg);
+  border-top: 1px solid var(--border-color);
+  display: flex; justify-content: space-around; align-items: center;
+  z-index: 1000;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.05);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+body.dark-mode .bottom-nav { box-shadow: 0 -4px 20px rgba(0,0,0,0.4); border-top: 1px solid rgba(255,255,255,0.05); }
+.bottom-nav a {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: var(--nav-inactive); text-decoration: none; font-size: 0.7rem; font-weight: 700;
+  gap: 4px; transition: all 0.2s; width: 60px; height: 100%;
+}
+.bottom-nav a i { font-size: 1.4rem; }
+.bottom-nav a.active { color: var(--nav-active); }
+.nav-fab {
+  width: 56px !important; height: 56px !important;
+  background: var(--primary); color: #fff !important;
+  border-radius: 50%; margin-top: -35px;
+  box-shadow: 0 4px 15px rgba(5, 150, 105, 0.4);
+  border: 4px solid var(--bg-app);
+}
