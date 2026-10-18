@@ -7,11 +7,10 @@ import {
 import { showScreen } from '../ui.js';
 import { openScanner } from '../scanner.js';
 import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js';
-import { isAdmin, currentUser } from '../auth.js'; 
+import { isAdmin, currentUser } from '../auth.js';
 
 const state = { session: null, items: [] };
 
-// ⬅️ تابع کمکی برای گرفتن نام کاربر
 const getUserName = () => {
   return currentUser?.user_metadata?.display_name || 
          currentUser?.user_metadata?.name || 
@@ -55,7 +54,7 @@ async function startSession() {
     title, 
     status: 'in_progress',
     created_by_email: currentUser?.email || null,
-    created_by_name: getUserName() // ⬅️ ذخیره نام
+    created_by_name: getUserName()
   }).select().single();
   
   if (error) { toast(error.message, 'danger'); return; }
@@ -78,7 +77,7 @@ async function continueSession() {
     batch_number: i.batch_number, expiry_date: i.expiry_date,
     counted_quantity: i.counted_quantity, barcode: i.barcode,
     counted_by_email: i.counted_by_email,
-    counted_by_name: i.counted_by_name // ⬅️ خواندن نام
+    counted_by_name: i.counted_by_name
   }));
   renderScan();
 }
@@ -121,8 +120,6 @@ function renderList() {
   }
   list.innerHTML = state.items.slice().reverse().map((it, idx) => {
     const realIdx = state.items.length - 1 - idx;
-    
-    // ⬅️ استفاده از نام به جای ایمیل
     const userLabel = it.counted_by_name ? `<span class="badge bg-light text-dark border ms-2" style="font-size:0.7rem;"><i class="bi bi-person"></i> ${escapeHtml(it.counted_by_name)}</span>` : '';
 
     return `
@@ -190,7 +187,7 @@ async function editItem(idx) {
 
   it.counted_quantity = res.qty;
   it.counted_by_email = currentUser?.email || null;
-  it.counted_by_name = getUserName(); // ⬅️ ثبت نام ویرایش‌کننده
+  it.counted_by_name = getUserName();
 
   await sb.from('inv_count_items').upsert({
     session_id: state.session.id,
@@ -201,7 +198,7 @@ async function editItem(idx) {
     counted_quantity: res.qty,
     barcode: it.barcode,
     counted_by_email: it.counted_by_email,
-    counted_by_name: it.counted_by_name // ⬅️ ذخیره در دیتابیس
+    counted_by_name: it.counted_by_name
   }, { onConflict: 'session_id,drug_id,batch_number,expiry_date' });
 
   renderScan();
@@ -246,13 +243,26 @@ async function buildBatchAndWarnings(drug, expiryGreg) {
   return html;
 }
 
+// ═══ منطق جدید تاریخ ═══
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
-  if (parsed.exps && parsed.exps.length > 1) {
-    const selectedDate = await promptExpirySelection(parsed.exps);
-    if (!selectedDate) return; 
-    parsed.exp = selectedDate; 
+
+  if (parsed.exps && parsed.exps.length > 0) {
+    const isInvalid = !parsed.exp.includes('-');
+    
+    if (parsed.exps.length > 1 || isInvalid) {
+      const selectedDate = await promptExpirySelection(parsed.exps);
+      if (!selectedDate) return; 
+      
+      if (selectedDate.includes('-')) {
+        parsed.exp = selectedDate;
+      } else {
+        toast('شما یک تاریخ نامعتبر را انتخاب کردید. لطفا تاریخ را در فرم دستی وارد کنید.', 'warning');
+        parsed.exp = '';
+      }
+    }
   }
+
   const gtin = cleanGTIN(parsed.gtin);
   const padded = gtin.padStart(14, '0');
   const { data: bc } = await sb.from('drugs_drugbarcode').select('drug:drugs_drug(id, name, form)').or(`gtin.eq.${gtin},gtin.eq.${padded}`).maybeSingle();
@@ -305,7 +315,7 @@ async function addDrug(drug, barcode = '', parsed = {}) {
   }
 
   const userEmail = currentUser?.email || null;
-  const userName = getUserName(); // ⬅️ نام شمارش‌کننده
+  const userName = getUserName();
 
   const existing = state.items.find(it =>
     it.drug_id === drug.id && (it.batch_number || '') === computedBatch && (it.expiry_date || '') === res.expiry_gregorian
@@ -314,7 +324,7 @@ async function addDrug(drug, barcode = '', parsed = {}) {
   if (existing) {
     existing.counted_quantity += res.qty;
     existing.counted_by_email = userEmail; 
-    existing.counted_by_name = userName; // ⬅️ به‌روزرسانی نام
+    existing.counted_by_name = userName; 
   } else {
     state.items.push({
       drug_id: drug.id,
@@ -325,7 +335,7 @@ async function addDrug(drug, barcode = '', parsed = {}) {
       counted_quantity: res.qty,
       barcode: barcode || null,
       counted_by_email: userEmail,
-      counted_by_name: userName // ⬅️ ثبت نام
+      counted_by_name: userName 
     });
   }
 
@@ -342,7 +352,7 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     counted_quantity: row.counted_quantity,
     barcode: row.barcode,
     counted_by_email: row.counted_by_email,
-    counted_by_name: row.counted_by_name // ⬅️ ذخیره در دیتابیس
+    counted_by_name: row.counted_by_name 
   }, { onConflict: 'session_id,drug_id,batch_number,expiry_date' });
 
   renderScan();
