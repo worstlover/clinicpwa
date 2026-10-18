@@ -74,38 +74,6 @@ const btnProfile = $('btnProfile'); if (btnProfile) btnProfile.onclick = () => o
 const userEmailEl = $('userEmail'); if (userEmailEl) userEmailEl.onclick = () => openProfile();
 
 // ═══════════════════════════════════════════════════════
-// ➕ اتصال دکمه‌های هدر (حادثه و اعلان‌ها)
-// ═══════════════════════════════════════════════════════
-const btnQuickIncident = $('btnQuickIncident');
-if (btnQuickIncident) {
-  btnQuickIncident.onclick = async () => {
-    try {
-      // باز کردن فرم ثبت ویزیت/حادثه
-      await openCreate();
-      toast('فرم ثبت حادثه باز شد', 'info');
-      
-      // اگر نیاز است در همان لحظه گزینه حادثه انتخاب شود، اینجا می‌توانید کد اضافه کنید
-    } catch (e) {
-      console.error('Incident Error:', e);
-      toast('خطا در باز کردن فرم حادثه', 'danger');
-    }
-  };
-}
-
-const btnAlertBell = $('btnAlertBell');
-if (btnAlertBell) {
-  btnAlertBell.onclick = async () => {
-    try {
-      const m = await import('./modules/alerts.js');
-      if (m && m.openAlerts) m.openAlerts();
-      else toast('اعلان جدیدی وجود ندارد', 'info');
-    } catch (e) {
-      toast('اعلان جدیدی وجود ندارد', 'info');
-    }
-  };
-}
-
-// ═══════════════════════════════════════════════════════
 // ناوبری
 // ═══════════════════════════════════════════════════════
 document.querySelectorAll('[data-nav]').forEach(el => {
@@ -215,40 +183,27 @@ function initFab() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 📱 مدیریت نصب PWA (نسخه اصلاح شده)
+// 📱 مدیریت نصب PWA
 // ═══════════════════════════════════════════════════════
 let deferredInstallPrompt = null;
-
 window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredInstallPrompt = e;
-  const btn = document.getElementById('btnInstallPWA');
-  if (btn) btn.style.display = 'block'; 
+  e.preventDefault(); deferredInstallPrompt = e;
+  const btn = document.getElementById('btnInstallPWA'); if (btn) btn.style.display = 'block';
 });
-
 window.addEventListener('appinstalled', () => {
   deferredInstallPrompt = null;
-  const btn = document.getElementById('btnInstallPWA');
-  if (btn) btn.style.display = 'none';
+  const btn = document.getElementById('btnInstallPWA'); if (btn) btn.style.display = 'none';
   toast('✅ اپلیکیشن با موفقیت نصب شد', 'success');
 });
-
-// تابع کلیک روی دکمه نصب (در صورت پشتیبانی مرورگر)
 window._triggerInstall = async () => {
-  const btn = document.getElementById('btnInstallPWA');
-  
   if (!deferredInstallPrompt) {
-    // اگر مرورگر از نصب خودکار پشتیبانی نکند، راهنما نشان می‌دهیم
-    alert('مرورگر شما از نصب خودکار پشتیبانی نمی‌کند.\n\nلطفاً از منوی مرورگر خود اقدام کنید:\n\n• در اندروید (کروم): منوی سه نقطه ⋮ ➔ Install app یا Add to Home screen\n• در آیفون (سافاری): دکمه Share ➔ Add to Home Screen\n• در دسکتاپ (کروم): آیکون نصب در نوار آدرس کنار ستاره');
+    alert('مرورگر شما از نصب خودکار پشتیبانی نمی‌کند.\n\nلطفاً از منوی مرورگر خود اقدام کنید:\n\n• در اندروید (کروم): منوی سه نقطه ⋮ ➔ Install app\n• در آیفون (سافاری): Share ➔ Add to Home Screen\n• در دسکتاپ (کروم): آیکون نصب در نوار آدرس');
     return;
   }
-  
-  // نمایش پرامپت نصب
   deferredInstallPrompt.prompt();
   const { outcome } = await deferredInstallPrompt.userChoice;
-  
   if (outcome === 'accepted') {
-    if (btn) btn.style.display = 'none';
+    const btn = document.getElementById('btnInstallPWA'); if (btn) btn.style.display = 'none';
   }
   deferredInstallPrompt = null;
 };
