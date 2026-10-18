@@ -5,9 +5,6 @@ export const $ = id => document.getElementById(id);
 
 export const faNum = n => String(n ?? '').replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]);
 
-// ═══════════════════════════════════════════════════════
-// 🌟 تبدیل اعداد فارسی/عربی به انگلیسی
-// ═══════════════════════════════════════════════════════
 export const faToEn = (str) => {
   if (!str) return str;
   const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
@@ -52,21 +49,27 @@ export const jalaliToGregorian = (str) => {
   } catch (e) { return null; }
 };
 
+// ⭐ اصلاح شد: حذف صفر اول اگر ۱۴ رقم باشد
 export const cleanGTIN = (raw) => {
   if (!raw) return '';
-  // حذف تمام کاراکترهای غیر عددی (مثل فاصله، خط تیره و...)
+  // حذف کاراکترهای غیر عددی
   let digits = String(raw).replace(/[^0-9]/g, '');
   
-  // استاندارد GTIN حداکثر ۱۴ رقم است. اگر بیشتر بود، ۱۴ رقم آخر را جدا می‌کنیم.
+  // اگر بیشتر از ۱۴ رقم بود، ۱۴ رقم آخر را جدا کن
   if (digits.length > 14) {
     digits = digits.slice(-14);
+  }
+  
+  // اگر دقیقا ۱۴ رقم بود و با صفر شروع می‌شد، صفر اول را بردار تا ۱۳ رقم شود
+  if (digits.length === 14 && digits.startsWith('0')) {
+    digits = digits.substring(1);
   }
   
   return digits;
 };
 
+// ⭐ اصلاح شد: تطبیق هم بارکد ۱۳ رقمی و هم ۱۴ رقمی
 export const parseGS1 = (raw) => {
-  // ⭐ اضافه شدن exps (آرایه تاریخ‌ها) به خروجی
   const r = { gtin: null, exp: null, exps: [], batch: null, serial: null };
   if (!raw) return r;
 
@@ -79,9 +82,11 @@ export const parseGS1 = (raw) => {
     .replace(/[\r\n\t]+/g, ' ')
     .trim();
 
-  // ═══ ۱. GTIN ═══
+  // ═══ ۱. GTIN (بررسی ۱۴ رقمی و ۱۳ رقمی) ═══
   let m01 = s.match(/(?:^|[^0-9])01(\d{14})/);
+  if (!m01) m01 = s.match(/(?:^|[^0-9])01(\d{13})/);
   if (!m01) m01 = s.match(/01(\d{14})/);
+  if (!m01) m01 = s.match(/01(\d{13})/);
   if (m01) r.gtin = m01[1];
 
   // ═══ ۲. تاریخ‌های انقضا (پیدا کردن همه 17 ها) ═══
@@ -89,7 +94,7 @@ export const parseGS1 = (raw) => {
   
   const now = new Date();
   const maxFuture = new Date();
-  maxFuture.setFullYear(now.getFullYear() + 5); // حداکثر ۵ سال آینده
+  maxFuture.setFullYear(now.getFullYear() + 5);
 
   const validExps = [];
 
@@ -100,16 +105,13 @@ export const parseGS1 = (raw) => {
     const dd = parseInt(ds.substring(4, 6), 10);
     const year = yy < 70 ? 2000 + yy : 1900 + yy;
 
-    // ⭐ اعتبارسنجی دقیق
     if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
       const expDate = new Date(year, mm - 1, dd);
-      // چک کردن اینکه تاریخ سرریز نشده باشد (مثلا 31 فوریه)
       if (expDate.getMonth() === mm - 1 && expDate.getDate() === dd) {
-        // چک کردن حداکثر ۵ سال آینده
         if (expDate <= maxFuture) {
           const expStr = `${year}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
           if (!validExps.includes(expStr)) {
-            validExps.push(expStr); // جلوگیری از تاریخ‌های تکراری
+            validExps.push(expStr);
           }
         }
       }
@@ -118,7 +120,7 @@ export const parseGS1 = (raw) => {
 
   r.exps = validExps;
   if (validExps.length > 0) {
-    r.exp = validExps[0]; // پیش‌فرض را اولین تاریخ معتبر قرار می‌دهیم
+    r.exp = validExps[0];
   }
 
   // ═══ ۳. AIهای متغیر (10 = بچ، 21 = سریال) ═══
@@ -153,7 +155,6 @@ export const parseGS1 = (raw) => {
   return r;
 };
 
-// ⭐ تعریف audioCtx برای جلوگیری از خطای Runtime در تابع beep
 const audioCtx = window.AudioContext || window.webkitAudioContext ? new (window.AudioContext || window.webkitAudioContext)() : null;
 
 export function beep(freq = 880, dur = 0.12) {
@@ -205,4 +206,4 @@ export function checkExpiry(greg) {
     if (days <= 180)  return { level: 'warning', days, msg: `🟡 کمتر از ۶ ماه (${days} روز)` };
     return { level: 'ok', days, msg: `✅ ${days} روز تا انقضا` };
   } catch (e) { return null; }
-} // ⬅️ این آکولاد در فایل قبلی شما کم بود و باعث خطای بیلد شده بود
+}
