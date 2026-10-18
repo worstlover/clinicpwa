@@ -6,13 +6,13 @@
 <meta name="theme-color" content="#f3f6f9" id="metaThemeColor">
 <title>کلینیک گندله سازی بهاباد</title>
 
-<!-- ⬅️ فونت مدرن استعداد (Estedad) -->
+<!-- فونت مدرن استعداد (Estedad) -->
 <link href="https://cdn.jsdelivr.net/gh/aminabedi68/Estedad@latest/dist/Farsi/Estedad-FD[KSHD,wght].min.css" rel="stylesheet">
 
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 
-<link href="lib/vazirmatn.css" rel="stylesheet"> <!-- به عنوان پشتیبان نگه داشته شد -->
+<link href="lib/vazirmatn.css" rel="stylesheet">
 <link href="lib/bootstrap.rtl.min.css" rel="stylesheet">
 <link href="lib/bootstrap-icons.min.css" rel="stylesheet">
 <link href="styles/main.css" rel="stylesheet">
@@ -25,7 +25,7 @@
   .screen { display: none !important; }
   .screen.active { display: block !important; }
   #screenLoading { display: none; }
-  #screenLoading.active { display: block !important; }
+  #screenLoading.active { display: flex !important; }
 </style>
 </head>
 <body>
@@ -39,11 +39,19 @@
   })();
 </script>
 
-<!-- ═════════════ لودینگ و لاگین ═════════════ -->
-<div id="screenLoading" class="screen active">
-  <div class="loading-wrapper text-center pt-5">
-    <h2 class="loading-title fw-bold">کلینیک گندله</h2>
-    <div class="spinner-border text-success mt-4" role="status"></div>
+<!-- ═════════════ لودینگ با نوار پیشرفت ═════════════ -->
+<div id="screenLoading" class="screen active" style="align-items: center; justify-content: center; min-height: 100vh; background: var(--bg);">
+  <div class="loading-wrapper text-center">
+    <div class="brand-mark mx-auto mb-4" style="width: 64px; height: 64px; border-radius: 18px;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="width: 36px; height: 36px;"><path d="M12 5v14M5 12h14"/><path d="M17.6 3.8c-2.7.2-4.6 1.9-4.9 4.3 2.7-.2 4.6-1.9 4.9-4.3z" fill="currentColor" stroke="none"/></svg>
+    </div>
+    <h2 class="loading-title fw-bold mb-4" style="font-size: 1.5rem;">کلینیک گندله سازی بهاباد</h2>
+    
+    <!-- نوار پیشرفت -->
+    <div class="progress" style="width: 220px; height: 10px; background: #e2e8f0; border-radius: 10px; overflow: hidden; direction: ltr; margin: 0 auto;">
+      <div id="loadingProgressBar" class="progress-bar" role="progressbar" style="width: 0%; background: var(--primary); transition: width 0.1s;"></div>
+    </div>
+    <div id="loadingPercent" class="mt-2 text-muted" style="font-size: 0.9rem;">0%</div>
   </div>
 </div>
 
@@ -55,7 +63,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/><path d="M17.6 3.8c-2.7.2-4.6 1.9-4.9 4.3 2.7-.2 4.6-1.9 4.9-4.3z" fill="currentColor" stroke="none"/></svg>
         </span>
       </div>
-      <h3 class="text-center fw-bold mb-4">ورود به کلینیک</h3>
+      <h3 class="text-center fw-bold mb-4">ورود به کلینیک گندله سازی بهاباد</h3>
       <div id="loginMsg"></div>
       <div class="mb-3">
         <label class="form-label">نام کاربری</label>
@@ -94,7 +102,8 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/><path d="M17.6 3.8c-2.7.2-4.6 1.9-4.9 4.3 2.7-.2 4.6-1.9 4.9-4.3z" fill="currentColor" stroke="none"/></svg>
     </span>
     <div>
-      <div class="brand-name">گندله</div>
+      <!-- ⬅️ نام تغییر کرد -->
+      <div class="brand-name">گندله سازی بهاباد</div>
       <div class="brand-sub">سامانه جامع کلینیک صنعتی</div>
     </div>
   </div>
@@ -128,7 +137,7 @@
     <div class="home-greeting">
       <div>
         <div class="home-greeting-text">سلام</div>
-        <div class="home-greeting-sub">به کلینیک گندله‌سازی بهاباد خوش آمدید</div>
+        <div class="home-greeting-sub">به کلینیک گندله سازی بهاباد خوش آمدید</div>
         <div class="home-greeting-email" id="userEmail">admin@clinic.local</div>
       </div>
       <div class="home-greeting-art"><i class="bi bi-flower1"></i></div>
