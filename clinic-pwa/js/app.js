@@ -26,19 +26,27 @@ import { sb } from './sb.js';
 console.log('[APP] module loaded');
 
 // ═══════════════════════════════════════════════════════
-// انیمیشن نوار پیشرفت
+// انیمیشن نوار پیشرفت (Progress Bar)
 // ═══════════════════════════════════════════════════════
 function startLoadingProgress() {
   const bar = document.getElementById('loadingProgressBar');
   const percent = document.getElementById('loadingPercent');
   if (!bar || !percent) return;
-  bar.style.width = '0%'; percent.textContent = '0%';
+  
+  bar.style.width = '0%'; 
+  percent.textContent = '0%';
+  
   if (window.__loadingInterval) clearInterval(window.__loadingInterval);
+  
   let value = 0;
   window.__loadingInterval = setInterval(() => {
     value += Math.random() * 12 + 4;
-    if (value >= 95) { value = 95; clearInterval(window.__loadingInterval); }
-    bar.style.width = value + '%'; percent.textContent = Math.floor(value) + '%';
+    if (value >= 95) { 
+      value = 95; 
+      clearInterval(window.__loadingInterval); 
+    }
+    bar.style.width = value + '%'; 
+    percent.textContent = Math.floor(value) + '%';
   }, 280);
 }
 
@@ -46,8 +54,10 @@ function finishLoadingProgress() {
   const bar = document.getElementById('loadingProgressBar');
   const percent = document.getElementById('loadingPercent');
   if (window.__loadingInterval) clearInterval(window.__loadingInterval);
+  
   if (bar && percent) {
-    bar.style.width = '100%'; percent.textContent = '100%';
+    bar.style.width = '100%'; 
+    percent.textContent = '100%';
     setTimeout(() => {
       document.getElementById('screenLoading')?.classList.remove('active');
       document.getElementById('appHeader')?.classList.remove('hidden');
@@ -105,49 +115,59 @@ document.querySelectorAll('[data-nav]').forEach(el => {
 });
 
 // ═══════════════════════════════════════════════════════
-// 📊 بارگذاری آمار داشبورد (اصلاح شده)
+// 📊 بارگذاری آمار داشبورد (به‌روزرسانی ایمن)
 // ═══════════════════════════════════════════════════════
 async function loadDashboardStats() {
   try {
+    // تابع کمکی برای جلوگیری از خطای نال بودن المان‌ها
+    const setStat = (key, val) => {
+      const el = document.querySelector(`[data-stat="${key}"]`);
+      if (el) el.textContent = faNum(val !== undefined && val !== null ? val : 0);
+    };
+
     const todayStr = new Date().toISOString().slice(0, 10);
     const monthStart = todayStr.slice(0, 8) + '01';
     const threeMonthsLater = new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString().slice(0, 10);
 
     // ۱. بیماران
-    const { count: patCount } = await sb.from('core_patient').select('*', { count: 'exact', head: true });
-    document.querySelector('[data-stat="patientsTotal"]').textContent = faNum(patCount || 0);
+    const { count: patCount, error: patErr } = await sb.from('core_patient').select('*', { count: 'exact', head: true });
+    setStat('patientsTotal', patErr ? 0 : patCount);
 
     // ۲. ویزیت امروز
-    const { count: visToday } = await sb.from('visits_visit').select('*', { count: 'exact', head: true }).gte('visit_date', todayStr);
-    document.querySelector('[data-stat="visitsToday"]').textContent = faNum(visToday || 0);
+    const { count: visToday, error: visErr } = await sb.from('visits_visit').select('*', { count: 'exact', head: true }).gte('visit_date', todayStr);
+    setStat('visitsToday', visErr ? 0 : visToday);
 
     // ۳. طب کار این ماه
-    const { count: occCount } = await sb.from('lab_results_periodicexamination').select('*', { count: 'exact', head: true }).gte('exam_date', monthStart);
-    document.querySelector('[data-stat="examsMonth"]').textContent = faNum(occCount || 0);
+    const { count: occCount, error: occErr } = await sb.from('lab_results_periodicexamination').select('*', { count: 'exact', head: true }).gte('exam_date', monthStart);
+    setStat('examsMonth', occErr ? 0 : occCount);
 
-    // ۴. جریمه و تشویقی
+    // ۴. جریمه و تشویقی (با مدیریت خطا)
     try {
-      const { count: fineCount } = await sb.from('fine_rewards').select('*', { count: 'exact', head: true }).gte('created_at', monthStart);
-      document.querySelector('[data-stat="finesMonth"]').textContent = faNum(fineCount || 0);
-    } catch(e) {}
+      const { count: fineCount, error: fineErr } = await sb.from('fine_rewards').select('*', { count: 'exact', head: true }).gte('created_at', monthStart);
+      setStat('finesMonth', fineErr ? 0 : fineCount);
+    } catch(e) { setStat('finesMonth', 0); }
 
-    // ۵. داروها
-    // ⬅️ اصلاح: تعداد انواع داروها (نه مجموع قرص‌ها) را می‌شماریم
-    const { data: stockData } = await sb.from('v_drug_stock').select('drug_id, total_quantity');
-    if (stockData) {
+    // ۵. فرم‌ها (با مدیریت خطا)
+    try {
+      // در صورت نیاز نام جدول فرم‌ها را جایگزین کنید
+      const { count: formCount, error: formErr } = await sb.from('forms_submission').select('*', { count: 'exact', head: true });
+      setStat('formsCount', formErr ? 0 : formCount);
+    } catch(e) { setStat('formsCount', 0); }
+
+    // ۶. داروها
+    const { data: stockData, error: stockErr } = await sb.from('v_drug_stock').select('drug_id, total_quantity');
+    if (!stockErr && stockData) {
       const totalDrugTypes = stockData.length; 
       const lowStock = stockData.filter(s => s.total_quantity > 0 && s.total_quantity <= 10).length;
-      
-      document.querySelector('[data-stat="drugsTotal"]').textContent = faNum(totalDrugTypes);
-      document.querySelector('[data-stat="drugsLow"]').textContent = faNum(lowStock);
+      setStat('drugsTotal', totalDrugTypes);
+      setStat('drugsLow', lowStock);
+    } else {
+      setStat('drugsTotal', 0);
+      setStat('drugsLow', 0);
     }
     
-    // ⬅️ اصلاح: تعداد بچ‌های نزدیک انقضا
-    const { count: expCount } = await sb.from('drugs_drugbatch').select('*', { count: 'exact', head: true }).lt('expiry_date', threeMonthsLater).gt('quantity', 0);
-    document.querySelector('[data-stat="drugsExpiring"]').textContent = faNum(expCount || 0);
-
-    // ۶. تعداد فرم‌ها
-    document.querySelector('[data-stat="formsCount"]').textContent = faNum(150); 
+    const { count: expCount, error: expErr } = await sb.from('drugs_drugbatch').select('*', { count: 'exact', head: true }).lt('expiry_date', threeMonthsLater).gt('quantity', 0);
+    setStat('drugsExpiring', expErr ? 0 : expCount);
 
   } catch (err) {
     console.error('[Stats] Error loading dashboard stats:', err);
