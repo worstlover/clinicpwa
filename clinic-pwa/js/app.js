@@ -5,6 +5,7 @@ import { doLogin, doLogout, checkAuth } from './auth.js';
 import { initScannerButtons, closeScanner } from './scanner.js';
 import { initQtyModal, initSearchModal } from './modals.js';
 import { openInventory } from './modules/inventory.js';
+import { openInventoryList } from './modules/inventory-list.js'; // ⬅️ اضافه شد
 import { openReceive } from './modules/receive.js';
 import { openDisposal } from './modules/disposal.js';
 import { openReport } from './modules/report.js';
@@ -21,27 +22,16 @@ import { initFCM } from './fcm.js';
 
 console.log('[APP] module loaded');
 
-// ═══════════════════════════════════════════════════════
-// انیمیشن نوار پیشرفت
-// ═══════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════
-// انیمیشن نوار پیشرفت صفحه‌ی لودینگ
-// ═══════════════════════════════════════════════════════
 function startLoadingProgress() {
   const bar = document.getElementById('loadingProgressBar');
   const percent = document.getElementById('loadingPercent');
   if (!bar || !percent) return;
-
-  // ریست مقادیر قبلی
   bar.style.width = '0%';
   percent.textContent = '0%';
-
-  // پاک کردن interval قدیمی (اگر بود) تا دوتایی اجرا نشه
   if (window.__loadingInterval) {
     clearInterval(window.__loadingInterval);
     window.__loadingInterval = null;
   }
-
   let value = 0;
   window.__loadingInterval = setInterval(() => {
     value += Math.random() * 12 + 4;
@@ -55,10 +45,8 @@ function startLoadingProgress() {
   }, 280);
 }
 
-// ⭐ expose برای استفاده از auth.js
 window.startLoadingProgress = startLoadingProgress;
 
-// اجرای اولیه در بارگذاری صفحه
 try {
   if (document.getElementById('screenLoading')?.classList.contains('active')) {
     startLoadingProgress();
@@ -67,16 +55,10 @@ try {
   console.error('[APP] loading progress:', e);
 }
 
-// ═══════════════════════════════════════════════════════
-// راه‌اندازی ماژول‌ها (هرکدوم جدا، خطای یکی بقیه رو متوقف نمی‌کنه)
-// ═══════════════════════════════════════════════════════
 try { initQtyModal(); }        catch (e) { console.error('[APP] initQtyModal:', e); }
 try { initSearchModal(); }     catch (e) { console.error('[APP] initSearchModal:', e); }
 try { initScannerButtons(); }  catch (e) { console.error('[APP] initScannerButtons:', e); }
 
-// ═══════════════════════════════════════════════════════
-// لاگین
-// ═══════════════════════════════════════════════════════
 const btnLogin = $('btnLogin');
 if (btnLogin) btnLogin.onclick = doLogin;
 
@@ -90,9 +72,6 @@ if (loginPass) {
   });
 }
 
-// ═══════════════════════════════════════════════════════
-// هدر
-// ═══════════════════════════════════════════════════════
 const btnBack = $('btnBack');
 if (btnBack) btnBack.onclick = () => showScreen('Home');
 
@@ -108,20 +87,16 @@ if (userEmailEl) {
   userEmailEl.onclick = () => openProfile();
 }
 
-// ═══════════════════════════════════════════════════════
-// ناوبری
-// ═══════════════════════════════════════════════════════
 document.querySelectorAll('[data-nav]').forEach(el => {
   el.addEventListener('click', e => {
     e.preventDefault();
     const n = el.dataset.nav;
     console.log('[NAV] clicked:', n);
-
     try {
       if (n === 'home') showScreen('Home');
       else if (n === 'pharmacy') showScreen('Pharmacy');
       else if (n === 'visits') openVisits();
-      else if (n === 'inventory') openInventory();
+      else if (n === 'inventory') openInventoryList(); // ⬅️ تغییر برای باز کردن لیست
       else if (n === 'receive') openReceive();
       else if (n === 'disposal') openDisposal();
       else if (n === 'report') openReport();
@@ -140,18 +115,12 @@ document.querySelectorAll('[data-nav]').forEach(el => {
   });
 });
 
-// ═══════════════════════════════════════════════════════
-// ESC → بستن اسکنر
-// ═══════════════════════════════════════════════════════
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && $('scannerWrap')?.classList.contains('active')) {
     closeScanner();
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// نصب PWA
-// ═══════════════════════════════════════════════════════
 let deferredInstallPrompt = null;
 
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -178,17 +147,11 @@ window._triggerInstall = async () => {
   deferredInstallPrompt = null;
 };
 
-// ═══════════════════════════════════════════════════════
-// راه‌اندازی اولیه
-// ═══════════════════════════════════════════════════════
 (async () => {
   try { await checkAuth(); } catch (e) { console.error('[APP] checkAuth:', e); }
   try { await initFCM(); }   catch (e) { console.error('[APP] initFCM:', e); }
 })();
 
-// ═══════════════════════════════════════════════════════
-// Service Worker
-// ═══════════════════════════════════════════════════════
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./service-worker.js', { scope: './' }).catch(console.error);
 }
