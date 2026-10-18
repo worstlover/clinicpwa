@@ -1,8 +1,4 @@
 // js/ui.js
-import { openInventoryList } from './modules/inventory-list.js'; 
-import { openReceive } from './modules/receive.js';
-import { openDisposal } from './modules/disposal.js';
-
 export function showScreen(screenName) {
   const screens = {
     'Home':         'screenHome',
@@ -34,7 +30,7 @@ export function showScreen(screenName) {
     'Occupational': 'طب کار',
     'Forms':        'فرم‌ها',
     'FormsMenu':    'فرآیندها و فرم‌ها',
-    'FormsArchive': 'بایگانی فرم‌ها', // ⬅️ تغییر به بایگانی
+    'FormsArchive': 'بایگانی فرم‌ها', // ⬅️ تغییر برای جلوگیری از خطا
     'Guide':        'راهنمای فرآیندها',
     'VisitReports': 'گزارش ویزیت‌ها',
     'FineReward':   'جریمه و تشویقی',
@@ -68,20 +64,3 @@ export function showScreen(screenName) {
     }
   }
 }
-
-document.addEventListener('DOMContentLoaded', () => {
-  const btnInv = document.getElementById('btnInventory') || document.getElementById('menu-inventory');
-  if (btnInv) {
-    btnInv.onclick = () => openInventoryList(); 
-  }
-
-  const btnRecv = document.getElementById('btnReceive') || document.getElementById('menu-receive');
-  if (btnRecv) {
-    btnRecv.onclick = () => openReceive();
-  }
-
-  const btnDisp = document.getElementById('btnDisposal') || document.getElementById('menu-disposal');
-  if (btnDisp) {
-    btnDisp.onclick = () => openDisposal();
-  }
-});
