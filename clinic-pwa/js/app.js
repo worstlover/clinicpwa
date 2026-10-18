@@ -5,13 +5,14 @@ import { doLogin, doLogout, checkAuth } from './auth.js';
 import { initScannerButtons, closeScanner } from './scanner.js';
 import { initQtyModal, initSearchModal } from './modals.js';
 import { openInventory } from './modules/inventory.js';
-import { openInventoryList } from './modules/inventory-list.js'; // ⬅️ اضافه شد
+import { openInventoryList } from './modules/inventory-list.js';
 import { openReceive } from './modules/receive.js';
 import { openDisposal } from './modules/disposal.js';
 import { openReport } from './modules/report.js';
 import { openProfile } from './modules/profile.js';
 import { openOccupational } from './modules/occupational.js';
 import { openVisits } from './modules/visit/index.js';
+import { openPatients } from './modules/patients.js'; // ⬅️ اضافه شد
 import { openForms } from './forms/engine.js';
 import { openGuide } from './process/guide.js';
 import { openFormsMenu } from './modules/forms-menu.js';
@@ -62,7 +63,6 @@ function finishLoadingProgress() {
     bar.style.width = '100%';
     percent.textContent = '100%';
     setTimeout(() => {
-      // بستن صفحه لودینگ بعد از رسیدن به ۱۰۰
       document.getElementById('screenLoading')?.classList.remove('active');
       document.getElementById('appHeader')?.classList.remove('hidden');
       document.getElementById('bottomNav')?.classList.remove('hidden');
@@ -70,11 +70,9 @@ function finishLoadingProgress() {
   }
 }
 
-// ⭐ در دسترس قرار دادن برای استفاده در auth.js
 window.startLoadingProgress = startLoadingProgress;
 window.finishLoadingProgress = finishLoadingProgress;
 
-// اجرای اولیه در بارگذاری صفحه (بدون نیاز به active بودن)
 try {
   startLoadingProgress();
 } catch (e) {
@@ -130,7 +128,8 @@ document.querySelectorAll('[data-nav]').forEach(el => {
       if (n === 'home') showScreen('Home');
       else if (n === 'pharmacy') showScreen('Pharmacy');
       else if (n === 'visits') openVisits();
-      else if (n === 'inventory') openInventoryList(); // ⬅️ رفتن به لیست
+      else if (n === 'patients') openPatients(); // ⬅️ مسیر جدید
+      else if (n === 'inventory') openInventoryList();
       else if (n === 'receive') openReceive();
       else if (n === 'disposal') openDisposal();
       else if (n === 'report') openReport();
@@ -190,7 +189,6 @@ window._triggerInstall = async () => {
   } catch (e) {
     console.error('[APP] checkAuth:', e);
   } finally {
-    // ⬅️ بعد از اینکه وضعیت لاگین مشخص شد، لودینگ را می‌بندیم
     finishLoadingProgress();
   }
   
