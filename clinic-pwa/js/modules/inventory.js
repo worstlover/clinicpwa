@@ -8,60 +8,71 @@ import { showScreen } from '../ui.js';
 import { openScanner } from '../scanner.js';
 import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js';
 import { isAdmin, currentUser } from '../auth.js';
+import { printA4 } from './list-print.js';
 
-const state = { session: null, items: [] };
-
-const getUserName = () => {
-  return currentUser?.user_metadata?.display_name || 
-         currentUser?.user_metadata?.name || 
-         currentUser?.email || 
-         'نامشخص';
+const state = { 
+  session: null, 
+  currentStep: 1,
+  items: [],
+  reportData: null,
+  pendingDiscrepancies: [] // برای گام ۷
 };
 
-export function openInventory() {
+const AUTOSAVE_KEY = 'inv_autosave_data';
+
+const getUserName = () => {
+  if (!currentUser) return 'نامشخص';
+  if (currentUser.user_metadata?.display_name) return currentUser.user_metadata.display_name;
+  if (currentUser.user_metadata?.name) return currentUser.user_metadata.name;
+  if (currentUser.email) return currentUser.email.split('@')[0]; 
+  return 'نامشخص';
+};
+
+export function openInventory(sessionId = null) {
   showScreen('Inventory');
-  if (state.session) { renderScan(); return; }
-  renderStart();
+  if (sessionId) {
+    localStorage.setItem('inv_session_id', sessionId);
+    state.session = null;
+  }
+  if (state.session) { renderStep(); return; }
+  if (sessionId) { continueSession(); return; }
+  initSession();
 }
 
-function renderStart() {
-  $('invContent').innerHTML = `
-    <div class="card">
-      <div class="card-head"><i class="bi bi-clipboard-check"></i> شروع انبارگردانی</div>
-      <div class="card-body">
-        <div class="mb-3">
-          <label class="form-label">عنوان (اختیاری)</label>
-          <input type="text" class="form-control" id="invTitle" placeholder="انبارگردانی پایان ماه">
-        </div>
-        <button class="btn btn-primary w-100 btn-lg" id="btnInvStart">
-          <i class="bi bi-play-circle"></i> شروع جلسه
-        </button>
-        <button class="btn btn-outline-secondary w-100 mt-2" id="btnInvContinue">
-          <i class="bi bi-arrow-clockwise"></i> ادامه جلسه قبلی
-        </button>
-      </div>
-    </div>`;
-  $('btnInvStart').onclick = startSession;
-  $('btnInvContinue').onclick = continueSession;
-}
+async function initSession() {
+  const savedData = localStorage.getItem(AUTOSAVE_KEY);
+  if (savedData) {
+    try {
+      const parsed = JSON.parse(savedData);
+      if (Date.now() - parsed.timestamp < 24 * 3600 * 1000) { // کمتر از ۲۴ ساعت
+        if (confirm('یک ذخیره موقت از انبارگردانی قبلی پیدا شد. بازیابی شود؟')) {
+          state.items = parsed.items || [];
+          state.currentStep = parsed.step || 5;
+          if (parsed.session) {
+            state.session = parsed.session;
+            renderStep();
+            return;
+          }
+        }
+      }
+    } catch(e) {}
+  }
 
-async function startSession() {
-  const title = $('invTitle').value.trim() || 'انبارگردانی';
-  const { data: code } = await sb.rpc('gen_inv_code');
+  const id = localStorage.getItem('inv_session_id');
+  if (id) {
+    const { data } = await sb.from('inv_sessions').select('*').eq('id', id).maybeSingle();
+    if (data && !['completed', 'applied'].includes(data.status)) {
+      state.session = data;
+      state.currentStep = data.step || 1;
+      loadSessionItems();
+      return;
+    }
+  }
   
-  const { data, error } = await sb.from('inv_sessions').insert({ 
-    code, 
-    title, 
-    status: 'in_progress',
-    created_by_email: currentUser?.email || null,
-    created_by_name: getUserName()
-  }).select().single();
-  
-  if (error) { toast(error.message, 'danger'); return; }
-  state.session = data;
+  state.session = null;
+  state.currentStep = 1;
   state.items = [];
-  localStorage.setItem('inv_session_id', data.id);
-  renderScan();
+  renderStep();
 }
 
 async function continueSession() {
@@ -71,48 +82,357 @@ async function continueSession() {
   if (!data) { toast('یافت نشد', 'danger'); return; }
   if (['completed', 'applied'].includes(data.status)) { toast('این سند بسته شده است', 'warning'); return; }
   state.session = data;
-  const { data: items } = await sb.from('inv_count_items').select('*').eq('session_id', id);
-  state.items = (items || []).map(i => ({
+  state.currentStep = data.step || 1;
+  loadSessionItems();
+}
+
+async function loadSessionItems() {
+  const { data } = await sb.from('inv_count_items').select('*').eq('session_id', state.session.id);
+  state.items = (data || []).map(i => ({
     drug_id: i.drug_id, drug_name: i.drug_name, drug_form: i.drug_form || '',
     batch_number: i.batch_number, expiry_date: i.expiry_date,
     counted_quantity: i.counted_quantity, barcode: i.barcode,
-    counted_by_email: i.counted_by_email,
-    counted_by_name: i.counted_by_name
+    counted_by_email: i.counted_by_email, counted_by_name: i.counted_by_name || 'نامشخص'
   }));
-  renderScan();
+  renderStep();
 }
 
-function renderScan() {
-  $('invContent').innerHTML = `
-    <div class="card">
-      <div class="card-body py-3 d-flex justify-content-between align-items-center">
-        <div>
-          <span class="badge-soft primary">${state.session.code}</span>
-          <div class="muted small mt-1">${escapeHtml(state.session.title || '')}</div>
-        </div>
-        <div class="badge-soft success">${faNum(state.items.length)} قلم</div>
+async function saveStep(step) {
+  if (!state.session) {
+    const title = `انبارگردانی ${new Date().toLocaleDateString('fa-IR')}`;
+    const { data: code } = await sb.rpc('gen_inv_code');
+    const { data, error } = await sb.from('inv_sessions').insert({ 
+      code, title, status: 'in_progress', step,
+      created_by_email: currentUser?.email || null, created_by_name: getUserName()
+    }).select().single();
+    if (error) { toast(error.message, 'danger'); return false; }
+    state.session = data;
+    localStorage.setItem('inv_session_id', data.id);
+  } else {
+    await sb.from('inv_sessions').update({ step }).eq('id', state.session.id);
+  }
+  state.currentStep = step;
+  renderStep();
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════
+// ذخیره خودکار هر ۵ ثانیه
+// ═══════════════════════════════════════════════════════════
+setInterval(() => {
+  if (state.currentStep >= 5 && state.currentStep <= 7 && state.items.length > 0) {
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
+      items: state.items,
+      step: state.currentStep,
+      session: state.session,
+      timestamp: Date.now()
+    }));
+  }
+}, 5000);
+
+// ═══════════════════════════════════════════════════════════
+// توابع کمکی (CSV و غیره)
+// ═══════════════════════════════════════════════════════════
+function downloadCSV(data, filename) {
+  if (!data || !data.length) return;
+  const headers = Object.keys(data[0]);
+  let csvContent = "\uFEFF"; // BOM برای نمایش صحیح فارسی در اکسل
+  
+  csvContent += headers.join(",") + "\n";
+  data.forEach(row => {
+    const values = headers.map(header => {
+      let val = row[header] === null || row[header] === undefined ? '' : String(row[header]);
+      return `"${val.replace(/"/g, '""')}"`;
+    });
+    csvContent += values.join(",") + "\n";
+  });
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+// ═══════════════════════════════════════════════════════════
+// راهنمای گام‌ها (Router)
+// ═══════════════════════════════════════════════════════════
+function renderStep() {
+  const c = $('invContent');
+  if (!c) return;
+  
+  const steps = [
+    { id: 1, title: 'دریافتی‌ها ۱', icon: 'bi-file-earmark-text' },
+    { id: 2, title: 'ویزیت‌ها', icon: 'bi-person-lines-fill' },
+    { id: 3, title: 'دریافتی‌ها ۲', icon: 'bi-file-earmark-check' },
+    { id: 4, title: 'داروهای منقضی', icon: 'bi-trash3' },
+    { id: 5, title: 'شمارش فیزیکی', icon: 'bi-upc-scan' },
+    { id: 6, title: 'مغایرت‌گیری', icon: 'bi-exclamation-triangle' },
+    { id: 7, title: 'شمارش مغایر', icon: 'bi-arrow-repeat' },
+    { id: 8, title: 'تصویب نهایی', icon: 'bi-file-earmark-check' },
+  ];
+
+  c.innerHTML = `
+    <div class="card mb-3">
+      <div class="card-body py-2 d-flex justify-content-between align-items-center" style="overflow-x:auto;">
+        ${steps.map(s => `
+          <div class="text-center mx-2" style="opacity:${state.currentStep === s.id ? '1' : '0.5'}; min-width:60px;">
+            <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-1" 
+                 style="width:36px;height:36px;background:${state.currentStep === s.id ? 'var(--primary)' : '#e2e8f0'}; color:${state.currentStep === s.id ? '#fff' : '#64748b'};">
+              <i class="bi ${s.icon}"></i>
+            </div>
+            <div style="font-size:0.65rem; font-weight:${state.currentStep === s.id ? 'bold' : 'normal'};">${s.title}</div>
+          </div>
+        `).join('')}
       </div>
     </div>
+    <div id="stepContent"></div>
+  `;
+
+  if (state.currentStep === 1) renderStep1_Receipts();
+  else if (state.currentStep === 2) renderStep2_Visits();
+  else if (state.currentStep === 3) renderStep3_ReceiptsAgain();
+  else if (state.currentStep === 4) renderStep4_Expired();
+  else if (state.currentStep === 5) renderStep5_Scan();
+  else if (state.currentStep === 6) renderStep6_Discrepancies();
+  else if (state.currentStep === 7) renderStep7_Recount();
+  else if (state.currentStep === 8) renderStep8_Report();
+}
+
+// ═══════════════════════════════════════════════════════════
+// گام ۱ و ۳: سندهای دریافتی
+// ═══════════════════════════════════════════════════════════
+async function renderStep1_Receipts() {
+  const c = $('stepContent');
+  c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+  
+  const { data: drafts } = await sb.from('drugs_receipt').select('id, receipt_number, supplier_name').eq('status', 'draft');
+
+  if (!drafts || drafts.length === 0) {
+    c.innerHTML = `<div class="alert alert-success text-center"><i class="bi bi-check-circle-fill"></i> هیچ سند دریافت پیش‌نویسی وجود ندارد.</div>
+      <button class="btn btn-primary w-100 py-3" id="btnNext">تایید و گام بعدی <i class="bi bi-arrow-left"></i></button>`;
+    $('btnNext').onclick = () => saveStep(2);
+    return;
+  }
+
+  c.innerHTML = `
+    <div class="alert alert-warning small">
+      <i class="bi bi-exclamation-triangle"></i> شما ${faNum(drafts.length)} سند دریافت پیش‌نویس دارید. لطفا در صفحه دریافت آن‌ها را نهایی یا حذف کنید.
+    </div>
+    <button class="btn btn-outline-warning w-100 mb-3" id="btnGoReceive"><i class="bi bi-truck"></i> رفتن به صفحه دریافت دارو</button>
+    <button class="btn btn-primary w-100 py-3" id="btnNext">بررسی مجدد و گام بعدی <i class="bi bi-arrow-left"></i></button>
+  `;
+  $('btnGoReceive').onclick = () => { document.getElementById('invContent').innerHTML = ''; import('./receive.js').then(m => m.openReceive()); };
+  $('btnNext').onclick = () => renderStep1_Receipts();
+}
+
+async function renderStep3_ReceiptsAgain() {
+  const c = $('stepContent');
+  c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+  
+  const { data: drafts } = await sb.from('drugs_receipt').select('id').eq('status', 'draft');
+
+  if (!drafts || drafts.length === 0) {
+    c.innerHTML = `<div class="alert alert-success text-center"><i class="bi bi-check-circle-fill"></i> تایید شد. هیچ سند دریافتی جدیدی وجود ندارد.</div>
+      <button class="btn btn-primary w-100 py-3" id="btnNext">گام بعدی <i class="bi bi-arrow-left"></i></button>`;
+    $('btnNext').onclick = () => saveStep(4);
+    return;
+  }
+
+  c.innerHTML = `
+    <div class="alert alert-danger small">
+      <i class="bi bi-exclamation-triangle-fill"></i> هنوز ${faNum(drafts.length)} سند دریافت پیش‌نویس دارید! لطفا آن‌ها را تعیین تکلیف کنید.
+    </div>
+    <button class="btn btn-danger w-100 mb-3" id="btnGoReceive"><i class="bi bi-truck"></i> رفتن به صفحه دریافت دارو</button>
+    <button class="btn btn-primary w-100 py-3" id="btnNext">بررسی مجدد <i class="bi bi-arrow-left"></i></button>
+  `;
+  $('btnGoReceive').onclick = () => { document.getElementById('invContent').innerHTML = ''; import('./receive.js').then(m => m.openReceive()); };
+  $('btnNext').onclick = () => renderStep3_ReceiptsAgain();
+}
+
+// ═══════════════════════════════════════════════════════════
+// گام ۲: تکمیل گروهی ویزیت‌ها
+// ═══════════════════════════════════════════════════════════
+async function renderStep2_Visits() {
+  const c = $('stepContent');
+  c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+  
+  const { data: visits } = await sb.from('visits_visit')
+    .select('id, patient:core_patient(first_name, last_name), visit_date')
+    .neq('status', 'completed');
+
+  if (!visits || visits.length === 0) {
+    c.innerHTML = `<div class="alert alert-success text-center"><i class="bi bi-check-circle-fill"></i> هیچ ویزیت ناقصی وجود ندارد.</div>
+      <button class="btn btn-primary w-100 py-3" id="btnNext">گام بعدی <i class="bi bi-arrow-left"></i></button>`;
+    $('btnNext').onclick = () => saveStep(3);
+    return;
+  }
+
+  c.innerHTML = `
+    <div class="alert alert-warning small">
+      <i class="bi bi-exclamation-triangle"></i> شما ${faNum(visits.length)} ویزیت تکمیل‌نشده دارید.
+    </div>
+    <div class="d-flex gap-2 mb-3">
+      <button class="btn btn-danger flex-grow-1" id="btnBulkComplete"><i class="bi bi-check-all"></i> تکمیل یکجای همه</button>
+      <button class="btn btn-outline-success" id="btnExportVisits"><i class="bi bi-file-earmark-excel"></i> اکسل</button>
+    </div>
+    <div class="d-flex flex-column gap-2 mb-3" style="max-height:300px; overflow-y:auto;">
+      ${visits.map(v => {
+        const pName = `${v.patient?.first_name || ''} ${v.patient?.last_name || ''}`.trim() || 'بیمار';
+        return `<div class="card p-2 d-flex justify-content-between align-items-center small">
+            <span>${escapeHtml(pName)} (${gregorianToJalali(v.visit_date)})</span>
+          </div>`;
+      }).join('')}
+    </div>
+    <button class="btn btn-primary w-100 py-3" id="btnNext">بررسی مجدد و گام بعدی <i class="bi bi-arrow-left"></i></button>
+  `;
+
+  $('btnExportVisits').onclick = () => {
+    const csvData = visits.map(v => ({
+      'بیمار': `${v.patient?.first_name || ''} ${v.patient?.last_name || ''}`.trim(),
+      'تاریخ ویزیت': gregorianToJalali(v.visit_date),
+      'شناسه': v.id
+    }));
+    downloadCSV(csvData, 'visits_pending.csv');
+  };
+
+  $('btnBulkComplete').onclick = async () => {
+    if (!confirm('تمام ویزیت‌های ناقص تکمیل شوند؟ (در صورت کمبود موجودی سالم، از داروهای منقضی کسر می‌شود)')) return;
+    const btn = $('btnBulkComplete');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال پردازش...';
+
+    let successCount = 0;
+    for (let v of visits) {
+      const { data: items } = await sb.from('visits_visititem').select('drug_id, quantity').eq('visit_id', v.id);
+      if (items) {
+        for (let it of items) {
+          // تلاش برای کسر عادی
+          const { error } = await sb.rpc('deduct_stock_fifo', { p_drug_id: it.drug_id, p_quantity: it.quantity });
+          // اگر خطا داد (موجودی کافی نبود)، از داروهای منقضی کسر میکنیم
+          if (error) {
+            const { data: expiredBatches } = await sb.from('drugs_drugbatch').select('id, quantity').eq('drug_id', it.drug_id).lt('expiry_date', new Date().toISOString().slice(0, 10)).gt('quantity', 0);
+            let remQty = it.quantity;
+            for (let eb of (expiredBatches || [])) {
+              if (remQty <= 0) break;
+              const deduct = Math.min(eb.quantity, remQty);
+              await sb.from('drugs_drugbatch').update({ quantity: eb.quantity - deduct }).eq('id', eb.id);
+              remQty -= deduct;
+            }
+          }
+        }
+      }
+      await sb.from('visits_visit').update({ status: 'completed', completed_at: new Date().toISOString(), completed_by_id: currentUser?.id }).eq('id', v.id);
+      successCount++;
+    }
+    toast(`${faNum(successCount)} ویزیت تکمیل شد`, 'success');
+    renderStep2_Visits();
+  };
+  $('btnNext').onclick = () => saveStep(3);
+}
+
+// ═══════════════════════════════════════════════════════════
+// گام ۴: خروج گروهی داروهای منقضی
+// ═══════════════════════════════════════════════════════════
+async function renderStep4_Expired() {
+  const c = $('stepContent');
+  c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+  
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: expired } = await sb.from('drugs_drugbatch')
+    .select('id, batch_number, expiry_date, quantity, drug:drugs_drug(name)')
+    .lt('expiry_date', today).gt('quantity', 0);
+
+  if (!expired || expired.length === 0) {
+    c.innerHTML = `<div class="alert alert-success text-center"><i class="bi bi-check-circle-fill"></i> هیچ داروی منقضی وجود ندارد.</div>
+      <button class="btn btn-primary w-100 py-3" id="btnNext">گام بعدی <i class="bi bi-arrow-left"></i></button>`;
+    $('btnNext').onclick = () => saveStep(5);
+    return;
+  }
+
+  c.innerHTML = `
+    <div class="alert alert-warning small">
+      <i class="bi bi-exclamation-triangle"></i> شما ${faNum(expired.length)} بچ منقضی دارید. با یک کلیک همه را دور بریزید.
+    </div>
+    <div class="d-flex gap-2 mb-3">
+      <button class="btn btn-danger flex-grow-1" id="btnBulkDispose"><i class="bi bi-trash"></i> خروج یکجای همه</button>
+      <button class="btn btn-outline-success" id="btnExportExp"><i class="bi bi-file-earmark-excel"></i> اکسل</button>
+    </div>
+    <div class="d-flex flex-column gap-2 mb-3" style="max-height:300px; overflow-y:auto;">
+      ${expired.map(e => `<div class="card p-2 d-flex justify-content-between align-items-center small">
+          <span>${escapeHtml(e.drug?.name || '—')} (${escapeHtml(e.batch_number)})</span>
+          <span class="badge bg-danger">${faNum(e.quantity)}</span>
+        </div>`).join('')}
+    </div>
+    <button class="btn btn-primary w-100 py-3" id="btnNext">گام بعدی <i class="bi bi-arrow-left"></i></button>
+  `;
+
+  $('btnExportExp').onclick = () => {
+    const csvData = expired.map(e => ({
+      'نام دارو': e.drug?.name || '',
+      'شماره بچ': e.batch_number,
+      'تعداد': e.quantity,
+      'تاریخ انقضا': e.expiry_date
+    }));
+    downloadCSV(csvData, 'expired_drugs.csv');
+  };
+
+  $('btnBulkDispose').onclick = async () => {
+    if (!confirm('آیا از خروج تمام این داروها مطمئنید؟')) return;
+    const btn = $('btnBulkDispose');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ثبت...';
+    
+    const { data: order } = await sb.from('disposal_orders').insert({ code: `DSP-${Date.now()}`, created_by_email: currentUser?.email }).select().single();
+    if (order) {
+      for (let e of expired) {
+        await sb.from('disposal_items').insert({
+          order_id: order.id, drug_id: e.drug.id, drug_name: e.drug.name,
+          batch_number: e.batch_number, expiry_date: e.expiry_date, quantity: e.quantity
+        });
+        await sb.from('drugs_drugbatch').update({ quantity: 0 }).eq('id', e.id);
+      }
+      toast('همه داروهای منقضی خارج شدند', 'success');
+      renderStep4_Expired();
+    } else {
+      toast('خطا در ثبت خروج', 'danger');
+      btn.disabled = false;
+    }
+  };
+  $('btnNext').onclick = () => saveStep(5);
+}
+
+// ═══════════════════════════════════════════════════════════
+// گام ۵: شمارش فیزیکی
+// ═══════════════════════════════════════════════════════════
+function renderStep5_Scan() {
+  $('stepContent').innerHTML = `
+    <div class="alert alert-info small"><i class="bi bi-info-circle"></i> با اسکن بارکد، اقلام را بشمارید. (ذخیره خودکار هر ۵ ثانیه)</div>
     <div class="row g-2 mb-3">
       <div class="col-6"><button class="btn btn-primary w-100 py-3" id="btnInvScan"><i class="bi bi-upc-scan"></i> اسکن</button></div>
       <div class="col-6"><button class="btn btn-outline-primary w-100 py-3" id="btnInvSearch"><i class="bi bi-search"></i> جستجو</button></div>
     </div>
-    <div class="section-title"><span>اقلام ثبت شده</span></div>
-    <div id="invList"></div>
-    <div class="d-grid gap-2 mt-3">
-      <button class="btn btn-warning btn-lg py-3" id="btnInvFinish"><i class="bi bi-flag-fill"></i> پایان و بررسی مغایرت</button>
-      <button class="btn btn-outline-danger btn-sm" id="btnInvCancel">لغو جلسه</button>
+    <div class="d-flex justify-content-between mb-2">
+      <span class="fw-bold">اقلام شمارش شده:</span>
+      <span class="badge bg-success">${faNum(state.items.length)} قلم</span>
     </div>
+    <div id="invList" style="max-height:350px; overflow-y:auto;"></div>
+    <button class="btn btn-warning btn-lg w-100 py-3 mt-3" id="btnInvFinish">پایان شمارش و بررسی مغایرت</button>
   `;
   $('btnInvScan').onclick = () => openScanner(handleBarcode);
   $('btnInvSearch').onclick = () => openDrugSearch('دارو را جستجو کنید', d => addDrug(d));
-  $('btnInvFinish').onclick = finish;
-  $('btnInvCancel').onclick = cancelSession;
-  renderList();
+  $('btnInvFinish').onclick = () => {
+    if (!state.items.length) { toast('قلمی ثبت نشده', 'warning'); return; }
+    if (confirm('پایان شمارش؟')) saveStep(6);
+  };
+  renderList('invList');
 }
 
-function renderList() {
-  const list = $('invList');
+function renderList(containerId) {
+  const list = $(containerId);
   if (!list) return;
   if (!state.items.length) {
     list.innerHTML = '<div class="card text-center py-4 muted">هنوز قلمی اضافه نشده</div>';
@@ -120,8 +440,6 @@ function renderList() {
   }
   list.innerHTML = state.items.slice().reverse().map((it, idx) => {
     const realIdx = state.items.length - 1 - idx;
-    const userLabel = it.counted_by_name ? `<span class="badge bg-light text-dark border ms-2" style="font-size:0.7rem;"><i class="bi bi-person"></i> ${escapeHtml(it.counted_by_name)}</span>` : '';
-
     return `
       <div class="item-card">
         <div class="d-flex justify-content-between align-items-center">
@@ -129,395 +447,340 @@ function renderList() {
             <div class="name">${escapeHtml(it.drug_name)} <i class="bi bi-pencil-square text-primary" style="font-size:0.85rem;"></i></div>
             <div class="meta">
               ${it.batch_number ? `بچ: <code dir="ltr">${escapeHtml(it.batch_number)}</code><br>` : ''}
-              ${it.expiry_date ? `انقضا: ${escapeHtml(it.expiry_date)} (${gregorianToJalali(it.expiry_date)})` : ''}
-              ${userLabel}
+              انقضا: ${escapeHtml(it.expiry_date)}
+              <span class="badge bg-light text-dark border ms-2" style="font-size:0.7rem;">${escapeHtml(it.counted_by_name || 'نامشخص')}</span>
             </div>
           </div>
           <div class="d-flex align-items-center gap-2">
-            <div class="qty-display" data-edit="${realIdx}" style="cursor:pointer;">${faNum(it.counted_quantity)}</div>
-            <button class="num-btn" style="width:38px;height:38px;" data-remove="${realIdx}"><i class="bi bi-trash text-danger"></i></button>
+            <div class="qty-display">${faNum(it.counted_quantity)}</div>
+            <button class="num-btn text-danger" data-remove="${realIdx}"><i class="bi bi-trash"></i></button>
           </div>
         </div>
       </div>`;
   }).join('');
   list.querySelectorAll('[data-remove]').forEach(b => {
-    b.onclick = (e) => { e.stopPropagation(); removeItem(+b.dataset.remove); };
+    b.onclick = (e) => { e.stopPropagation(); removeItem(+b.dataset.remove, containerId); };
   });
   list.querySelectorAll('[data-edit]').forEach(b => {
-    b.onclick = () => editItem(+b.dataset.edit);
+    b.onclick = () => editItem(+b.dataset.edit, containerId);
   });
 }
 
-async function removeItem(idx) {
+async function removeItem(idx, containerId = 'invList') {
   if (!confirm('حذف شود؟')) return;
   const it = state.items[idx];
-  await sb.from('inv_count_items').delete()
-    .eq('session_id', state.session.id)
-    .eq('drug_id', it.drug_id)
-    .eq('batch_number', it.batch_number || '')
-    .eq('expiry_date', it.expiry_date || '');
+  await sb.from('inv_count_items').delete().eq('session_id', state.session.id).eq('drug_id', it.drug_id).eq('batch_number', it.batch_number || '').eq('expiry_date', it.expiry_date || '');
   state.items.splice(idx, 1);
-  renderScan();
+  renderList(containerId);
 }
 
-async function editItem(idx) {
+async function editItem(idx, containerId = 'invList') {
   const it = state.items[idx];
   if (!it) return;
-
   const res = await askQty({
-    title: 'ویرایش تعداد',
-    headerClass: 'bg-primary text-white',
-    drugName: it.drug_name,
-    extraInfo: `بچ فعلی: <code dir="ltr">${escapeHtml(it.batch_number || '—')}</code>`,
-    defaultQty: it.counted_quantity,
-    defaultExpiry: it.expiry_date || '',
-    showExtras: false,
-    hideBatchInput: true,
+    title: 'ویرایش تعداد', drugName: it.drug_name, defaultQty: it.counted_quantity, defaultExpiry: it.expiry_date, hideBatchInput: true,
   });
-
   if (res.qty === it.counted_quantity) return;
-
-  if (res.qty === 0) {
-    if (confirm('تعداد صفر شد. حذف شود؟')) {
-      await removeItem(idx);
-      return;
-    }
-    return;
-  }
-
+  if (res.qty === 0) { if (confirm('تعداد صفر شد. حذف شود؟')) await removeItem(idx, containerId); return; }
   it.counted_quantity = res.qty;
-  it.counted_by_email = currentUser?.email || null;
   it.counted_by_name = getUserName();
-
   await sb.from('inv_count_items').upsert({
-    session_id: state.session.id,
-    drug_id: it.drug_id,
-    drug_name: it.drug_name,
-    batch_number: it.batch_number || '',
-    expiry_date: it.expiry_date,
-    counted_quantity: res.qty,
-    barcode: it.barcode,
-    counted_by_email: it.counted_by_email,
-    counted_by_name: it.counted_by_name
+    session_id: state.session.id, drug_id: it.drug_id, drug_name: it.drug_name,
+    batch_number: it.batch_number || '', expiry_date: it.expiry_date,
+    counted_quantity: res.qty, counted_by_name: it.counted_by_name
   }, { onConflict: 'session_id,drug_id,batch_number,expiry_date' });
-
-  renderScan();
-  beep();
-  toast(`تعداد به ${faNum(res.qty)} تغییر یافت`, 'success');
+  renderList(containerId); beep();
 }
 
-async function cancelSession() {
-  if (!confirm('کل جلسه حذف شود؟')) return;
-  await sb.from('inv_sessions').delete().eq('id', state.session.id);
-  localStorage.removeItem('inv_session_id');
-  state.session = null;
-  state.items = [];
-  
-  document.getElementById('invContent').innerHTML = '';
-  import('./inventory-list.js').then(m => m.openInventoryList());
-}
+async function buildBatchAndWarnings(drug, expiryGreg) { return ''; } // ساده شده
 
-async function buildBatchAndWarnings(drug, expiryGreg) {
-  if (!expiryGreg) return '';
-  const computedBatch = makeBatchNumber(drug.name, drug.form, expiryGreg);
-  const { data: exactBatch } = await sb.from('drugs_drugbatch').select('id, quantity, expiry_date').eq('drug_id', drug.id).eq('batch_number', computedBatch).maybeSingle();
-  const { data: allBatches } = await sb.from('drugs_drugbatch').select('batch_number, expiry_date, quantity').eq('drug_id', drug.id).gt('quantity', 0);
-  const otherBatches = (allBatches || []).filter(b => b.batch_number !== computedBatch);
-  let html = '';
-
-  html += `<div style="background:#f1f5f9;border-radius:10px;padding:10px;margin-bottom:10px;">
-    <div style="font-size:0.8rem;color:#64748b;margin-bottom:4px;">شماره بچ ساخته شده (خودکار):</div>
-    <code style="font-size:0.95rem;font-weight:700;color:#0d6efd;direction:ltr;display:block;word-break:break-all;">${escapeHtml(computedBatch)}</code>
-  </div>`;
-
-  if (exactBatch) {
-    html += `<div class="alert alert-info py-2 small mb-2"><i class="bi bi-check-circle"></i> <strong>این بچ قبلاً موجود است.</strong> موجودی: <strong>${faNum(exactBatch.quantity)} عدد</strong></div>`;
-  } else {
-    html += `<div class="alert alert-secondary py-2 small mb-2"><i class="bi bi-info-circle"></i> این بچ در سیستم ثبت نشده است.</div>`;
-  }
-
-  if (otherBatches.length > 0) {
-    const listHtml = otherBatches.slice(0, 5).map(b => `<li style="font-size:0.8rem;"><code dir="ltr">${escapeHtml(b.batch_number)}</code> — ${gregorianToJalali(b.expiry_date)} — <strong>${faNum(b.quantity)} عدد</strong></li>`).join('');
-    html += `<div class="alert alert-warning py-2 small mb-0"><i class="bi bi-exclamation-triangle"></i> <strong>هشدار:</strong> این دارو ${faNum(otherBatches.length)} بچ دیگر دارد:<ul style="margin:8px 0 0 0;padding-right:20px;">${listHtml}</ul></div>`;
-  }
-  return html;
-}
-
-// ═══ منطق جدید تاریخ ═══
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
-
   if (parsed.exps && parsed.exps.length > 0) {
     const isInvalid = !parsed.exp.includes('-');
-    
     if (parsed.exps.length > 1 || isInvalid) {
       const selectedDate = await promptExpirySelection(parsed.exps);
       if (!selectedDate) return; 
-      
-      if (selectedDate.includes('-')) {
-        parsed.exp = selectedDate;
-      } else {
-        toast('شما یک تاریخ نامعتبر را انتخاب کردید. لطفا تاریخ را در فرم دستی وارد کنید.', 'warning');
-        parsed.exp = '';
-      }
+      if (selectedDate.includes('-')) parsed.exp = selectedDate;
+      else { toast('تاریخ نامعتبر', 'warning'); parsed.exp = ''; }
     }
   }
-
   const gtin = cleanGTIN(parsed.gtin);
-  const padded = gtin.padStart(14, '0');
-  const { data: bc } = await sb.from('drugs_drugbarcode').select('drug:drugs_drug(id, name, form)').or(`gtin.eq.${gtin},gtin.eq.${padded}`).maybeSingle();
-  
-  if (!bc?.drug) {
-    toast('بارکد ناشناس', 'warning');
-    openDrugSearch(`بارکد ${escapeHtml(gtin)} ثبت نشده`, d => addDrug(d, gtin, parsed));
-    return;
-  }
+  const { data: bc } = await sb.from('drugs_drugbarcode').select('drug:drugs_drug(id, name, form)').or(`gtin.eq.${gtin},gtin.eq.${gtin.padStart(14, '0')}`).maybeSingle();
+  if (!bc?.drug) { toast('بارکد ناشناس', 'warning'); return; }
   const added = await addDrug(bc.drug, gtin, parsed);
   if (added) reopenScannerAuto();
 }
 
 function reopenScannerAuto() {
-  setTimeout(() => {
-    const wrap = $('scannerWrap');
-    if (!wrap || !wrap.classList.contains('active')) openScanner(handleBarcode);
-  }, 350);
+  setTimeout(() => { if (!$('scannerWrap')?.classList.contains('active')) openScanner(handleBarcode); }, 350);
 }
 
 async function addDrug(drug, barcode = '', parsed = {}) {
-  if (barcode) {
-    try { await sb.from('drugs_drugbarcode').upsert({ drug_id: drug.id, gtin: barcode }, { onConflict: 'gtin' }); } catch (e) { }
-  }
-
-  const res = await askQty({
-    title: 'شمارش دارو',
-    drugName: drug.name + (drug.form ? ` (${drug.form})` : ''),
-    extraInfo: barcode ? `بارکد: <span dir="ltr">${escapeHtml(barcode)}</span>` : '',
-    defaultQty: 1,
-    defaultExpiry: parsed?.exp || '',
-    showExtras: true,
-    hideBatchInput: true,     
-    requireExpiry: true,      
-    batchCheckFn: (expiryGreg) => buildBatchAndWarnings(drug, expiryGreg)
-  });
-  
+  const res = await askQty({ title: 'شمارش دارو', drugName: drug.name, defaultQty: 1, defaultExpiry: parsed?.exp || '', requireExpiry: true });
   if (res.qty < 0) return false;
+  if (!res.expiry_gregorian) { toast('تاریخ الزامی است', 'danger'); return false; }
 
-  if (!res.expiry_gregorian) {
-    toast('تاریخ انقضا الزامی است', 'danger');
-    beep(300);
-    return false;
-  }
-
-  const computedBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian);
-  if (!computedBatch) {
-    toast('ساخت بچ ناموفق', 'danger');
-    return false;
-  }
-
-  const userEmail = currentUser?.email || null;
-  const userName = getUserName();
-
-  const existing = state.items.find(it =>
-    it.drug_id === drug.id && (it.batch_number || '') === computedBatch && (it.expiry_date || '') === res.expiry_gregorian
-  );
+  const existing = state.items.find(it => it.drug_id === drug.id && (it.expiry_date || '') === res.expiry_gregorian);
   
+  // ⬅️ هشدار داروی تکراری (دو بار شمرده نشه)
   if (existing) {
+    const prevUser = existing.counted_by_name || 'نامشخص';
+    if (!confirm(`⚠️ این دارو با تاریخ ${gregorianToJalali(res.expiry_gregorian)} قبلا توسط "${prevUser}" شمرده شده است.\nآیا تعداد جدید (${res.qty}) به آن اضافه شود؟`)) return false;
     existing.counted_quantity += res.qty;
-    existing.counted_by_email = userEmail; 
-    existing.counted_by_name = userName; 
+    existing.counted_by_name = getUserName();
   } else {
+    const computedBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian);
     state.items.push({
-      drug_id: drug.id,
-      drug_name: drug.name,
-      drug_form: drug.form || '',
-      batch_number: computedBatch,
-      expiry_date: res.expiry_gregorian,
-      counted_quantity: res.qty,
-      barcode: barcode || null,
-      counted_by_email: userEmail,
-      counted_by_name: userName 
+      drug_id: drug.id, drug_name: drug.name, drug_form: drug.form || '',
+      batch_number: computedBatch, expiry_date: res.expiry_gregorian,
+      counted_quantity: res.qty, counted_by_name: getUserName()
     });
   }
 
-  const row = state.items.find(it =>
-    it.drug_id === drug.id && (it.batch_number || '') === computedBatch && (it.expiry_date || '') === res.expiry_gregorian
-  );
-
+  const row = state.items.find(it => it.drug_id === drug.id && (it.expiry_date || '') === res.expiry_gregorian);
   await sb.from('inv_count_items').upsert({
-    session_id: state.session.id,
-    drug_id: row.drug_id,
-    drug_name: row.drug_name,
-    batch_number: row.batch_number,
-    expiry_date: row.expiry_date,
-    counted_quantity: row.counted_quantity,
-    barcode: row.barcode,
-    counted_by_email: row.counted_by_email,
-    counted_by_name: row.counted_by_name 
+    session_id: state.session.id, drug_id: row.drug_id, drug_name: row.drug_name,
+    batch_number: row.batch_number || '', expiry_date: row.expiry_date,
+    counted_quantity: row.counted_quantity, counted_by_name: row.counted_by_name
   }, { onConflict: 'session_id,drug_id,batch_number,expiry_date' });
-
-  renderScan();
-  beep();
-  return true;
+  
+  if (state.currentStep === 5) renderList('invList');
+  beep(); return true;
 }
 
-async function finish() {
-  if (!state.items.length) { toast('هنوز قلمی ثبت نشده', 'warning'); return; }
-  if (!confirm('پایان شمارش و بررسی مغایرت؟')) return;
-
-  $('invContent').innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
-
+// ═══════════════════════════════════════════════════════════
+// گام ۶: مغایرت‌گیری اولیه
+// ═══════════════════════════════════════════════════════════
+async function renderStep6_Discrepancies() {
+  const c = $('stepContent');
+  c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+  
   const discrepancies = [];
-
   for (const item of state.items) {
     let sysQty = 0;
     if (item.batch_number) {
       const { data: batch } = await sb.from('drugs_drugbatch').select('quantity').eq('drug_id', item.drug_id).eq('batch_number', item.batch_number).maybeSingle();
       sysQty = batch?.quantity || 0;
     }
-
     if (item.counted_quantity !== sysQty) {
-      discrepancies.push({
-        session_id: state.session.id,
-        drug_id: item.drug_id,
-        drug_name: item.drug_name,
-        batch_number: item.batch_number,
-        expiry_date: item.expiry_date,
-        system_quantity: sysQty,
-        counted_quantity: item.counted_quantity,
-        status: 'pending'
-      });
+      discrepancies.push({ ...item, system_quantity: sysQty });
     }
   }
+  state.pendingDiscrepancies = discrepancies;
 
-  if (discrepancies.length) {
-    await sb.from('inv_discrepancies').delete().eq('session_id', state.session.id);
-    await sb.from('inv_discrepancies').insert(discrepancies);
-  }
-
-  renderReport(discrepancies);
-}
-
-function renderReport(discrepancies) {
-  const c = $('invContent');
   if (!discrepancies.length) {
-    c.innerHTML = `
-      <div class="card text-center" style="padding:40px 20px;">
-        <div style="font-size:4rem;">✅</div>
-        <h5 class="mt-3">بدون مغایرت!</h5>
-        <p class="muted">موجودی سیستم با شمارش مطابقت دارد.</p>
-      </div>
-      <button class="btn btn-primary w-100 btn-lg" id="btnNewSession">بازگشت به لیست</button>`;
-    $('btnNewSession').onclick = () => {
-      state.session = null; state.items = [];
-      localStorage.removeItem('inv_session_id');
-      document.getElementById('invContent').innerHTML = '';
-      import('./inventory-list.js').then(m => m.openInventoryList());
-    };
+    c.innerHTML = `<div class="alert alert-success text-center"><i class="bi bi-check-circle-fill"></i> بدون مغایرت!</div>
+      <button class="btn btn-primary w-100 py-3" id="btnNext">گام بعدی</button>`;
+    $('btnNext').onclick = () => saveStep(8);
     return;
   }
 
   c.innerHTML = `
-    <div class="card text-center" style="padding:24px;">
-      <div style="font-size:3rem;">⚠️</div>
-      <h5 class="mt-2">${faNum(discrepancies.length)} قلم مغایرت</h5>
-    </div>
-    <div class="section-title">لیست مغایرت‌ها</div>
-    ${discrepancies.map(d => {
-      const diff = d.counted_quantity - d.system_quantity;
-      const isExtra = diff > 0;
-      return `
-        <div class="item-card ${isExtra ? 'warn' : 'danger'}">
-          <div class="d-flex justify-content-between align-items-center">
-            <div class="flex-grow-1">
-              <div class="name">${escapeHtml(d.drug_name)}</div>
-              <div class="meta">
-                ${d.batch_number ? `بچ: <code dir="ltr">${escapeHtml(d.batch_number)}</code><br>` : ''}
-                سیستم: <strong>${faNum(d.system_quantity)}</strong> | شمارش: <strong>${faNum(d.counted_quantity)}</strong>
-              </div>
-            </div>
-            <span class="badge-soft ${isExtra ? 'warning' : 'danger'}">${isExtra ? 'مازاد' : 'کسری'} ${faNum(Math.abs(diff))}</span>
-          </div>
-        </div>`;
-    }).join('')}
-    <div class="d-grid gap-2 mt-3">
-      <button class="btn btn-primary btn-lg py-3" id="btnRecount"><i class="bi bi-arrow-repeat"></i> شمارش مجدد</button>
-      <button class="btn btn-outline-success btn-lg py-3" id="btnAcceptReport"><i class="bi bi-file-earmark-check"></i> تایید گزارش</button>
-    </div>`;
-
-  $('btnRecount').onclick = async () => {
-    const ids = discrepancies.map(d => d.drug_id);
-    const batches = discrepancies.map(d => d.batch_number);
-    state.items = state.items.filter(it => !(ids.includes(it.drug_id) && batches.includes(it.batch_number)));
-    await sb.from('inv_count_items').delete().eq('session_id', state.session.id).in('drug_id', ids);
-    await sb.from('inv_discrepancies').delete().eq('session_id', state.session.id);
-    renderScan();
-  };
-  $('btnAcceptReport').onclick = () => renderApplyScreen(discrepancies);
+    <div class="alert alert-warning small"><i class="bi bi-exclamation-triangle"></i> ${faNum(discrepancies.length)} قلم مغایرت پیدا شد.</div>
+    <button class="btn btn-primary w-100 py-3 mb-2" id="btnGoRecount">رفتن به شمارش مجدد (گام ۷)</button>
+    <button class="btn btn-outline-secondary w-100" id="btnNext">رد کردن و رفتن به گزارش</button>
+  `;
+  $('btnGoRecount').onclick = () => saveStep(7);
+  $('btnNext').onclick = () => saveStep(8);
 }
 
-function renderApplyScreen(discrepancies) {
-  const c = $('invContent');
-  const admin = isAdmin;
-  c.innerHTML = `
-    <div class="card text-center" style="padding:24px;">
-      <div style="font-size:3rem;">📋</div>
-      <h5 class="mt-2">گزارش انبارگردانی</h5>
-      <p class="muted small">${faNum(discrepancies.length)} قلم مغایرت</p>
+// ═══════════════════════════════════════════════════════════
+// گام ۷: شمارش مجدد موارد مغایر (با کانتر و حذف از لیست)
+// ═══════════════════════════════════════════════════════════
+function renderStep7_Recount() {
+  $('stepContent').innerHTML = `
+    <div class="alert alert-warning small">
+      <i class="bi bi-arrow-repeat"></i> موارد مغایر را دوباره بشمارید. هر آیتمی که شمرده شود از لیست زیر حذف می‌شود.
     </div>
-    <div class="card">
-      <div class="card-head ${admin ? 'warning' : ''}">
-        <i class="bi bi-shield-lock"></i> اعمال روی موجودی
-      </div>
-      <div class="card-body">
-        ${admin ? `
-          <div class="alert alert-warning small mb-3">با زدن دکمه زیر موجودی سیستم با شمارش شما تطبیق می‌یابد. قابل بازگشت نیست.</div>
-          <button class="btn btn-danger w-100 btn-lg py-3" id="btnApply"><i class="bi bi-check2-circle"></i> تایید نهایی</button>
-        ` : `
-          <div class="alert alert-info small mb-0"><i class="bi bi-info-circle"></i> فقط <strong>مدیران</strong> می‌توانند اعمال کنند. گزارش ثبت شد.</div>
-          <button class="btn btn-outline-secondary w-100 mt-3" id="btnClose">فقط ثبت گزارش</button>
-        `}
-      </div>
+    <div class="card p-3 text-center mb-3 bg-light">
+      <h4 class="mb-0">مانده برای شمارش: <span id="recountCounter" class="text-danger fw-bold">${faNum(state.pendingDiscrepancies.length)}</span> قلم</h4>
     </div>
-    <div class="section-title">خلاصه تغییرات</div>
-    ${discrepancies.map(d => {
-      const diff = d.counted_quantity - d.system_quantity;
-      return `
-        <div class="item-card">
-          <div class="d-flex justify-content-between">
-            <div>
-              <div class="name">${escapeHtml(d.drug_name)}</div>
-              <div class="meta">${d.batch_number ? `بچ: ${escapeHtml(d.batch_number)}` : ''} ${faNum(d.system_quantity)} ← ${faNum(d.counted_quantity)}</div>
-            </div>
-            <span class="badge-soft ${diff > 0 ? 'warning' : 'danger'}">${diff > 0 ? '+' : ''}${faNum(diff)}</span>
-          </div>
-        </div>`;
-    }).join('')}
+    <div class="row g-2 mb-3">
+      <div class="col-6"><button class="btn btn-primary w-100 py-3" id="btnRecountScan"><i class="bi bi-upc-scan"></i> اسکن مجدد</button></div>
+      <div class="col-6"><button class="btn btn-outline-primary w-100 py-3" id="btnRecountSearch"><i class="bi bi-search"></i> جستجو</button></div>
+    </div>
+    <div id="recountList" style="max-height:300px; overflow-y:auto;"></div>
+    <button class="btn btn-success btn-lg w-100 py-3 mt-3" id="btnFinishRecount">پایان شمارش مجدد</button>
   `;
+
+  $('btnRecountScan').onclick = () => openScanner(handleRecountBarcode);
+  $('btnRecountSearch').onclick = () => openDrugSearch('دارو را جستجو کنید', d => addRecountDrug(d));
+  
+  $('btnFinishRecount').onclick = () => {
+    if (state.pendingDiscrepancies.length > 0) {
+      if (!confirm(`⚠️ شما هنوز ${faNum(state.pendingDiscrepancies.length)} قلم مغایر را دوباره نشمرده‌اید!\nآیا مطمئنید که می‌خواهید به گام بعد بروید؟`)) return;
+      if (!confirm(`تایید نهایی: آیا از رد کردن ${faNum(state.pendingDiscrepancies.length)} قلم مغایر مطمئنید؟`)) return;
+    }
+    saveStep(8);
+  };
+  renderRecountList();
+}
+
+function renderRecountList() {
+  const list = $('recountList');
+  if (!list) return;
+  if (!state.pendingDiscrepancies.length) {
+    list.innerHTML = '<div class="alert alert-success text-center">همه موارد مغایر دوباره شمارش شدند!</div>';
+    return;
+  }
+  list.innerHTML = state.pendingDiscrepancies.map(d => {
+    const diff = d.counted_quantity - d.system_quantity;
+    return `
+      <div class="card p-2 mb-2 border-warning">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="fw-bold small">${escapeHtml(d.drug_name)}</div>
+            <div class="text-muted" style="font-size:0.7rem;">سیستم: ${faNum(d.system_quantity)} | قبلی: ${faNum(d.counted_quantity)}</div>
+          </div>
+          <span class="badge ${diff > 0 ? 'bg-warning text-dark' : 'bg-danger'}">${diff > 0 ? '+' : ''}${faNum(diff)}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function handleRecountBarcode(raw) {
+  const parsed = parseGS1(raw);
+  if (parsed.exps && parsed.exps.length > 0) {
+    const isInvalid = !parsed.exp.includes('-');
+    if (parsed.exps.length > 1 || isInvalid) {
+      const selectedDate = await promptExpirySelection(parsed.exps);
+      if (!selectedDate) return; 
+      if (selectedDate.includes('-')) parsed.exp = selectedDate;
+      else { toast('تاریخ نامعتبر', 'warning'); parsed.exp = ''; }
+    }
+  }
+  const gtin = cleanGTIN(parsed.gtin);
+  const { data: bc } = await sb.from('drugs_drugbarcode').select('drug:drugs_drug(id, name, form)').or(`gtin.eq.${gtin},gtin.eq.${gtin.padStart(14, '0')}`).maybeSingle();
+  if (!bc?.drug) { toast('بارکد ناشناس', 'warning'); return; }
+  const added = await addRecountDrug(bc.drug, gtin, parsed);
+  if (added) reopenScannerAuto();
+}
+
+async function addRecountDrug(drug, barcode = '', parsed = {}) {
+  const res = await askQty({ title: 'شمارش مجدد', drugName: drug.name, defaultQty: 1, defaultExpiry: parsed?.exp || '', requireExpiry: true });
+  if (res.qty < 0 || !res.expiry_gregorian) return false;
+
+  const computedBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian);
+  
+  // آپدیت در لیست اصلی
+  const existing = state.items.find(it => it.drug_id === drug.id && (it.expiry_date || '') === res.expiry_gregorian);
+  if (existing) {
+    existing.counted_quantity += res.qty;
+  } else {
+    state.items.push({
+      drug_id: drug.id, drug_name: drug.name, drug_form: drug.form || '',
+      batch_number: computedBatch, expiry_date: res.expiry_gregorian,
+      counted_quantity: res.qty, counted_by_name: getUserName()
+    });
+  }
+  
+  const row = state.items.find(it => it.drug_id === drug.id && (it.expiry_date || '') === res.expiry_gregorian);
+  await sb.from('inv_count_items').upsert({
+    session_id: state.session.id, drug_id: row.drug_id, drug_name: row.drug_name,
+    batch_number: row.batch_number || '', expiry_date: row.expiry_date,
+    counted_quantity: row.counted_quantity, counted_by_name: row.counted_by_name
+  }, { onConflict: 'session_id,drug_id,batch_number,expiry_date' });
+
+  // حذف از لیست مغایرت‌ها (کانتر آپدیت میشه)
+  const dIdx = state.pendingDiscrepancies.findIndex(d => d.drug_id === drug.id && d.expiry_date === res.expiry_gregorian);
+  if (dIdx !== -1) {
+    state.pendingDiscrepancies.splice(dIdx, 1);
+    $('recountCounter').textContent = faNum(state.pendingDiscrepancies.length);
+    renderRecountList();
+  }
+
+  beep();
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════
+// گام ۸: گزارش نهایی و تصویب
+// ═══════════════════════════════════════════════════════════
+async function renderStep8_Report() {
+  const c = $('stepContent');
+  c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+  
+  const admin = isAdmin;
+  
+  // محاسبه مغایرت‌ها برای گزارش نهایی
+  const discrepancies = [];
+  for (const item of state.items) {
+    let sysQty = 0;
+    if (item.batch_number) {
+      const { data: batch } = await sb.from('drugs_drugbatch').select('quantity').eq('drug_id', item.drug_id).eq('batch_number', item.batch_number).maybeSingle();
+      sysQty = batch?.quantity || 0;
+    }
+    if (item.counted_quantity !== sysQty) {
+      discrepancies.push({ ...item, system_quantity: sysQty });
+    }
+  }
+
+  c.innerHTML = `
+    <div class="alert alert-warning small">
+      <i class="bi bi-exclamation-triangle"></i> موارد مغایر باقی‌مانده: <strong>${faNum(discrepancies.length)}</strong> قلم (${faNum(discrepancies.filter(d => d.counted_quantity > d.system_quantity).length)} مازاد / ${faNum(discrepancies.filter(d => d.counted_quantity < d.system_quantity).length)} کسری)
+    </div>
+    <div class="d-flex gap-2 mb-3">
+      <button class="btn btn-outline-primary w-100" id="btnPrintFinal"><i class="bi bi-printer"></i> چاپ A4</button>
+      <button class="btn btn-outline-success w-100" id="btnExportFinal"><i class="bi bi-file-earmark-excel"></i> خروجی اکسل</button>
+    </div>
+    <button class="btn btn-outline-warning w-100 py-2 mb-3" id="btnBackToRecount">بازگشت به شمارش مغایرت‌ها (گام ۷)</button>
+    
+    ${admin ? `
+      <button class="btn btn-danger btn-lg w-100 py-3" id="btnApply"><i class="bi bi-check2-circle"></i> تصویب نهایی و اعمال موجودی</button>
+    ` : `
+      <div class="alert alert-info text-center">فقط <strong>مدیران</strong> می‌توانند تصویب نهایی کنند.</div>
+    `}
+  `;
+
+  $('btnBackToRecount').onclick = () => { state.pendingDiscrepancies = discrepancies; saveStep(7); };
+
+  $('btnExportFinal').onclick = () => {
+    const csvData = state.items.map(it => ({
+      'نام دارو': it.drug_name,
+      'بچ': it.batch_number,
+      'تاریخ انقضا': it.expiry_date,
+      'تعداد شمارش شده': it.counted_quantity,
+      'شمارش کننده': it.counted_by_name
+    }));
+    downloadCSV(csvData, `inventory_${state.session.code}.csv`);
+  };
+
+  $('btnPrintFinal').onclick = () => {
+    printA4({
+      title: 'گزارش جامع انبارگردانی',
+      subtitle: `سند: ${state.session.code} | تاریخ: ${gregorianToJalali(new Date().toISOString().slice(0, 10))}`,
+      primaryColor: '#0d6efd',
+      columns: [
+        { label: '#', formatter: (r, i) => faNum(i + 1) },
+        { label: 'نام دارو', key: 'drug_name', align: 'right' },
+        { label: 'بچ', key: 'batch_number' },
+        { label: 'تعداد شمارش', formatter: r => faNum(r.counted_quantity) },
+        { label: 'شمارش‌کننده', key: 'counted_by_name' }
+      ],
+      rows: state.items,
+      signatures: ['شمارش‌کننده', 'تأییدکننده', 'مدیر انبار'],
+    });
+  };
 
   if (admin) {
     $('btnApply').onclick = async () => {
-      if (!confirm('آیا مطمئنید؟') || !confirm('قابل بازگشت نیست. ادامه؟')) return;
+      if (!confirm('آیا از تصویب نهایی مطمئنید؟')) return;
       const btn = $('btnApply');
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال اعمال...';
+      
       const { error } = await sb.rpc('apply_inventory_count', { p_session_id: state.session.id });
       if (error) { alert(error.message); btn.disabled = false; return; }
-      toast('✅ اعمال شد', 'success');
+      
+      toast('✅ انبارگردانی تصویب شد', 'success');
+      localStorage.removeItem('inv_session_id');
+      localStorage.removeItem(AUTOSAVE_KEY);
       setTimeout(() => {
         state.session = null; state.items = [];
-        localStorage.removeItem('inv_session_id');
         document.getElementById('invContent').innerHTML = '';
         import('./inventory-list.js').then(m => m.openInventoryList());
-      }, 1200);
-    };
-  } else {
-    $('btnClose').onclick = async () => {
-      await sb.from('inv_sessions').update({ status: 'completed', finished_at: new Date().toISOString() }).eq('id', state.session.id);
-      state.session = null; state.items = [];
-      localStorage.removeItem('inv_session_id');
-      toast('گزارش ثبت شد', 'success');
-      document.getElementById('invContent').innerHTML = '';
-      import('./inventory-list.js').then(m => m.openInventoryList());
+      }, 1500);
     };
   }
 }
