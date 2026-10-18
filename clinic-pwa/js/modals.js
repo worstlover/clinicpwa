@@ -511,7 +511,7 @@ async function saveNewDrug() {
 }
 // js/modals.js
 // ⭐ تابع جدید برای انتخاب تاریخ از بین چند تاریخ
-export function promptExpirySelection(dates) {
+export function promptExpirySelection(rawDates) {
   return new Promise((resolve) => {
     const modalId = 'expirySelectionModal';
     document.getElementById(modalId)?.remove();
@@ -521,25 +521,53 @@ export function promptExpirySelection(dates) {
         <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
             <div class="modal-header bg-warning text-dark">
-              <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill"></i> چند تاریخ انقضا معتبر یافت شد</h5>
+              <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill"></i> بررسی تاریخ انقضا</h5>
             </div>
             <div class="modal-body">
               <p class="small text-muted mb-3">
-                در بارکد اسکن شده، بیش از یک تاریخ انقضا وجود دارد. لطفاً تاریخ صحیح را انتخاب کنید (تاریخ اصلی به میلادی است):
+                در بارکد اسکن شده، تاریخ نیاز به تایید دارد. لطفاً تاریخ صحیح را انتخاب کنید:
               </p>
               <div class="d-flex flex-column gap-2" id="expiryOptionsList">
-                ${dates.map((d, i) => `
-                  <button type="button" class="btn btn-outline-primary text-start p-3 w-100" data-date="${d}">
-                    <div class="fw-bold" style="direction: ltr; text-align: left; font-size: 1.2rem; letter-spacing: 1px;">${d}</div>
-                    <div class="small text-muted mt-1" style="direction: rtl; text-align: right; font-size: 0.9rem;">
-                      <i class="bi bi-calendar3"></i> معادل شمسی: <strong>${gregorianToJalali(d)}</strong>
-                    </div>
-                  </button>
-                `).join('')}
+                ${rawDates.map((d) => {
+                  let displayGreg = d;
+                  let displayJalali = 'تاریخ نامعتبر (خارج از فرمت)';
+                  let isInvalid = true;
+
+                  // اگر از قبل فرمت YYYY-MM-DD داشت (یعنی معتبر بود)
+                  if (d.includes('-')) {
+                    displayGreg = d;
+                    displayJalali = gregorianToJalali(d);
+                    isInvalid = false;
+                  } else if (d.length === 6) {
+                    // اگر 6 رقم خام بود، چک کن ببینیم معتبر هست یا نه
+                    const yy = parseInt(d.substring(0, 2), 10);
+                    const mm = parseInt(d.substring(2, 4), 10);
+                    const dd = parseInt(d.substring(4, 6), 10);
+                    const year = yy < 70 ? 2000 + yy : 1900 + yy;
+                    
+                    if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+                       const expDate = new Date(year, mm - 1, dd);
+                       if (expDate.getMonth() === mm - 1 && expDate.getDate() === dd) {
+                           displayGreg = `${year}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+                           displayJalali = gregorianToJalali(displayGreg);
+                           isInvalid = false;
+                       }
+                    }
+                  }
+
+                  return `
+                    <button type="button" class="btn btn-outline-${isInvalid ? 'danger' : 'primary'} text-start p-3 w-100" data-date="${isInvalid ? d : displayGreg}">
+                      <div class="fw-bold" style="direction: ltr; text-align: left; font-size: 1.1rem;">${isInvalid ? d : displayGreg}</div>
+                      <div class="small ${isInvalid ? 'text-danger' : 'text-muted'} mt-1" style="direction: rtl; text-align: left;">
+                        ${isInvalid ? '⚠️ ' : '<i class="bi bi-calendar3"></i> '}${displayJalali}
+                      </div>
+                    </button>
+                  `;
+                }).join('')}
               </div>
             </div>
             <div class="modal-footer">
-              <button type="button" class="btn btn-light w-100" id="expiryCancelBtn">انصراف از اسکن</button>
+              <button type="button" class="btn btn-light w-100" id="expiryCancelBtn">انصراف</button>
             </div>
           </div>
         </div>
@@ -563,7 +591,7 @@ export function promptExpirySelection(dates) {
     modalEl.querySelector('#expiryCancelBtn').onclick = () => {
       modal.hide();
       setTimeout(() => modalEl.remove(), 300);
-      resolve(null); 
+      resolve(null);
     };
   });
 }
