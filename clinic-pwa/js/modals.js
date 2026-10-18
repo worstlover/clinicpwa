@@ -510,6 +510,7 @@ async function saveNewDrug() {
   saveBtn.innerHTML = '<i class="bi bi-check2"></i> ذخیره';
 }
 // js/modals.js
+// ⭐ تابع جدید برای انتخاب تاریخ از بین چند تاریخ
 export function promptExpirySelection(dates) {
   return new Promise((resolve) => {
     const modalId = 'expirySelectionModal';
@@ -528,9 +529,9 @@ export function promptExpirySelection(dates) {
               </p>
               <div class="d-flex flex-column gap-2" id="expiryOptionsList">
                 ${dates.map((d, i) => `
-                  <button type="button" class="btn btn-outline-primary text-end p-3" data-date="${d}">
-                    <i class="bi bi-calendar-check"></i> <strong>${gregorianToJalali(d)}</strong> 
-                    <small class="text-muted ms-2">(${d})</small>
+                  <button type="button" class="btn btn-outline-primary text-start p-3 w-100" data-date="${d}">
+                    <div class="fw-bold" style="direction: ltr; text-align: left; font-size: 1.1rem;">${d}</div>
+                    <div class="small text-muted mt-1" style="direction: rtl; text-align: left;">${gregorianToJalali(d)}</div>
                   </button>
                 `).join('')}
               </div>
