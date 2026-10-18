@@ -1,6 +1,6 @@
 // js/modules/patients.js
 import { sb } from '../sb.js';
-import { $, faNum, faToEn, escapeHtml, gregorianToJalali, toast } from '../utils.js';
+import { $, faNum, faToEn, escapeHtml, gregorianToJalali, jalaliToGregorian, toast } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { printA4 } from './list-print.js';
 
@@ -74,7 +74,7 @@ async function loadPatients() {
 
   try {
     let q = sb.from('core_patient')
-      .select('id, first_name, last_name, national_code, personnel_number, phone_number, gender, date_of_birth', { count: 'exact' })
+      .select('id, first_name, last_name, national_code, personnel_number, phone_number, gender, date_of_birth, allergies', { count: 'exact' })
       .order('id', { ascending: false });
 
     if (state.query) {
@@ -144,7 +144,7 @@ function updatePager() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// پروفایل بیمار (Modals)
+// پرونده بیمار (Modals)
 // ═══════════════════════════════════════════════════════════
 async function openPatientDetail(patient) {
   const modalId = 'patientDetailModal';
@@ -181,27 +181,59 @@ async function openPatientDetail(patient) {
   const body = modalEl.querySelector('#patDetailBody');
 
   try {
-    // گرفتن ویزیت‌ها و سوابق
+    // گرفتن ویزیت‌ها
     const { data: visits } = await sb.from('visits_visit')
       .select('id, visit_date, status, reason:visits_reasonforvisit(name), result:visits_treatmentresult(name)')
       .eq('patient_id', patient.id)
       .order('visit_date', { ascending: false });
 
+    // گرفتن سوابق طب کار (جدول جدید)
+    const { data: occ } = await sb.from('lab_results_periodicexamination')
+      .select('exam_date, exam_type, final_opinion_text, final_opinion_conditions')
+      .eq('patient_id', patient.id)
+      .order('exam_date', { ascending: false });
+
     const name = `${patient.first_name || ''} ${patient.last_name || ''}`.trim();
+    const genderStr = (patient.gender === 'm' || patient.gender === 'male') ? 'مرد' : 'زن';
+    const dobStr = patient.date_of_birth ? gregorianToJalali(patient.date_of_birth) : '-';
     
+    // ساخت بنر حساسیت
+    const allergyBanner = patient.allergies 
+      ? `<div class="alert alert-danger py-2 mb-3"><i class="bi bi-exclamation-triangle-fill"></i> <strong>حساسیت:</strong> ${escapeHtml(patient.allergies)}</div>` 
+      : '';
+
     body.innerHTML = `
       <div class="card mb-3 border-primary">
         <div class="card-body">
           <h5 class="fw-bold mb-3">${escapeHtml(name)}</h5>
-          <div class="row g-2 text-sm">
-            <div class="col-6"><strong>کد ملی:</strong> ${escapeHtml(patient.national_code || '-')}</div>
-            <div class="col-6"><strong>کد پرسنلی:</strong> ${escapeHtml(patient.personnel_number || '-')}</div>
-            <div class="col-6"><strong>تلفن:</strong> ${escapeHtml(patient.phone_number || '-')}</div>
-            <div class="col-6"><strong>جنسیت:</strong> ${patient.gender === 'm' || patient.gender === 'male' ? 'مرد' : 'زن'}</div>
-            <div class="col-6"><strong>تاریخ تولد:</strong> ${patient.date_of_birth ? gregorianToJalali(patient.date_of_birth) : '-'}</div>
+          ${allergyBanner}
+          <div class="row g-2 small">
+            <div class="col-6 col-md-4"><strong>کد ملی:</strong> <span dir="ltr">${escapeHtml(patient.national_code || '-')}</span></div>
+            <div class="col-6 col-md-4"><strong>کد پرسنلی:</strong> <span dir="ltr">${escapeHtml(patient.personnel_number || '-')}</span></div>
+            <div class="col-6 col-md-4"><strong>تلفن:</strong> <span dir="ltr">${escapeHtml(patient.phone_number || '-')}</span></div>
+            <div class="col-6 col-md-4"><strong>جنسیت:</strong> ${genderStr}</div>
+            <div class="col-6 col-md-4"><strong>تاریخ تولد:</strong> ${dobStr}</div>
           </div>
         </div>
       </div>
+
+      <h6 class="fw-bold mt-4 mb-2"><i class="bi bi-shield-check text-info"></i> سوابق طب کار (${faNum(occ?.length || 0)})</h6>
+      ${occ?.length ? `
+        <div class="list-group mb-3">
+          ${occ.map(o => `
+            <div class="list-group-item">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="fw-bold small">${escapeHtml(o.exam_type || 'معاینه دوره‌ای')}</span>
+                <span class="badge bg-secondary">${gregorianToJalali(o.exam_date)}</span>
+              </div>
+              <div class="small text-dark">
+                <strong>نظر نهایی:</strong> ${escapeHtml(o.final_opinion_text || 'تایید شده')}
+                ${o.final_opinion_conditions ? `<br><span class="text-muted">شروط: ${escapeHtml(o.final_opinion_conditions)}</span>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : '<div class="text-muted small mb-3">سابقه طب کار ثبت نشده است.</div>'}
 
       <h6 class="fw-bold mt-4 mb-2"><i class="bi bi-clock-history text-primary"></i> سوابق ویزیت (${faNum(visits?.length || 0)})</h6>
       ${visits?.length ? `
@@ -219,22 +251,7 @@ async function openPatientDetail(patient) {
           `).join('')}
         </div>
       ` : '<div class="text-muted small">ویزیتی ثبت نشده است.</div>'}
-
-      <h6 class="fw-bold mt-4 mb-2"><i class="bi bi-shield-check text-info"></i> سوابق طب کار</h6>
-      <div class="text-muted small" id="occList">در حال بررسی...</div>
     `;
-
-    // بررسی طب کار (اگر جدول دارید)
-    const { data: occ } = await sb.from('occupational_exams').select('*').eq('patient_id', patient.id);
-    if (occ?.length) {
-      document.getElementById('occList').innerHTML = occ.map(o => `
-        <div class="list-group-item small">
-          <div>تاریخ: ${gregorianToJalali(o.created_at)}</div>
-        </div>
-      `).join('');
-    } else {
-      document.getElementById('occList').innerHTML = '<div class="text-muted small">سابقه طب کار ثبت نشده است.</div>';
-    }
 
     // دکمه‌ها
     modalEl.querySelector('#btnEditPatient').onclick = () => openEditPatientModal(patient, modal);
@@ -271,7 +288,7 @@ function openEditPatientModal(patient, parentModal) {
 
   const html = `
     <div class="modal fade" id="${editModalId}" tabindex="-1" style="z-index: 1060;">
-      <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">ویرایش اطلاعات بیمار</h5>
@@ -284,6 +301,14 @@ function openEditPatientModal(patient, parentModal) {
               <div class="col-6"><label class="form-label small">کد ملی</label><input type="text" id="epNational" class="form-control" dir="ltr" value="${escapeHtml(patient.national_code || '')}"></div>
               <div class="col-6"><label class="form-label small">کد پرسنلی</label><input type="text" id="epPersonnel" class="form-control" dir="ltr" value="${escapeHtml(patient.personnel_number || '')}"></div>
               <div class="col-6"><label class="form-label small">تلفن</label><input type="text" id="epPhone" class="form-control" dir="ltr" value="${escapeHtml(patient.phone_number || '')}"></div>
+              <div class="col-12 mt-3">
+                <label class="form-label small text-danger">حساسیت‌ها</label>
+                <input type="text" id="epAllergies" class="form-control" value="${escapeHtml(patient.allergies || '')}" placeholder="مثلا: پنی سیلین">
+              </div>
+              <div class="col-12 mt-2">
+                <label class="form-label small">سابقه بیماری</label>
+                <textarea id="epMedicalHistory" class="form-control" rows="2" placeholder="مثلا: دیابت، فشار خون...">${escapeHtml(patient.medical_history || '')}</textarea>
+              </div>
             </div>
           </div>
           <div class="modal-footer">
@@ -306,7 +331,14 @@ function openEditPatientModal(patient, parentModal) {
       national_code: document.getElementById('epNational').value.trim() || null,
       personnel_number: document.getElementById('epPersonnel').value.trim() || null,
       phone_number: document.getElementById('epPhone').value.trim() || null,
+      allergies: document.getElementById('epAllergies').value.trim(),
+      medical_history: document.getElementById('epMedicalHistory').value.trim(),
     };
+
+    if (!payload.first_name || !payload.last_name) {
+      toast('نام و نام خانوادگی الزامی است', 'warning');
+      return;
+    }
 
     const btn = document.getElementById('btnSaveEditPatient');
     btn.disabled = true;
@@ -322,7 +354,7 @@ function openEditPatientModal(patient, parentModal) {
       toast('اطلاعات بیمار با موفقیت ویرایش شد', 'success');
       editModal.hide();
       parentModal.hide();
-      loadPatients();
+      loadPatients(); // رفرش لیست
     }
   };
 }
