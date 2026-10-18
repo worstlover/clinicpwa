@@ -509,3 +509,58 @@ async function saveNewDrug() {
   saveBtn.disabled = false;
   saveBtn.innerHTML = '<i class="bi bi-check2"></i> ذخیره';
 }
+// js/modals.js
+export function promptExpirySelection(dates) {
+  return new Promise((resolve) => {
+    const modalId = 'expirySelectionModal';
+    document.getElementById(modalId)?.remove();
+
+    const html = `
+      <div class="modal fade" id="${modalId}" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+              <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill"></i> چند تاریخ انقضا یافت شد</h5>
+            </div>
+            <div class="modal-body">
+              <p class="small text-muted mb-3">
+                در بارکد اسکن شده، بیش از یک تاریخ انقضای معتبر وجود دارد. لطفاً تاریخ صحیح را انتخاب کنید:
+              </p>
+              <div class="d-flex flex-column gap-2" id="expiryOptionsList">
+                ${dates.map((d, i) => `
+                  <button type="button" class="btn btn-outline-primary text-end p-3" data-date="${d}">
+                    <i class="bi bi-calendar-check"></i> <strong>${gregorianToJalali(d)}</strong> 
+                    <small class="text-muted ms-2">(${d})</small>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-light w-100" id="expiryCancelBtn">انصراف از اسکن</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', html);
+    const modalEl = document.getElementById(modalId);
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+
+    modalEl.querySelectorAll('[data-date]').forEach(btn => {
+      btn.onclick = () => {
+        const selected = btn.dataset.date;
+        modal.hide();
+        setTimeout(() => modalEl.remove(), 300);
+        resolve(selected);
+      };
+    });
+
+    modalEl.querySelector('#expiryCancelBtn').onclick = () => {
+      modal.hide();
+      setTimeout(() => modalEl.remove(), 300);
+      resolve(null); // کاربر انصراف داد
+    };
+  });
+}
