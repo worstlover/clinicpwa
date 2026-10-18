@@ -1,42 +1,90 @@
 // js/ui.js
-import { $ } from './utils.js';
 import { openInventoryList } from './modules/inventory-list.js'; // ⬅️ ایمپورت لیست به جای فرم
 import { openReceive } from './modules/receive.js';
 import { openDisposal } from './modules/disposal.js';
-// در صورت نیاز، سایر ماژول‌ها را اینجا ایمپورت کنید:
-// import { openDrugSearch } from './modals.js';
 
 // ═══════════════════════════════════════════════════════════
 // تابع مدیریت نمایش صفحات (Screen Switcher)
 // ═══════════════════════════════════════════════════════════
 export function showScreen(screenName) {
-  // مخفی کردن همه صفحات
-  document.querySelectorAll('.screen').forEach(el => {
-    el.classList.remove('active');
-  });
+  const screens = {
+    'Home':         'screenHome',
+    'Pharmacy':     'screenPharmacy',
+    'Visit':        'screenVisit',
+    'Inventory':    'screenInventory',
+    'Receive':      'screenReceive',
+    'Disposal':     'screenDisposal',
+    'Report':       'screenReport',
+    'Profile':      'screenProfile',
+    'Occupational': 'screenOccupational',
+    'Forms':        'screenForms',
+    'FormsMenu':    'screenFormsMenu',
+    'FormsArchive': 'screenFormsArchive',
+    'Guide':        'screenGuide',
+    'VisitReports': 'screenVisitReports',
+    'FineReward':   'screenFineReward',
+  };
 
-  // نمایش صفحه درخواستی (با استفاده از id یا data-attribute)
-  // فرض بر این است که هر صفحه یک id دارد مثل screen-Inventory
-  const targetScreen = document.getElementById(`screen-${screenName}`) || document.getElementById(screenName);
+  const titles = {
+    'Home':         'کلینیک',
+    'Pharmacy':     'داروخانه',
+    'Visit':        'ویزیت‌ها',
+    'Inventory':    'انبارگردانی',
+    'Receive':      'دریافت دارو',
+    'Disposal':     'خروج منقضی',
+    'Report':       'گزارش‌ها',
+    'Profile':      'پروفایل',
+    'Occupational': 'طب کار',
+    'Forms':        'فرم‌ها',
+    'FormsMenu':    'فرآیندها و فرم‌ها',
+    'FormsArchive': 'آرشیو فرم‌ها',
+    'Guide':        'راهنمای فرآیندها',
+    'VisitReports': 'گزارش ویزیت‌ها',
+    'FineReward':   'جریمه و تشویقی',
+  };
+
+  const targetId = screens[screenName];
   
-  if (targetScreen) {
-    targetScreen.classList.add('active');
-  } else {
-    console.warn(`⚠ صفحه با نام ${screenName} پیدا نشد.`);
+  // اگر صفحه در لیست نبود، کاری نکن
+  if (!targetId) return; 
+
+  // مخفی کردن همه صفحات و نمایش صفحه هدف
+  document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+  const target = document.getElementById(targetId);
+  if (target) target.classList.add('active');
+
+  // مدیریت منوی پایین
+  const bottomNav = document.getElementById('bottomNav');
+  if (bottomNav) {
+    // اگر در صفحات اصلی هستیم منو را نشان بده
+    if (['Home', 'Pharmacy', 'Visit', 'Profile', 'Inventory'].includes(screenName)) {
+      bottomNav.classList.remove('hidden');
+    } else {
+      bottomNav.classList.add('hidden');
+    }
   }
 
-  // به‌روزرسانی منوی پایین (Bottom Navigation) در صورت وجود
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.screen === screenName);
-  });
+  // تغییر عنوان هدر
+  const headerTitle = document.getElementById('headerTitle');
+  if (headerTitle) headerTitle.textContent = titles[screenName] || 'کلینیک';
+
+  // مدیریت دکمه بازگشت
+  const btnBack = document.getElementById('btnBack');
+  if (btnBack) {
+    if (['Home', 'Pharmacy', 'Visit', 'Profile'].includes(screenName)) {
+      btnBack.classList.add('hidden');
+    } else {
+      btnBack.classList.remove('hidden');
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
 // اتصال دکمه‌های منو به ماژول‌ها
 // ═══════════════════════════════════════════════════════════
-export function initUI() {
-  
+function initMenuEvents() {
   // ۱. دکمه انبارگردانی (تغییر یافته ⬅️)
+  // شناسه دکمه شما در صفحه داروخانه را اینجا قرار دهید (مثلاً btnInventory یا menu-inventory)
   const btnInventory = document.getElementById('btnInventory') || document.getElementById('menu-inventory');
   if (btnInventory) {
     btnInventory.onclick = () => {
@@ -60,24 +108,9 @@ export function initUI() {
       openDisposal();
     };
   }
-
-  // ۴. دکمه‌های منوی پایین (در صورت وجود)
-  document.querySelectorAll('[data-screen]').forEach(el => {
-    if (el.classList.contains('nav-item')) {
-      el.onclick = () => {
-        const screen = el.dataset.screen;
-        showScreen(screen);
-        
-        // اگر صفحه‌ای نیاز به لود اولیه دارد
-        if (screen === 'Inventory') openInventoryList();
-        if (screen === 'Receive') openReceive();
-        if (screen === 'Disposal') openDisposal();
-      };
-    }
-  });
 }
 
-// اجرای خودکار تنظیمات هنگام لود شدن فایل
+// اجرای تنظیمات هنگام لود شدن فایل
 document.addEventListener('DOMContentLoaded', () => {
-  initUI();
+  initMenuEvents();
 });
