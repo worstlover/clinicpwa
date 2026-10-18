@@ -4,12 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0d6efd">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="کلینیک">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<!-- ⬅️ آیکون سایت برای رفع خطای 404 -->
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>کلینیک گندله سازی بهاباد</title>
 
 <link href="lib/vazirmatn.css" rel="stylesheet">
 <link href="lib/bootstrap.rtl.min.css" rel="stylesheet">
 <link href="lib/bootstrap-icons.min.css" rel="stylesheet">
-<!-- ⬅️ فایل تم جدید را اینجا لینک کنید (جایگزین main.css) -->
 <link href="styles/theme.css" rel="stylesheet"> 
 <link href="js/forms/print.css" rel="stylesheet">
 <link href="js/forms/forms-theme.css" rel="stylesheet">
@@ -24,7 +31,7 @@
 </head>
 <body>
 
-<!-- ═════════════ لودینگ و لاگین (بدون تغییر) ═════════════ -->
+<!-- ═════════════ لودینگ ═════════════ -->
 <div id="screenLoading" class="screen active">
   <div class="loading-wrapper text-center pt-5">
     <h2 class="loading-title text-success fw-bold">کلینیک گندله</h2>
@@ -32,6 +39,7 @@
   </div>
 </div>
 
+<!-- ═════════════ لاگین ═════════════ -->
 <div id="screenLogin" class="screen">
   <div class="login-wrapper p-4 d-flex align-items-center justify-content-center" style="min-height: 100vh;">
     <div class="login-card bg-white p-4 rounded-4 shadow-lg w-100" style="max-width: 400px;">
@@ -209,7 +217,11 @@
   <a href="#" data-nav="profile"><i class="bi bi-person"></i>پروفایل</a>
 </div>
 
-<!-- اسکریپت‌ها -->
+<!-- ═════════════ اسکریپت‌ها ═════════════ -->
+<!-- ⭐ فایربیس دقیقاً قبل از app.js قرار گرفت ⭐ -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
+
 <script src="lib/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script type="module" src="js/app.js"></script>
