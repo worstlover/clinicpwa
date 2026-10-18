@@ -70,7 +70,6 @@ export async function checkAuth() {
     await initAllListeners();
     bindSettingsButton();
     showScreen('Home');
-    setTimeout(() => maybeShowPermissionBanner(), 800);
     return;
   }
 
@@ -91,23 +90,7 @@ export async function checkAuth() {
 }
 
 // ═══════════════════════════════════════════════════════
-// صفحه اتصال ضعیف
-// ═══════════════════════════════════════════════════════
-function setupWeakNetScreen() {
-  const retryBtn = $('btnWeakNetRetry');
-  const logoutBtn = $('btnWeakNetLogout');
-  
-  if (retryBtn) retryBtn.onclick = () => { showScreen('Loading'); setTimeout(() => checkAuth(), 100); };
-  if (logoutBtn) logoutBtn.onclick = async () => {
-    if (!confirm('از حساب خارج می‌شوید؟')) return;
-    localStorage.removeItem('clinic-auth-token');
-    await sb.auth.signOut();
-    location.reload();
-  };
-}
-
-// ═══════════════════════════════════════════════════════
-// لاگین
+// لاگین (با اضافه کردن خودکار پسوند)
 // ═══════════════════════════════════════════════════════
 export async function doLogin() {
   console.log('[AUTH] doLogin called');
@@ -119,7 +102,6 @@ export async function doLogin() {
     return;
   }
 
-  // ⬅️ اضافه کردن خودکار پسوند
   if (!email.includes('@')) {
     email = email + '@clinic.local';
   }
@@ -140,9 +122,11 @@ export async function doLogin() {
   await initAllListeners();
   bindSettingsButton();
   showScreen('Home');
-  setTimeout(() => maybeShowPermissionBanner(), 800);
 }
 
+// ═══════════════════════════════════════════════════════
+// اتصال دکمه تنظیمات (زنگ تنظیمات در هدر)
+// ═══════════════════════════════════════════════════════
 function bindSettingsButton() {
   const btn = $('btnSettings');
   if (btn) {
@@ -153,62 +137,19 @@ function bindSettingsButton() {
   }
 }
 
-async function maybeShowPermissionBanner() {
-  if (typeof Notification === 'undefined') return;
-  if (Notification.permission !== 'default') return;
-  const dismissed = localStorage.getItem('fcm_banner_dismissed_until');
-  if (dismissed && Date.now() < parseInt(dismissed)) return;
-
-  document.querySelectorAll('.fcm-permission-banner').forEach(el => el.remove());
-
-  const banner = document.createElement('div');
-  banner.className = 'fcm-permission-banner';
-  banner.innerHTML = `
-    <div class="fcm-banner-content">
-      <div class="fcm-banner-icon">🔔</div>
-      <div class="fcm-banner-body">
-        <div class="fcm-banner-title">فعال‌سازی هشدارها</div>
-        <div class="fcm-banner-text">برای دریافت اعلان حادثه و ارجاع، نوتیفیکیشن را فعال کنید.</div>
-      </div>
-      <div class="fcm-banner-actions">
-        <button class="fcm-banner-enable" id="fcmBannerEnable">فعال کن</button>
-        <button class="fcm-banner-close" id="fcmBannerClose" title="بعداً">✕</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(banner);
-
-  if (!document.getElementById('fcmBannerStyle')) {
-    const style = document.createElement('style');
-    style.id = 'fcmBannerStyle';
-    style.textContent = `
-      .fcm-permission-banner { position: fixed; top: 70px; left: 12px; right: 12px; z-index: 9998; background: linear-gradient(135deg, #0d6efd, #4c1d95); color: #fff; padding: 14px; border-radius: 14px; box-shadow: 0 8px 24px rgba(13, 110, 253, 0.4); animation: fcmBannerSlide 0.4s ease-out; }
-      @keyframes fcmBannerSlide { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-      .fcm-banner-content { display: flex; align-items: center; gap: 12px; }
-      .fcm-banner-icon { font-size: 2rem; animation: fcmBellRing 2s infinite; }
-      @keyframes fcmBellRing { 0%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(-15deg); } 20%, 40% { transform: rotate(15deg); } 50% { transform: rotate(0); } }
-      .fcm-banner-body { flex: 1; }
-      .fcm-banner-title { font-weight: 800; font-size: 0.95rem; margin-bottom: 2px; }
-      .fcm-banner-text { font-size: 0.75rem; opacity: 0.9; line-height: 1.4; }
-      .fcm-banner-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-      .fcm-banner-enable { background: #fff; color: #0d6efd; border: none; padding: 8px 14px; border-radius: 10px; font-weight: 700; font-size: 0.8rem; cursor: pointer; font-family: inherit; white-space: nowrap; }
-      .fcm-banner-enable:active { transform: scale(0.96); }
-      .fcm-banner-close { background: rgba(255,255,255,0.2); color: #fff; border: none; width: 32px; height: 32px; border-radius: 50%; font-size: 1rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-      .fcm-banner-close:active { background: rgba(255,255,255,0.35); }
-    `;
-    document.head.appendChild(style);
-  }
-
-  $('fcmBannerEnable').onclick = async () => {
-    const { requestPermissionAndInit } = await import('./fcm.js');
-    const token = await requestPermissionAndInit();
-    if (token) { banner.remove(); toast('✅ هشدارها فعال شد', 'success'); }
-  };
-
-  $('fcmBannerClose').onclick = () => {
-    const until = Date.now() + 3 * 24 * 60 * 60 * 1000;
-    localStorage.setItem('fcm_banner_dismissed_until', String(until));
-    banner.remove();
+// ═══════════════════════════════════════════════════════
+// صفحه اتصال ضعیف
+// ═══════════════════════════════════════════════════════
+function setupWeakNetScreen() {
+  const retryBtn = $('btnWeakNetRetry');
+  const logoutBtn = $('btnWeakNetLogout');
+  
+  if (retryBtn) retryBtn.onclick = () => { showScreen('Loading'); setTimeout(() => checkAuth(), 100); };
+  if (logoutBtn) logoutBtn.onclick = async () => {
+    if (!confirm('از حساب خارج می‌شوید؟')) return;
+    localStorage.removeItem('clinic-auth-token');
+    await sb.auth.signOut();
+    location.reload();
   };
 }
 
