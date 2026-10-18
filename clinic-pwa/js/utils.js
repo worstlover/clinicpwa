@@ -53,70 +53,79 @@ export const jalaliToGregorian = (str) => {
 };
 
 export const parseGS1 = (raw) => {
-  const r = { gtin: null, exp: null, batch: null, serial: null };
+  // ⭐ اضافه شدن exps (آرایه تاریخ‌ها) به خروجی
+  const r = { gtin: null, exp: null, exps: [], batch: null, serial: null };
   if (!raw) return r;
 
-  // ═══ پاکسازی ورودی و یکسان‌سازی جداکننده‌ها ═══
   let s = String(raw)
-    .replace(/^\]C1/, '')            // پیشوند ]C1
-    .replace(/\u001d/g, '|')         // FNC1 واقعی (GS)
-    .replace(/<GS>/gi, '|')          // اگر به شکل متنی آمد
+    .replace(/^\]C1/, '')
+    .replace(/\u001d/g, '|')
+    .replace(/<GS>/gi, '|')
     .replace(/<FNC1>/gi, '|')
-    .replace(/\u241d/g, '|')         // نمایش نمادین GS
-    .replace(/[\r\n\t]+/g, ' ')      // حذف خط جدید
+    .replace(/\u241d/g, '|')
+    .replace(/[\r\n\t]+/g, ' ')
     .trim();
 
-  // اگر هیچ جداکننده‌ای نیست ولی رشته طولانی است، شاید FNC1 حذف شده.
-  // در این حالت از قبل AI های ثابت‌طول را با regex پیدا می‌کنیم.
-
-  // ═══ ۱. GTIN (AI=01، ثابت ۱۴ رقم) ═══
-  // اول از ابتدای رشته (استاندارد)، اگر نبود هرجای رشته
+  // ═══ ۱. GTIN ═══
   let m01 = s.match(/(?:^|[^0-9])01(\d{14})/);
   if (!m01) m01 = s.match(/01(\d{14})/);
   if (m01) r.gtin = m01[1];
 
-  // ═══ ۲. تاریخ انقضا (AI=17، ثابت ۶ رقم YYMMDD) ═══
-  // این را قبل از AIهای متغیر پیدا می‌کنیم تا اگر FNC1 حذف شده بود،
-  // رشته‌ی بچ آن را نخورد.
-  let m17 = s.match(/(?:^|[^0-9])17(\d{2})(\d{2})(\d{2})/);
-  if (!m17) m17 = s.match(/17(\d{2})(\d{2})(\d{2})/);
-  if (m17) {
-    const yy = parseInt(m17[1], 10);
-    const mm = m17[2];
-    const dd = m17[3];
+  // ═══ ۲. تاریخ‌های انقضا (پیدا کردن همه 17 ها) ═══
+  // استفاده از matchAll برای پیدا کردن تمام موارد 17 که 6 رقم بعدشان است
+  const expMatches = [...s.matchAll(/(?:^|[^0-9])17(\d{6})(?=\D|$)/g)];
+  
+  const now = new Date();
+  const maxFuture = new Date();
+  maxFuture.setFullYear(now.getFullYear() + 5); // حداکثر ۵ سال آینده
+
+  const validExps = [];
+
+  expMatches.forEach(m => {
+    const ds = m[1];
+    const yy = parseInt(ds.substring(0, 2), 10);
+    const mm = parseInt(ds.substring(2, 4), 10);
+    const dd = parseInt(ds.substring(4, 6), 10);
     const year = yy < 70 ? 2000 + yy : 1900 + yy;
-    // اعتبارسنجی ساده: ماه ۰۱-۱۲، روز ۰۱-۳۱
-    if (+mm >= 1 && +mm <= 12 && +dd >= 1 && +dd <= 31) {
-      r.exp = `${year}-${mm}-${dd}`;
+
+    // ⭐ اعتبارسنجی دقیق
+    if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+      const expDate = new Date(year, mm - 1, dd);
+      // چک کردن اینکه تاریخ در دیتابیس سرریز نشده باشد (مثلا 31 فوریه)
+      if (expDate.getMonth() === mm - 1 && expDate.getDate() === dd) {
+        // چک کردن حداکثر ۵ سال آینده
+        if (expDate <= maxFuture) {
+          const expStr = `${year}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+          if (!validExps.includes(expStr)) {
+            validExps.push(expStr); // جلوگیری از تاریخ‌های تکراری
+          }
+        }
+      }
     }
+  });
+
+  r.exps = validExps;
+  if (validExps.length > 0) {
+    r.exp = validExps[0]; // پیش‌فرض را اولین تاریخ معتبر قرار می‌دهیم
   }
 
-  // ═══ ۳. AIهای متغیر (10 = بچ، 21 = سریال) با جداکننده '|' ═══
-  // فقط اگر '|' داریم این کار را می‌کنیم تا رشته خراب نشود.
+  // ═══ ۳. AIهای متغیر (10 = بچ، 21 = سریال) ═══
   if (s.includes('|')) {
     const parts = s.split('|');
     for (let k = 0; k < parts.length; k++) {
       const p = parts[k];
-      // AI=10 : بچ
       if (/^10/.test(p) && !r.batch) {
         r.batch = p.slice(2).trim();
-      }
-      // AI=21 : سریال
-      else if (/^21/.test(p) && !r.serial) {
+      } else if (/^21/.test(p) && !r.serial) {
         r.serial = p.slice(2).trim();
       }
     }
-
-    // اگر آخرین بخش بدون جداکننده بود ولی شامل AI=10 یا 21 به‌هم‌چسبیده بود
-    // (مثلاً "...10BATCH|21SER" یا برعکس)
     const last = parts[parts.length - 1];
     if (last && !r.batch) {
       const bm = last.match(/10([^|]*?)(?:17|21|$)/);
       if (bm) r.batch = bm[1].trim();
     }
   } else {
-    // ═══ حالت اضطراری: FNC1 حذف شده و هیچ جداکننده‌ای نیست ═══
-    // فقط می‌توانیم بچ را بعد از AI=10 تا قبل از AI=17 یا AI=21 بگیریم
     if (!r.batch) {
       const bm = s.match(/10([^]*?)(?=17\d{6}|21|$)/);
       if (bm) r.batch = bm[1].replace(/\|/g, '').trim();
@@ -127,7 +136,6 @@ export const parseGS1 = (raw) => {
     }
   }
 
-  // اگر GTIN پیدا نشد، کل رشته را به‌عنوان fallback بگذار
   if (!r.gtin) r.gtin = s.replace(/\|/g, '');
 
   return r;
