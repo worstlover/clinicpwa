@@ -500,20 +500,24 @@ function renderList() {
   });
 }
 
-// ═══════════════════════════════════════════════════════════
-// پردازش بارکد — منطق دقیق انتخاب تاریخ
-// ═══════════════════════════════════════════════════════════
+// ═══ منطق جدید تاریخ ═══
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
 
-  // ⭐ اگر بیش از یک تاریخ معتبر پیدا شد، مودال باز می‌شود
-  // اگر 0 یا 1 تاریخ بود، خودکار در parsed.exp قرار گرفته است
-  if (parsed.exps && parsed.exps.length > 1) {
-    const selectedDate = await promptExpirySelection(parsed.exps);
-    if (!selectedDate) {
-      return; // کاربر انصراف داد
+  if (parsed.exps && parsed.exps.length > 0) {
+    const isInvalid = !parsed.exp.includes('-');
+    
+    if (parsed.exps.length > 1 || isInvalid) {
+      const selectedDate = await promptExpirySelection(parsed.exps);
+      if (!selectedDate) return; 
+      
+      if (selectedDate.includes('-')) {
+        parsed.exp = selectedDate;
+      } else {
+        toast('شما یک تاریخ نامعتبر را انتخاب کردید. لطفا تاریخ را در فرم دستی وارد کنید.', 'warning');
+        parsed.exp = '';
+      }
     }
-    parsed.exp = selectedDate; 
   }
 
   const gtin = cleanGTIN(parsed.gtin);
