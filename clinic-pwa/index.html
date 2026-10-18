@@ -6,20 +6,17 @@
 <meta name="theme-color" content="#f3f6f9" id="metaThemeColor">
 <title>کلینیک گندله سازی بهاباد</title>
 
-<!-- آیکون‌ها برای رفع خطای 404 -->
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 
 <link href="lib/vazirmatn.css" rel="stylesheet">
 <link href="lib/bootstrap.rtl.min.css" rel="stylesheet">
 <link href="lib/bootstrap-icons.min.css" rel="stylesheet">
-<!-- فایل main.css برای استایل‌های ماژول‌ها -->
 <link href="styles/main.css" rel="stylesheet">
 <link href="js/forms/print.css" rel="stylesheet">
 <link href="js/forms/forms-theme.css" rel="stylesheet">
 <link href="js/process/process.css" rel="stylesheet">
-<!-- ⬅️ لینک به فایل theme.css خودتان (نه theme-v2) -->
-<link href="styles/theme.css" rel="stylesheet">
+<link href="styles/theme.css" rel="stylesheet"> <!-- فایل تم شما -->
 
 <style>
   .screen { display: none !important; }
@@ -30,7 +27,6 @@
 </head>
 <body>
 <script>
-  // اعمال تم قبل از اولین رندر (جلوگیری از چشمک)
   (function () {
     try {
       var t = localStorage.getItem('theme');
@@ -229,8 +225,50 @@
   </div>
 </div>
 
+<!-- ═════════════ صفحه داروخانه (اصلاح شده) ═════════════ -->
+<div id="screenPharmacy" class="screen">
+  <div class="container-fluid p-0">
+    <div class="home-greeting" style="margin-bottom: 20px;">
+      <div>
+        <div class="home-greeting-text" style="font-size: 1.4rem;">داروخانه</div>
+        <div class="home-greeting-sub">مدیریت انبار و داروها</div>
+      </div>
+      <div class="home-greeting-art" style="font-size: 2.5rem;"><i class="bi bi-capsule"></i></div>
+    </div>
+
+    <div class="home-dashboard-grid">
+      <button class="home-card tone-green" data-nav="inventory">
+        <span class="home-card-icon"><i class="bi bi-clipboard-check"></i></span>
+        <span class="home-card-label">انبارگردانی</span>
+        <span class="home-card-sub">شمارش و مغایرت</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+
+      <button class="home-card tone-amber" data-nav="receive">
+        <span class="home-card-icon"><i class="bi bi-truck"></i></span>
+        <span class="home-card-label">دریافت دارو</span>
+        <span class="home-card-sub">ورود به انبار</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+
+      <button class="home-card tone-red" data-nav="disposal">
+        <span class="home-card-icon"><i class="bi bi-trash3"></i></span>
+        <span class="home-card-label">خروج منقضی</span>
+        <span class="home-card-sub">دور ریختن دارو</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+
+      <button class="home-card tone-cyan" data-nav="report">
+        <span class="home-card-icon"><i class="bi bi-graph-up"></i></span>
+        <span class="home-card-label">گزارش‌ها</span>
+        <span class="home-card-sub">موجودی و هشدارها</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ═════════════ صفحات دیگر ═════════════ -->
-<div id="screenPharmacy"       class="screen"><div class="content p-3" id="pharmacyContent"></div></div>
 <div id="screenVisit"          class="screen"><div class="content p-3" id="visitContent"></div></div>
 <div id="screenPatients"       class="screen"><div class="content p-3" id="patientContent"></div></div>
 <div id="screenInventory"      class="screen"><div class="content p-3" id="invContent"></div></div>
@@ -250,13 +288,13 @@
 <div class="bottom-nav" id="bottomNav">
   <a href="#" data-nav="home" class="active"><i class="bi bi-house-door-fill"></i>خانه</a>
   <a href="#" data-nav="visits"><i class="bi bi-calendar2-check"></i>ویزیت</a>
-  <a href="#" data-nav="pharmacy" class="nav-fab" aria-label="داروخانه"><i class="bi bi-plus-lg"></i></a>
+  <!-- ⬅️ دکمه شناور وسط با ID برای کنترل در app.js -->
+  <a href="#" id="navFab" class="nav-fab" aria-label="ثبت سریع"><i class="bi bi-plus-lg"></i></a>
   <a href="#" data-nav="patients"><i class="bi bi-people"></i>بیماران</a>
   <a href="#" data-nav="profile"><i class="bi bi-person"></i>پروفایل</a>
 </div>
 
 <!-- ═════════════ اسکریپت‌ها ═════════════ -->
-<!-- ⬅️ اسکریپت‌های فایربیس برای جلوگیری از خطای FCM -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
 
@@ -264,7 +302,7 @@
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script type="module" src="js/app.js"></script>
 <script>
-  // تغییر تم (هدر و سایدبار) + ذخیره‌ی انتخاب
+  // تغییر تم (هدر و سایدبار)
   document.addEventListener('DOMContentLoaded', function () {
     var btns = [document.getElementById('btnToggleTheme'), document.getElementById('sideThemeToggle')].filter(Boolean);
     var meta = document.getElementById('metaThemeColor');
