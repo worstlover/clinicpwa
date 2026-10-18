@@ -18,10 +18,60 @@ const isConsumableDrug = (drug) => {
   return f === 'other' || f.includes('سایر');
 };
 
+// ═══════════════════════════════════════════════════════
+// بارگذاری سوابق بیمار
+// ═══════════════════════════════════════════════════════
+async function loadPatientHistory(patientId) {
+  try {
+    // ۱. اطلاعات پایه بیمار (حساسیت و سابقه بیماری)
+    const { data: pInfo } = await sb.from('core_patient')
+      .select('allergies, medical_history')
+      .eq('id', patientId).maybeSingle();
+
+    // ۲. سوابق ویزیت
+    const { data: visits } = await sb.from('visits_visit')
+      .select('visit_date, reason:visits_reasonforvisit(name)')
+      .eq('patient_id', patientId)
+      .order('visit_date', { ascending: false });
+
+    const visitCount = visits?.length || 0;
+    const lastReason = visits && visits.length > 0 ? (visits[0].reason?.name || 'نامشخص') : 'ندارد';
+
+    // ۳. وضعیت طب کار (فرض بر وجود جدول occupational_exams)
+    let occStatus = 'ثبت نشده';
+    try {
+      const { data: occ } = await sb.from('occupational_exams')
+        .select('result, created_at')
+        .eq('patient_id', patientId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      
+      if (occ && occ.length > 0) {
+        occStatus = occ[0].result || 'تایید شده';
+      }
+    } catch(e) {
+      // اگر جدول طب کار وجود نداشت، خطا را نادیده می‌گیریم
+    }
+
+    state.patientHistory = {
+      allergies: pInfo?.allergies || '',
+      medicalHistory: pInfo?.medical_history || '',
+      visitCount,
+      lastReason,
+      occStatus
+    };
+
+  } catch (err) {
+    console.error('خطا در دریافت سوابق بیمار:', err);
+    state.patientHistory = null;
+  }
+}
+
 export async function openCreate() {
   state.view = 'create';
   state.step = 1; state.maxStep = 1;
   state.patientId = null; state.patientName = '';
+  state.patientHistory = null; // ⬅️ ریست کردن سوابق
   state.isIncident = false; state.incidentType = 'none';
   state.selectedInjuries = []; state.items = [];
   state.alertBroadcasted = false;
@@ -52,8 +102,35 @@ function renderWizard() {
     { n: 7, label: 'تشخیص' }
   ];
 
+  // ساخت بنر سوابق بیمار
+  let historyBanner = '';
+  if (state.patientId && state.patientHistory) {
+    const h = state.patientHistory;
+    const allergyBadge = h.allergies ? `<span class="badge bg-danger ms-1" title="حساسیت"><i class="bi bi-exclamation-triangle"></i> ${escapeHtml(h.allergies)}</span>` : '';
+    const historyBadge = h.medicalHistory ? `<span class="badge bg-secondary ms-1" title="سابقه بیماری"><i class="bi bi-journal-medical"></i> ${escapeHtml(h.medicalHistory)}</span>` : '';
+    
+    historyBanner = `
+      <div class="alert alert-info shadow-sm mb-3 border-info" style="border-right: 5px solid #0dcaf0;">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="fw-bold mb-0 text-dark"><i class="bi bi-person-badge"></i> پرونده: ${escapeHtml(state.patientName)}</h6>
+          <span class="badge bg-primary">تعداد ویزیت: ${faNum(h.visitCount)}</span>
+        </div>
+        <div class="small text-dark mb-2">
+          <strong>علت آخرین ویزیت:</strong> ${escapeHtml(h.lastReason)} 
+          <span class="mx-2">|</span> 
+          <strong>طب کار:</strong> ${escapeHtml(h.occStatus)}
+        </div>
+        <div class="d-flex flex-wrap gap-1">
+          ${allergyBadge}
+          ${historyBadge}
+        </div>
+      </div>
+    `;
+  }
+
   c.innerHTML = `
     <div id="visitBannerMount"></div>
+    ${historyBanner} <!-- ⬅️ نمایش بنر سوابق بالای همه مراحل -->
 
     <div class="card"><div class="card-body">
       <div class="wizard-steps">
@@ -444,7 +521,7 @@ function bindWizard() {
   }
 
   const pClear = $('vPatientClear');
-  if (pClear) pClear.onclick = () => { state.patientId = null; state.patientName = ''; renderWizard(); };
+  if (pClear) pClear.onclick = () => { state.patientId = null; state.patientName = ''; state.patientHistory = null; renderWizard(); };
 
   const pWorkUnit = $('vPatientWorkUnit');
   if (pWorkUnit) {
@@ -923,11 +1000,18 @@ function openQuickPatientModal() {
       const payload = {
         first_name: firstName,
         last_name: lastName,
-        gender: selectedGender,
+        gender: selectedGender === 'male' ? 'm' : 'f', // ⬅️ رفع مشکل varchar(1)
         is_foreign_national: !!passportNo && !nationalCode,
         national_code: nationalCode || null,
         personnel_number: personnelNo || null,
         company_id: companyId,
+        
+        // ⬅️ رفع مشکل NOT NULL
+        registered_at: new Date().toISOString(),
+        allergies: '',
+        medical_history: '',
+        is_approved: false,
+        is_monitored: false
       };
 
       if (passportNo) payload.passport_number = passportNo;
@@ -955,8 +1039,13 @@ function openQuickPatientModal() {
       toast(`✅ بیمار "${fullName}" ثبت شد`, 'success');
       beep();
       modal.hide();
+      
       state.patientId = newPatient.id;
       state.patientName = fullName;
+      
+      // ⬅️ دریافت سوابق بیمار جدید (احتمالاً خالی است)
+      await loadPatientHistory(newPatient.id);
+      
       state.step = 2;
       if (state.step > state.maxStep) state.maxStep = state.step;
       renderWizard();
@@ -1049,6 +1138,10 @@ function openNationalCodeFixModal(patient) {
 
       state.patientId = patient.id;
       state.patientName = `${patient.first_name || ''} ${patient.last_name || ''}`.trim();
+      
+      // ⬅️ دریافت سوابق پس از تکمیل
+      await loadPatientHistory(patient.id);
+      
       state.step = 2;
       if (state.step > state.maxStep) state.maxStep = state.step;
       renderWizard();
@@ -1120,7 +1213,7 @@ async function searchPatients(q) {
   }).join('');
 }
 
-function pickPatient(id, name, nationalCode, passportNumber) {
+async function pickPatient(id, name, nationalCode, passportNumber) {
   if (!id) return;
   const hasNational = (nationalCode || '').trim();
   const hasPassport = (passportNumber || '').trim();
@@ -1135,6 +1228,10 @@ function pickPatient(id, name, nationalCode, passportNumber) {
 
   state.patientId = id;
   state.patientName = name;
+  
+  // ⬅️ دریافت سوابق بیمار
+  await loadPatientHistory(id);
+  
   state.step = 2;
   if (state.step > state.maxStep) state.maxStep = state.step;
   renderWizard();
