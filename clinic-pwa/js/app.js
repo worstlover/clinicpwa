@@ -12,14 +12,14 @@ import { openReport } from './modules/report.js';
 import { openProfile } from './modules/profile.js';
 import { openOccupational } from './modules/occupational.js';
 import { openVisits } from './modules/visit/index.js';
-import { openCreate } from './modules/visit/create.js'; // ⬅️ برای دکمه شناور
+import { openCreate } from './modules/visit/create.js'; 
 import { openPatients } from './modules/patients.js';
 import { openForms } from './forms/engine.js';
 import { openGuide } from './process/guide.js';
 import { openFormsMenu } from './modules/forms-menu.js';
 import { openFormsArchive } from './modules/forms-archive.js';
 import { openVisitReports } from './modules/visit-reports.js';
-import { openFineReward } from './modules/fine-reward.js'; // ⬅️ برای دکمه شناور
+import { openFineReward } from './modules/fine-reward.js';
 import { initFCM } from './fcm.js';
 import { sb } from './sb.js';
 
@@ -105,7 +105,7 @@ document.querySelectorAll('[data-nav]').forEach(el => {
 });
 
 // ═══════════════════════════════════════════════════════
-// 📊 بارگذاری آمار داشبورد (حل مشکل خط تیره‌ها)
+// 📊 بارگذاری آمار داشبورد (اصلاح شده)
 // ═══════════════════════════════════════════════════════
 async function loadDashboardStats() {
   try {
@@ -125,29 +125,29 @@ async function loadDashboardStats() {
     const { count: occCount } = await sb.from('lab_results_periodicexamination').select('*', { count: 'exact', head: true }).gte('exam_date', monthStart);
     document.querySelector('[data-stat="examsMonth"]').textContent = faNum(occCount || 0);
 
-    // ۴. جریمه و تشویقی (اگر جدولش وجود داشت)
+    // ۴. جریمه و تشویقی
     try {
       const { count: fineCount } = await sb.from('fine_rewards').select('*', { count: 'exact', head: true }).gte('created_at', monthStart);
       document.querySelector('[data-stat="finesMonth"]').textContent = faNum(fineCount || 0);
     } catch(e) {}
 
-    // ۵. داروها (موجودی کل، کم، نزدیک انقضا)
-    const { data: stockData } = await sb.from('v_drug_stock').select('total_quantity');
+    // ۵. داروها
+    // ⬅️ اصلاح: تعداد انواع داروها (نه مجموع قرص‌ها) را می‌شماریم
+    const { data: stockData } = await sb.from('v_drug_stock').select('drug_id, total_quantity');
     if (stockData) {
-      let total = 0, low = 0;
-      stockData.forEach(s => {
-        total += (s.total_quantity || 0);
-        if (s.total_quantity > 0 && s.total_quantity <= 10) low++;
-      });
-      document.querySelector('[data-stat="drugsTotal"]').textContent = faNum(total);
-      document.querySelector('[data-stat="drugsLow"]').textContent = faNum(low);
+      const totalDrugTypes = stockData.length; 
+      const lowStock = stockData.filter(s => s.total_quantity > 0 && s.total_quantity <= 10).length;
+      
+      document.querySelector('[data-stat="drugsTotal"]').textContent = faNum(totalDrugTypes);
+      document.querySelector('[data-stat="drugsLow"]').textContent = faNum(lowStock);
     }
     
+    // ⬅️ اصلاح: تعداد بچ‌های نزدیک انقضا
     const { count: expCount } = await sb.from('drugs_drugbatch').select('*', { count: 'exact', head: true }).lt('expiry_date', threeMonthsLater).gt('quantity', 0);
     document.querySelector('[data-stat="drugsExpiring"]').textContent = faNum(expCount || 0);
 
-    // ۶. تعداد فرم‌ها (در صورت وجود)
-    document.querySelector('[data-stat="formsCount"]').textContent = faNum(150); // عدد ثابت موقت
+    // ۶. تعداد فرم‌ها
+    document.querySelector('[data-stat="formsCount"]').textContent = faNum(150); 
 
   } catch (err) {
     console.error('[Stats] Error loading dashboard stats:', err);
@@ -161,21 +161,17 @@ function initFab() {
   const fab = document.getElementById('navFab');
   if (!fab) return;
 
-  // دریافت نقش کاربر از متادیتای Supabase
   const role = currentUser?.user_metadata?.role || currentUser?.role;
 
   if (role === 'Nurse' || role === 'doctor') {
-    // اگر پرستار یا دکتر بود -> ثبت ویزیت
     fab.innerHTML = '<i class="bi bi-plus-lg"></i>';
     fab.title = 'ثبت ویزیت جدید';
     fab.onclick = (e) => { e.preventDefault(); openCreate(); };
   } else if (role === 'safety' || role === 'Supervisor' || isAdmin) {
-    // اگر ایمنی یا سوپروایزر بود -> ثبت جریمه/تشویقی
     fab.innerHTML = '<i class="bi bi-shield-plus"></i>';
     fab.title = 'ثبت جریمه / تشویقی';
     fab.onclick = (e) => { e.preventDefault(); openFineReward(); };
   } else {
-    // سایر نقش‌ها -> پیش‌فرض ویزیت
     fab.innerHTML = '<i class="bi bi-plus-lg"></i>';
     fab.onclick = (e) => { e.preventDefault(); openVisits(); };
   }
@@ -207,7 +203,6 @@ window._triggerInstall = async () => {
 (async () => {
   try {
     await checkAuth();
-    // بعد از اینکه احراز هویت انجام شد، آمار و دکمه شناور را تنظیم می‌کنیم
     await loadDashboardStats();
     initFab();
   } catch (e) {
