@@ -521,17 +521,19 @@ export function promptExpirySelection(dates) {
         <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
             <div class="modal-header bg-warning text-dark">
-              <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill"></i> چند تاریخ انقضا یافت شد</h5>
+              <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill"></i> چند تاریخ انقضا معتبر یافت شد</h5>
             </div>
             <div class="modal-body">
               <p class="small text-muted mb-3">
-                در بارکد اسکن شده، بیش از یک تاریخ انقضای معتبر وجود دارد. لطفاً تاریخ صحیح را انتخاب کنید:
+                در بارکد اسکن شده، بیش از یک تاریخ انقضا وجود دارد. لطفاً تاریخ صحیح را انتخاب کنید (تاریخ اصلی به میلادی است):
               </p>
               <div class="d-flex flex-column gap-2" id="expiryOptionsList">
                 ${dates.map((d, i) => `
                   <button type="button" class="btn btn-outline-primary text-start p-3 w-100" data-date="${d}">
-                    <div class="fw-bold" style="direction: ltr; text-align: left; font-size: 1.1rem;">${d}</div>
-                    <div class="small text-muted mt-1" style="direction: rtl; text-align: left;">${gregorianToJalali(d)}</div>
+                    <div class="fw-bold" style="direction: ltr; text-align: left; font-size: 1.2rem; letter-spacing: 1px;">${d}</div>
+                    <div class="small text-muted mt-1" style="direction: rtl; text-align: right; font-size: 0.9rem;">
+                      <i class="bi bi-calendar3"></i> معادل شمسی: <strong>${gregorianToJalali(d)}</strong>
+                    </div>
                   </button>
                 `).join('')}
               </div>
@@ -561,7 +563,7 @@ export function promptExpirySelection(dates) {
     modalEl.querySelector('#expiryCancelBtn').onclick = () => {
       modal.hide();
       setTimeout(() => modalEl.remove(), 300);
-      resolve(null); // کاربر انصراف داد
+      resolve(null); 
     };
   });
 }
