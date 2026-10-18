@@ -2,7 +2,6 @@
 import { sb } from '../sb.js';
 import { faNum, escapeHtml, gregorianToJalali, jalaliToGregorian, toast } from '../utils.js';
 import { printA4 } from './list-print.js';
-import { openInventory } from './inventory.js';
 
 const PAGE_SIZE = 20;
 
@@ -32,7 +31,6 @@ function buildOverlay() {
           <span class="fw-bold">سندهای انبارگردانی</span>
         </div>
         <div class="d-flex gap-2">
-          <!-- دکمه جدید برای ساخت انبارگردانی -->
           <button class="btn btn-sm btn-primary" id="invListNewBtn">
             <i class="bi bi-plus-lg"></i> جدید
           </button>
@@ -80,7 +78,7 @@ function bindEvents() {
   wrap.querySelector('#invListNewBtn').onclick = () => {
     wrap.classList.remove('active');
     document.body.style.overflow = '';
-    openInventory(); 
+    import('./inventory.js').then(m => m.openInventory());
   };
 
   wrap.querySelector('#invListFilter').onclick = () => {
@@ -116,13 +114,17 @@ async function loadRows() {
   body.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
   try {
+    // ⭐ استفاده از id برای مرتب‌سازی به جای created_at (تا کرش نکند)
     let q = sb.from('inv_sessions')
       .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false });
+      .order('id', { ascending: false });
 
     if (state.query) {
       q = q.or(`code.ilike.%${state.query}%,title.ilike.%${state.query}%`);
     }
+    
+    // فیلترهای تاریخی فعلاً غیرفعال هستند تا خطا ندهند (اگر created_at در دیتابیس نباشد)
+    /*
     if (state.dateFrom) {
       const g = jalaliToGregorian(state.dateFrom);
       if (g) q = q.gte('created_at', `${g}T00:00:00`);
@@ -131,6 +133,7 @@ async function loadRows() {
       const g = jalaliToGregorian(state.dateTo);
       if (g) q = q.lte('created_at', `${g}T23:59:59`);
     }
+    */
 
     const from = (state.page - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -194,16 +197,18 @@ function renderRows() {
   body.innerHTML = state.rows.map(r => {
     const isClosed = ['completed', 'applied'].includes(r.status);
     const st = r.status === 'applied' ? { cls: 'bg-success', label: 'بسته شده (اعمال شده)' }
-            : r.status === 'completed' ? { cls: 'bg-info text-white', label: 'بسته شده (ثبت گزارش)' }
+            : r.status === 'completed' ? { cls: 'bg-info text-white', label: 'بسته شده (ثبت شده)' }
             : { cls: 'bg-warning text-dark', label: 'باز - در حال انجام' };
             
     const disc = r._disc > 0
       ? `<span class="badge bg-warning text-dark">${faNum(r._disc)} مغایرت</span>`
       : `<span class="badge bg-success">بدون مغایرت</span>`;
 
+    // مدیریت نبودن ستون created_at
     const lastEditTime = r.updated_at || r.created_at;
     const timeStr = lastEditTime ? new Date(lastEditTime).toLocaleString('fa-IR') : 'نامشخص';
     const editorEmail = r.updated_by_email || r.created_by_email || 'نامشخص';
+    const createDateStr = r.created_at ? gregorianToJalali(r.created_at.slice(0, 10)) : 'نامشخص';
 
     const itemsSummary = r._lastItems.length > 0 
       ? r._lastItems.map(i => `<div class="small text-muted">• ${escapeHtml(i.drug_name)} (${faNum(i.counted_quantity)} عدد)</div>`).join('')
@@ -223,11 +228,11 @@ function renderRows() {
           </div>
           
           <div class="small text-muted mt-1">
-            <i class="bi bi-clock-history"></i> آخرین ویرایش: <bdi dir="ltr">${timeStr}</bdi> توسط: ${escapeHtml(editorEmail)}
+            <i class="bi bi-clock-history"></i> آخرین تغییر: <bdi dir="ltr">${timeStr}</bdi> توسط: ${escapeHtml(editorEmail)}
           </div>
           
           <div class="small text-muted mt-1">
-            <i class="bi bi-calendar3"></i> ایجاد: <bdi dir="ltr">${escapeHtml(gregorianToJalali((r.created_at || '').slice(0, 10)))}</bdi>
+            <i class="bi bi-calendar3"></i> ایجاد: <bdi dir="ltr">${createDateStr}</bdi>
             <span class="mx-2">•</span>
             <i class="bi bi-list-check"></i> ${faNum(r._items || 0)} قلم
           </div>
@@ -247,13 +252,13 @@ function renderRows() {
       const isClosed = el.dataset.closed === 'true';
       const sessionId = el.dataset.id;
       if (isClosed) {
-        toast('این سند بسته شده و قابل ویرایش نیست.', 'warning');
+        toast('این سند بسته شده و قابل تغییر نیست.', 'warning');
         return;
       }
       localStorage.setItem('inv_session_id', sessionId);
       document.getElementById('invListWrap').classList.remove('active');
       document.body.style.overflow = '';
-      openInventory();
+      import('./inventory.js').then(m => m.openInventory());
     };
   });
 
@@ -283,7 +288,7 @@ async function printList() {
       { label: '#', formatter: (r, i) => faNum(i + 1) },
       { label: 'کد سند', key: 'code', cls: 'fw-bold' },
       { label: 'عنوان', key: 'title', align: 'right' },
-      { label: 'تاریخ', formatter: (r) => escapeHtml(gregorianToJalali((r.created_at || '').slice(0, 10))) },
+      { label: 'تاریخ', formatter: (r) => r.created_at ? escapeHtml(gregorianToJalali(r.created_at.slice(0, 10))) : 'نامشخص' },
       { label: 'اقلام', formatter: (r) => faNum(r._items || 0) },
       { label: 'مغایرت', formatter: (r) => r._disc ? `${faNum(r._disc)} قلم` : 'ندارد' },
       {
@@ -294,6 +299,6 @@ async function printList() {
       },
     ],
     rows: state.rows,
-    signatures: ['شمارش‌کننده', 'تأییدکننده', 'مدیر انبار'],
+    signatures: ['ثبت‌کننده', 'تأییدکننده', 'مدیر انبار'],
   });
 }
