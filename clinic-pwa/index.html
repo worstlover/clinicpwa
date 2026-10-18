@@ -3,24 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#0d6efd">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="کلینیک">
-<meta name="mobile-web-app-capable" content="yes">
-<link rel="manifest" href="manifest.json">
-<!-- ⬅️ آیکون سایت برای رفع خطای 404 -->
+<meta name="theme-color" content="#f3f6f9" id="metaThemeColor">
+<title>کلینیک گندله سازی بهاباد</title>
+
+<!-- ⬅️ اضافه شدن آیکون‌ها برای رفع خطای 404 -->
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<title>کلینیک گندله سازی بهاباد</title>
 
 <link href="lib/vazirmatn.css" rel="stylesheet">
 <link href="lib/bootstrap.rtl.min.css" rel="stylesheet">
 <link href="lib/bootstrap-icons.min.css" rel="stylesheet">
-<link href="styles/theme.css" rel="stylesheet"> 
+<link href="styles/main.css" rel="stylesheet">
 <link href="js/forms/print.css" rel="stylesheet">
 <link href="js/forms/forms-theme.css" rel="stylesheet">
 <link href="js/process/process.css" rel="stylesheet">
+<link href="styles/theme-v2.css" rel="stylesheet">
 
 <style>
   .screen { display: none !important; }
@@ -30,19 +27,33 @@
 </style>
 </head>
 <body>
+<script>
+  // اعمال تم قبل از اولین رندر (جلوگیری از چشمک)
+  (function () {
+    try {
+      var t = localStorage.getItem('theme');
+      var dark = t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.body.classList.add('dark-mode');
+    } catch (e) {}
+  })();
+</script>
 
-<!-- ═════════════ لودینگ ═════════════ -->
+<!-- ═════════════ لودینگ و لاگین ═════════════ -->
 <div id="screenLoading" class="screen active">
   <div class="loading-wrapper text-center pt-5">
-    <h2 class="loading-title text-success fw-bold">کلینیک گندله</h2>
+    <h2 class="loading-title fw-bold">کلینیک گندله</h2>
     <div class="spinner-border text-success mt-4" role="status"></div>
   </div>
 </div>
 
-<!-- ═════════════ لاگین ═════════════ -->
 <div id="screenLogin" class="screen">
   <div class="login-wrapper p-4 d-flex align-items-center justify-content-center" style="min-height: 100vh;">
-    <div class="login-card bg-white p-4 rounded-4 shadow-lg w-100" style="max-width: 400px;">
+    <div class="login-card p-4 rounded-4 w-100" style="max-width: 400px;">
+      <div class="text-center mb-3">
+        <span class="brand-mark mx-auto">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/><path d="M17.6 3.8c-2.7.2-4.6 1.9-4.9 4.3 2.7-.2 4.6-1.9 4.9-4.3z" fill="currentColor" stroke="none"/></svg>
+        </span>
+      </div>
       <h3 class="text-center fw-bold mb-4">ورود به کلینیک</h3>
       <div id="loginMsg"></div>
       <div class="mb-3">
@@ -53,134 +64,159 @@
         <label class="form-label">رمز عبور</label>
         <input type="password" id="loginPass" class="form-control" dir="ltr" placeholder="••••••••">
       </div>
-      <button class="btn btn-success w-100 btn-lg rounded-pill" id="btnLogin" type="button">ورود</button>
+      <button class="btn btn-success w-100 btn-lg" id="btnLogin" type="button">ورود</button>
     </div>
   </div>
 </div>
 
 <!-- ═════════════ هدر ═════════════ -->
-<div class="app-header hidden d-flex justify-content-between align-items-center p-3" id="appHeader" style="background: var(--bg-app); border-bottom: 1px solid var(--border-color);">
-  <div class="d-flex align-items-center gap-3">
-    <button id="btnBack" class="hidden btn btn-light rounded-circle"><i class="bi bi-arrow-right"></i></button>
-    <div class="title fw-bold fs-5" id="headerTitle" style="color: var(--text-main);">کلینیک</div>
+<div class="app-header hidden" id="appHeader">
+  <div class="d-flex align-items-center gap-2">
+    <button id="btnBack" class="hidden btn btn-light" aria-label="بازگشت"><i class="bi bi-arrow-right"></i></button>
+    <div class="title" id="headerTitle">کلینیک</div>
   </div>
-  <div style="display:flex;gap:8px;align-items:center;">
-    <button id="btnToggleTheme" title="تغییر تم" class="btn btn-light rounded-circle"><i class="bi bi-moon-stars-fill"></i></button>
-    <button id="btnAlertBell" class="btn btn-light rounded-circle position-relative">
+  <div class="d-flex align-items-center gap-2">
+    <button id="btnToggleTheme" title="تغییر تم" class="btn btn-light" aria-label="تغییر تم"><i class="bi bi-moon-stars-fill"></i></button>
+    <button id="btnAlertBell" class="btn btn-light position-relative" aria-label="هشدارها">
       <i class="bi bi-bell-fill"></i>
       <span id="alertBellBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display:none;">!</span>
     </button>
-    <button id="btnProfile" class="btn btn-light rounded-circle"><i class="bi bi-person-circle"></i></button>
-    <button id="btnLogout" class="btn btn-light rounded-circle text-danger"><i class="bi bi-box-arrow-left"></i></button>
+    <button id="btnProfile" class="btn btn-light" aria-label="پروفایل"><i class="bi bi-person-circle"></i></button>
+    <button id="btnLogout" class="btn btn-light text-danger" aria-label="خروج"><i class="bi bi-box-arrow-left"></i></button>
   </div>
 </div>
+
+<!-- ═════════════ سایدبار دسکتاپ ═════════════ -->
+<aside class="side-nav" id="sideNav">
+  <div class="side-brand">
+    <span class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/><path d="M17.6 3.8c-2.7.2-4.6 1.9-4.9 4.3 2.7-.2 4.6-1.9 4.9-4.3z" fill="currentColor" stroke="none"/></svg>
+    </span>
+    <div>
+      <div class="brand-name">گندله</div>
+      <div class="brand-sub">سامانه جامع کلینیک صنعتی</div>
+    </div>
+  </div>
+  <nav class="side-links">
+    <a href="#" data-nav="home" class="active"><i class="bi bi-house-door-fill"></i><span>خانه</span></a>
+    <a href="#" data-nav="visits"><i class="bi bi-clipboard2-pulse"></i><span>ویزیت‌ها</span></a>
+    <a href="#" data-nav="patients"><i class="bi bi-people"></i><span>بیماران</span></a>
+    <a href="#" data-nav="pharmacy"><i class="bi bi-capsule-pill"></i><span>داروخانه</span></a>
+    <a href="#" data-nav="occupational"><i class="bi bi-briefcase"></i><span>طب کار</span></a>
+    <a href="#" data-nav="formsMenu"><i class="bi bi-file-earmark-text"></i><span>فرآیندها و فرم‌ها</span></a>
+    <a href="#" data-nav="visitReports"><i class="bi bi-file-earmark-bar-graph"></i><span>گزارش ویزیت‌ها</span></a>
+    <a href="#" data-nav="report"><i class="bi bi-graph-up-arrow"></i><span>گزارش دارو</span></a>
+    <a href="#" data-nav="fineReward"><i class="bi bi-shield-exclamation"></i><span>جریمه و تشویقی</span></a>
+    <a href="#" data-nav="profile"><i class="bi bi-person"></i><span>پروفایل</span></a>
+  </nav>
+  <div class="side-foot">
+    <button class="side-toggle" id="sideThemeToggle" type="button">
+      <span><i class="bi bi-moon-stars ms-2"></i>حالت تاریک</span><span class="sw"></span>
+    </button>
+    <div class="side-user">
+      <span class="av"><i class="bi bi-person-fill"></i></span>
+      <div><div class="nm">کاربر سیستم</div><div class="em" id="sideUserEmail">admin@clinic.local</div></div>
+    </div>
+  </div>
+</aside>
 
 <!-- ═════════════ منوی اصلی (Home) ═════════════ -->
 <div id="screenHome" class="screen">
   <div class="container-fluid p-0">
-    
-    <!-- بخش سلام -->
+
     <div class="home-greeting">
       <div>
-        <div class="home-greeting-text">سلام 👋</div>
+        <div class="home-greeting-text">سلام</div>
+        <div class="home-greeting-sub">به کلینیک گندله‌سازی بهاباد خوش آمدید</div>
         <div class="home-greeting-email" id="userEmail">admin@clinic.local</div>
       </div>
-      <div style="font-size: 2.5rem; color: var(--primary); filter: drop-shadow(0 4px 6px rgba(16,185,129,0.3));">
-        <i class="bi bi-flower1"></i>
-      </div>
+      <div class="home-greeting-art"><i class="bi bi-flower1"></i></div>
     </div>
 
-    <!-- بنر حادثه -->
-    <button id="btnQuickIncident" class="home-incident-btn">
+    <button id="btnQuickIncident" class="home-incident-btn" type="button">
+      <svg class="home-incident-ecg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,32 46,32 56,32 64,8 74,54 84,18 92,32 200,32" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div class="home-incident-icon"><i class="bi bi-alarm-fill"></i></div>
       <div class="home-incident-body">
         <div class="home-incident-title">اعلام حادثه سریع</div>
         <div class="home-incident-sub">گزارش سریع حادثه و درخواست کمک فوری</div>
       </div>
+      <span class="home-incident-cta d-none d-md-inline-flex">اعلام فوری <i class="bi bi-chevron-left ms-1"></i></span>
     </button>
 
-    <!-- ⭐ گرید اصلی با چینش جدید ⭐ -->
     <div class="home-dashboard-grid">
-      
-      <!-- ردیف اول: 4 کارت -->
-      <button class="home-card" data-nav="visits">
-        <div class="home-card-icon" style="background:var(--card-1-bg);color:var(--card-1-color);"><i class="bi bi-clipboard2-pulse-fill"></i></div>
-        <div class="home-card-label">ویزیت‌ها</div>
-        <div class="home-card-sub">مدیریت بیماران</div>
+
+      <button class="home-card tone-green" data-nav="visits" type="button">
+        <span class="home-card-icon"><i class="bi bi-clipboard2-pulse-fill"></i></span>
+        <span class="home-card-label">ویزیت‌ها</span>
+        <span class="home-card-sub">ثبت و مدیریت مراجعات</span>
+        <span class="hc-chip"><span data-stat="visitsToday">—</span> ویزیت امروز</span>
         <i class="bi bi-chevron-left home-card-arrow"></i>
       </button>
 
-      <button class="home-card" data-nav="patients">
-        <div class="home-card-icon" style="background:var(--card-2-bg);color:var(--card-2-color);"><i class="bi bi-people-fill"></i></div>
-        <div class="home-card-label">مدیریت بیماران</div>
-        <div class="home-card-sub">پرونده و سوابق</div>
+      <button class="home-card tone-purple" data-nav="patients" type="button">
+        <span class="home-card-icon"><i class="bi bi-people-fill"></i></span>
+        <span class="home-card-label">بیماران</span>
+        <span class="home-card-sub">پرونده و سوابق</span>
+        <span class="hc-chip"><span data-stat="patientsTotal">—</span> پرونده</span>
         <i class="bi bi-chevron-left home-card-arrow"></i>
       </button>
 
-      <button class="home-card" data-nav="occupational">
-        <div class="home-card-icon" style="background:var(--card-3-bg);color:var(--card-3-color);"><i class="bi bi-briefcase-fill"></i></div>
-        <div class="home-card-label">طب کار</div>
-        <div class="home-card-sub">معاینات شغلی</div>
+      <button class="home-card tone-blue" data-nav="occupational" type="button">
+        <span class="home-card-icon"><i class="bi bi-briefcase-fill"></i></span>
+        <span class="home-card-label">طب کار</span>
+        <span class="home-card-sub">معاینات شغلی و دوره‌ای</span>
+        <span class="hc-chip"><span data-stat="examsMonth">—</span> معاینه این ماه</span>
         <i class="bi bi-chevron-left home-card-arrow"></i>
       </button>
 
-      <button class="home-card" data-nav="fineReward">
-        <div class="home-card-icon" style="background:var(--card-4-bg);color:var(--card-4-color);"><i class="bi bi-shield-exclamation"></i></div>
-        <div class="home-card-label">جریمه و تشویقی</div>
-        <div class="home-card-sub">سوابق ایمنی</div>
+      <button class="home-card tone-red" data-nav="fineReward" type="button">
+        <span class="home-card-icon"><i class="bi bi-shield-exclamation"></i></span>
+        <span class="home-card-label">جریمه و تشویقی</span>
+        <span class="home-card-sub">سوابق و اخطارهای ایمنی</span>
+        <span class="hc-chip"><span data-stat="finesMonth">—</span> مورد این ماه</span>
         <i class="bi bi-chevron-left home-card-arrow"></i>
       </button>
 
-      <!-- ردیف دوم: فرم‌ها (تکی و تمام عرض) -->
-      <button class="home-card card-full" data-nav="formsMenu">
-        <div class="home-card-icon" style="background:#ede9fe;color:#7c3aed;">
-          <i class="bi bi-file-earmark-text-fill"></i>
-        </div>
-        <div class="home-card-body">
-          <div class="home-card-label">فرآیندها و فرم‌ها</div>
-          <div class="home-card-sub">دسترسی به فرم‌ها، راهنما و بایگانی</div>
-          <div class="d-inline-flex mt-2" style="font-size:0.75rem; font-weight:bold; color:var(--primary); background:var(--primary-light); padding:4px 12px; border-radius:20px;">
-            مدیریت فرم‌ها <i class="bi bi-chevron-left ms-1"></i>
-          </div>
-        </div>
+      <button class="home-card card-full tone-purple" data-nav="formsMenu" type="button">
+        <span class="home-card-icon"><i class="bi bi-file-earmark-text-fill"></i></span>
+        <span class="home-card-body">
+          <span class="home-card-label d-block">فرآیندها و فرم‌ها</span>
+          <span class="home-card-sub d-block">پر کردن فرم‌ها، آرشیو و چاپ مجدد، راهنمای فرآیندها</span>
+          <span class="hc-chip"><span data-stat="formsCount">—</span> فرم ثبت‌شده <i class="bi bi-chevron-left"></i></span>
+        </span>
       </button>
 
-      <!-- ردیف سوم: داروخانه و گزارش ویزیت‌ها (کنار هم) -->
-      <button class="home-card card-half" data-nav="pharmacy">
-        <div class="home-card-icon" style="background:#d1fae5;color:#059669;">
-          <i class="bi bi-capsule-pill"></i>
-        </div>
-        <div class="home-card-label">داروخانه کلینیک</div>
-        <div class="home-card-sub">مدیریت داروها و موجودی</div>
+      <button class="home-card card-wide tone-green" data-nav="pharmacy" type="button">
+        <span class="home-card-icon"><i class="bi bi-capsule-pill"></i></span>
+        <span class="home-card-label">داروخانه کلینیک</span>
+        <span class="home-card-sub">دریافت، تحویل، انبارگردانی و خروج منقضی</span>
+        <span class="hc-stats">
+          <span><b data-stat="drugsTotal">—</b><small>موجودی داروها</small></span>
+          <span class="tone-amber"><b data-stat="drugsLow">—</b><small>رو به اتمام</small></span>
+          <span class="tone-red"><b data-stat="drugsExpiring">—</b><small>نزدیک انقضا</small></span>
+        </span>
+      </button>
+
+      <button class="home-card card-half tone-amber" data-nav="visitReports" type="button">
+        <span class="home-card-icon"><i class="bi bi-file-earmark-bar-graph"></i></span>
+        <span class="home-card-label">گزارش ویزیت‌ها</span>
+        <span class="home-card-sub">جامع و با جزئیات</span>
+        <svg class="hc-spark" viewBox="0 0 120 40" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,32 14,28 28,30 42,20 56,24 70,14 84,18 98,8 120,4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--tone)"/></svg>
+      </button>
+
+      <button class="home-card card-half tone-cyan" data-nav="report" type="button">
+        <span class="home-card-icon"><i class="bi bi-graph-up-arrow"></i></span>
+        <span class="home-card-label">گزارش دارو</span>
+        <span class="home-card-sub">موجودی و هشدارها</span>
         <i class="bi bi-chevron-left home-card-arrow"></i>
       </button>
 
-      <button class="home-card card-half" data-nav="visitReports">
-        <div class="home-card-icon" style="background:#fef3c7;color:#d97706;">
-          <i class="bi bi-file-earmark-bar-graph"></i>
-        </div>
-        <div class="home-card-label">گزارش ویزیت‌ها</div>
-        <div class="home-card-sub">گزارش جامع با فیلتر تاریخ</div>
-        <i class="bi bi-chevron-left home-card-arrow"></i>
-      </button>
-
-      <!-- ردیف چهارم: سایر (من و گزارش دارو) -->
-      <button class="home-card card-half" data-nav="report">
-        <div class="home-card-icon" style="background:#cffafe;color:#0891b2;">
-          <i class="bi bi-graph-up-arrow"></i>
-        </div>
-        <div class="home-card-label">گزارش دارو</div>
-        <div class="home-card-sub">موجودی و هشدارها</div>
-        <i class="bi bi-chevron-left home-card-arrow"></i>
-      </button>
-
-      <button class="home-card card-half" data-nav="profile">
-        <div class="home-card-icon" style="background:#f1f5f9;color:#475569;">
-          <i class="bi bi-person-badge-fill"></i>
-        </div>
-        <div class="home-card-label">پروفایل</div>
-        <div class="home-card-sub">حساب کاربری</div>
-        <i class="bi bi-chevron-left home-card-arrow"></i>
+      <button class="home-card card-full tone-blue" data-nav="profile" type="button" style="min-height:0;">
+        <span class="home-card-icon"><i class="bi bi-person-badge-fill"></i></span>
+        <span class="home-card-body">
+          <span class="home-card-label d-block">پروفایل</span>
+          <span class="home-card-sub d-block">حساب کاربری، اعلان‌ها و تنظیمات هشدار</span>
+        </span>
       </button>
 
     </div>
@@ -192,7 +228,7 @@
 </div>
 
 <!-- ═════════════ صفحات دیگر ═════════════ -->
-<div id="screenPharmacy" class="screen"><div class="content p-3" id="pharmacyContent"></div></div>
+<div id="screenPharmacy"       class="screen"><div class="content p-3" id="pharmacyContent"></div></div>
 <div id="screenVisit"          class="screen"><div class="content p-3" id="visitContent"></div></div>
 <div id="screenPatients"       class="screen"><div class="content p-3" id="patientContent"></div></div>
 <div id="screenInventory"      class="screen"><div class="content p-3" id="invContent"></div></div>
@@ -208,17 +244,17 @@
 <div id="screenVisitReports"   class="screen"><div class="content p-3" id="visitReportsContent"></div></div>
 <div id="screenFineReward"     class="screen"><div class="content p-3" id="fineRewardContent"></div></div>
 
-<!-- ═════════════ منوی پایین ═════════════ -->
+<!-- ═════════════ منوی پایین (موبایل) ═════════════ -->
 <div class="bottom-nav" id="bottomNav">
   <a href="#" data-nav="home" class="active"><i class="bi bi-house-door-fill"></i>خانه</a>
   <a href="#" data-nav="visits"><i class="bi bi-calendar2-check"></i>ویزیت</a>
-  <a href="#" data-nav="pharmacy" class="nav-fab"><i class="bi bi-plus-lg"></i></a>
+  <a href="#" data-nav="pharmacy" class="nav-fab" aria-label="داروخانه"><i class="bi bi-plus-lg"></i></a>
   <a href="#" data-nav="patients"><i class="bi bi-people"></i>بیماران</a>
   <a href="#" data-nav="profile"><i class="bi bi-person"></i>پروفایل</a>
 </div>
 
 <!-- ═════════════ اسکریپت‌ها ═════════════ -->
-<!-- ⭐ فایربیس دقیقاً قبل از app.js قرار گرفت ⭐ -->
+<!-- ⭐ فایربیس دقیقاً قبل از app.js قرار گرفت تا خطای FCM رفع شود ⭐ -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
 
@@ -226,23 +262,24 @@
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script type="module" src="js/app.js"></script>
 <script>
-  // کد تغییر تم (Dark Mode)
-  document.addEventListener('DOMContentLoaded', () => {
-    const btnTheme = document.getElementById('btnToggleTheme');
-    const iconTheme = btnTheme.querySelector('i');
-    const isDark = localStorage.getItem('theme') === 'dark';
-    
-    if (isDark) {
-      document.body.classList.add('dark-mode');
-      iconTheme.classList.replace('bi-moon-stars-fill', 'bi-sun-fill');
+  // تغییر تم (هدر و سایدبار) + ذخیره‌ی انتخاب
+  document.addEventListener('DOMContentLoaded', function () {
+    var btns = [document.getElementById('btnToggleTheme'), document.getElementById('sideThemeToggle')].filter(Boolean);
+    var meta = document.getElementById('metaThemeColor');
+    var icon = document.querySelector('#btnToggleTheme i');
+    function apply(dark) {
+      document.body.classList.toggle('dark-mode', dark);
+      if (icon) icon.className = dark ? 'bi bi-sun-fill' : 'bi bi-moon-stars-fill';
+      if (meta) meta.setAttribute('content', dark ? '#070b10' : '#f3f6f9');
     }
-
-    btnTheme.onclick = () => {
-      document.body.classList.toggle('dark-mode');
-      const darkNow = document.body.classList.contains('dark-mode');
-      localStorage.setItem('theme', darkNow ? 'dark' : 'light');
-      iconTheme.className = darkNow ? 'bi bi-sun-fill' : 'bi bi-moon-stars-fill';
-    };
+    apply(document.body.classList.contains('dark-mode'));
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () {
+        var dark = !document.body.classList.contains('dark-mode');
+        try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
+        apply(dark);
+      });
+    });
   });
 </script>
 </body>
