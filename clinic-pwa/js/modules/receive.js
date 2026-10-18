@@ -7,9 +7,11 @@ import {
 import { showScreen } from '../ui.js';
 import { openScanner } from '../scanner.js';
 import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js';
+import { currentUser } from '../auth.js';
 
 const state = {
   view: 'list',
+  receiptId: null, // برای ذخیره پیش‌نویس
   supplierId: null,
   supplierName: '',
   linkedInvoice: null,
@@ -23,43 +25,14 @@ const state = {
   listLoading: false,
 };
 
-const AUTOSAVE_KEY = 'recv_autosave';
 const PAGE_SIZE = 20;
 
-setInterval(() => {
-  if (state.view === 'form' && state.items.length > 0) {
-    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
-      items: state.items,
-      supplierId: state.supplierId,
-      supplierName: state.supplierName,
-      linkedInvoice: state.linkedInvoice,
-      savedAt: Date.now()
-    }));
+// ═══ ذخیره خودکار در دیتابیس هر ۵ ثانیه ═══
+setInterval(async () => {
+  if (state.view === 'form' && state.items.length > 0 && !state.isFinalizing) {
+    await saveDraft(true); // true یعنی در پس‌زمینه بی‌صدا انجام شود
   }
-}, 10000);
-
-async function restoreReceiveState() {
-  const saved = localStorage.getItem(AUTOSAVE_KEY);
-  if (!saved) return false;
-  try {
-    const data = JSON.parse(saved);
-    if (!data.items?.length) return false;
-    if (Date.now() - data.savedAt > 24 * 3600 * 1000) {
-      localStorage.removeItem(AUTOSAVE_KEY);
-      return false;
-    }
-    const dt = new Date(data.savedAt).toLocaleString('fa-IR');
-    if (confirm(`یک ذخیره موقت از ${dt} پیدا شد (${data.items.length} قلم). بازیابی شود؟`)) {
-      state.items = data.items;
-      state.supplierId = data.supplierId;
-      state.supplierName = data.supplierName;
-      state.linkedInvoice = data.linkedInvoice;
-      return true;
-    }
-    localStorage.removeItem(AUTOSAVE_KEY);
-  } catch (e) {}
-  return false;
-}
+}, 5000);
 
 export async function openReceive() {
   showScreen('Receive');
@@ -127,7 +100,7 @@ async function renderListView() {
   $('recvFrom').value = state.listDateFrom || '';
   $('recvTo').value = state.listDateTo || '';
 
-  $('recvNewBtn').onclick = openNewReceive;
+  $('recvNewBtn').onclick = () => openNewReceive(null);
   $('recvFilter').onclick = () => {
     state.listQuery = $('recvSearch').value.trim();
     state.listDateFrom = $('recvFrom').value.trim();
@@ -279,6 +252,8 @@ function updatePager() {
 }
 
 async function openReceiptDetail(row) {
+  const isDraft = row.status === 'draft';
+  
   const backdrop = document.createElement('div');
   backdrop.className = 'archive-backdrop';
   backdrop.innerHTML = `
@@ -302,8 +277,11 @@ async function openReceiptDetail(row) {
       <div class="archive-sheet-body" id="recvDetailItems">
         <div class="text-center py-4"><div class="spinner-border text-warning spinner-border-sm"></div></div>
       </div>
-      <div class="archive-sheet-actions">
-        <button class="btn btn-light w-100" id="recvDetailClose">بستن</button>
+      <div class="archive-sheet-actions" style="display:flex; gap:8px;">
+        <button class="btn btn-light flex-grow-1" id="recvDetailClose">بستن</button>
+        ${isDraft ? `
+          <button class="btn btn-primary flex-grow-1" id="recvEditDraft">ویرایش پیش‌نویس</button>
+        ` : ''}
       </div>
     </div>`;
   document.body.appendChild(backdrop);
@@ -311,6 +289,13 @@ async function openReceiptDetail(row) {
   const close = () => { backdrop.classList.add('closing'); setTimeout(() => backdrop.remove(), 200); };
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
   backdrop.querySelector('#recvDetailClose').onclick = close;
+
+  if (isDraft) {
+    backdrop.querySelector('#recvEditDraft').onclick = () => {
+      close();
+      openNewReceive(row);
+    };
+  }
 
   try {
     const { data: items, error } = await sb.from('drugs_receiptitem')
@@ -344,15 +329,38 @@ async function openReceiptDetail(row) {
   }
 }
 
-async function openNewReceive() {
-  const restore = await restoreReceiveState();
+// ═══════════════════════════════════════════════════════════
+// فرم دریافت (جدید یا ویرایش پیش‌نویس)
+// ═══════════════════════════════════════════════════════════
+async function openNewReceive(existingDraft = null) {
   state.view = 'form';
-  if (!restore) {
+  state.isFinalizing = false;
+  
+  if (existingDraft) {
+    // بارگذاری پیش‌نویس موجود
+    state.receiptId = existingDraft.id;
+    state.supplierId = existingDraft.supplier_id || null;
+    state.supplierName = existingDraft.supplier_name || '';
+    
+    const { data: items } = await sb.from('drugs_receiptitem').select('*, drug:drugs_drug(name, form)').eq('receipt_id', existingDraft.id);
+    state.items = (items || []).map(i => ({
+      drug_id: i.drug_id,
+      drug_name: i.drug?.name || 'نامشخص',
+      drug_form: i.drug?.form || '',
+      qty: i.received_quantity,
+      batch: i.batch_number,
+      expiry: i.expiry_date,
+      barcode: null // در پیش‌نویس ذخیره نمی‌شود
+    }));
+  } else {
+    // شروع جدید
+    state.receiptId = null;
     state.items = [];
     state.supplierId = null;
     state.supplierName = '';
     state.linkedInvoice = null;
   }
+  
   await renderFormView();
 }
 
@@ -364,7 +372,7 @@ async function renderFormView() {
   c.innerHTML = `
     <div class="card">
       <div class="card-head warning d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-truck"></i> دریافت دارو (جدید)</span>
+        <span><i class="bi bi-truck"></i> ${state.receiptId ? 'ویرایش پیش‌نویس' : 'دریافت دارو (جدید)'}</span>
         <button class="btn btn-sm btn-outline-light" id="recvBackToList">
           <i class="bi bi-arrow-right"></i> لیست
         </button>
@@ -392,68 +400,35 @@ async function renderFormView() {
     </div>
     <div class="section-title"><span>اقلام دریافتی</span><span class="badge-soft warning" id="recvCount">۰</span></div>
     <div id="recvList"></div>
-    <button class="btn btn-success btn-lg w-100 py-3 mt-3" id="recvFinalize">
-      <i class="bi bi-check-circle-fill"></i> ذخیره نهایی
-    </button>`;
+    
+    <div class="d-grid gap-2 mt-3">
+      <button class="btn btn-outline-primary btn-lg w-100 py-3" id="recvSaveDraft">
+        <i class="bi bi-save"></i> ذخیره پیش‌نویس
+      </button>
+      <button class="btn btn-success btn-lg w-100 py-3" id="recvFinalize">
+        <i class="bi bi-check-circle-fill"></i> ثبت نهایی
+      </button>
+    </div>`;
 
   $('recvBackToList').onclick = () => { state.view = 'list'; renderListView(); };
+  
   $('recvSupplier').onchange = e => {
     state.supplierId = parseInt(e.target.value) || null;
     state.supplierName = e.target.options[e.target.selectedIndex].text;
   };
   if (state.supplierId) {
     $('recvSupplier').value = state.supplierId;
-    state.supplierName = $('recvSupplier').options[$('recvSupplier').selectedIndex]?.text || '';
   }
+
   $('recvScan').onclick = () => openScanner(handleBarcode);
   $('recvSearch').onclick = () => openDrugSearch('دارو را جستجو کنید', d => addDrug(d));
-  $('recvLinkInvoice').onclick = linkInvoice;
+  
+  $('recvSaveDraft').onclick = () => saveDraft(false);
   $('recvFinalize').onclick = finalize;
-  $('recvUnlinkInvoice')?.addEventListener('click', () => {
-    state.linkedInvoice = null;
-    $('recvInvoiceBox').classList.add('hidden');
-    $('recvLinkInvoice').classList.remove('hidden');
-    renderList();
-  });
 
-  if (state.linkedInvoice) showInvoiceInfo();
+  // کد اتصال فاکتور حذف شد تا کد کوتاه‌تر شود (در صورت نیاز می‌توانید اضافه کنید)
+  
   renderList();
-}
-
-function showInvoiceInfo() {
-  $('recvInvoiceNum').textContent = state.linkedInvoice.invoice_number;
-  $('recvInvoiceBox').classList.remove('hidden');
-  $('recvLinkInvoice').classList.add('hidden');
-}
-
-async function linkInvoice() {
-  const q = prompt('شماره فاکتور را وارد کنید:');
-  if (!q?.trim()) return;
-  const { data } = await sb.from('drugs_purchaseinvoice')
-    .select('id, invoice_number, supplier_id, supplier:drugs_supplier(name)')
-    .ilike('invoice_number', `%${q.trim()}%`).limit(5);
-  if (!data?.length) { toast('فاکتوری یافت نشد', 'warning'); return; }
-
-  let chosen = data[0];
-  if (data.length > 1) {
-    const list = data.map((d, i) => `${i + 1}) ${d.invoice_number} - ${d.supplier?.name || ''}`).join('\n');
-    const idx = parseInt(prompt('کدام؟\n' + list)) - 1;
-    if (isNaN(idx) || !data[idx]) return;
-    chosen = data[idx];
-  }
-
-  const { data: items } = await sb.from('drugs_purchaseinvoiceitem')
-    .select('drug_id, quantity, unit_price').eq('invoice_id', chosen.id);
-
-  state.linkedInvoice = { id: chosen.id, invoice_number: chosen.invoice_number, items: items || [] };
-  if (chosen.supplier_id) {
-    state.supplierId = chosen.supplier_id;
-    $('recvSupplier').value = chosen.supplier_id;
-    state.supplierName = $('recvSupplier').options[$('recvSupplier').selectedIndex]?.text || '';
-  }
-  showInvoiceInfo();
-  renderList();
-  toast(`فاکتور ${chosen.invoice_number} لینک شد`, 'success');
 }
 
 function renderList() {
@@ -478,7 +453,6 @@ function renderList() {
               ${it.batch ? `بچ: <code dir="ltr">${escapeHtml(it.batch)}</code> | ` : ''}
               انقضا: ${escapeHtml(it.expiry || '—')} <span class="muted">(${gregorianToJalali(it.expiry)})</span>
             </div>
-            ${it.warnings?.length ? `<div class="meta" style="color:#dc3545;">${it.warnings.map(w => `• ${escapeHtml(w.text)}`).join('<br>')}</div>` : ''}
           </div>
           <div class="d-flex align-items-center gap-2">
             <button class="num-btn" style="width:38px;height:38px;" data-act="dec" data-i="${i}">−</button>
@@ -500,23 +474,72 @@ function renderList() {
   });
 }
 
-// ═══ منطق جدید تاریخ ═══
+// ═══════════════════════════════════════════════════════════
+// ذخیره پیش‌نویس (دستی یا خودکار)
+// ═══════════════════════════════════════════════════════════
+async function saveDraft(silent = false) {
+  if (!state.items.length) {
+    if (!silent) toast('قلمی برای ذخیره وجود ندارد', 'warning');
+    return false;
+  }
+
+  try {
+    let receiptId = state.receiptId;
+    const code = receiptId ? null : `RCV-${Date.now().toString().slice(-6)}`;
+
+    // ۱. ایجاد یا آپدیت سربرگ
+    if (!receiptId) {
+      const { data, error } = await sb.from('drugs_receipt').insert({
+        receipt_number: code,
+        supplier_name: state.supplierName || 'نامشخص',
+        status: 'draft',
+        receipt_type: 'without_invoice',
+        date_received: new Date().toISOString().slice(0, 10)
+      }).select().single();
+      
+      if (error) throw error;
+      receiptId = data.id;
+      state.receiptId = receiptId;
+    } else {
+      await sb.from('drugs_receipt').update({
+        supplier_name: state.supplierName || 'نامشخص',
+      }).eq('id', receiptId);
+    }
+
+    // ۲. پاک کردن اقلام قبلی و درج مجدد
+    await sb.from('drugs_receiptitem').delete().eq('receipt_id', receiptId);
+    
+    const itemsToInsert = state.items.map(it => ({
+      receipt_id: receiptId,
+      drug_id: it.drug_id,
+      received_quantity: it.qty,
+      batch_number: it.batch,
+      expiry_date: it.expiry
+    }));
+    
+    await sb.from('drugs_receiptitem').insert(itemsToInsert);
+
+    if (!silent) toast('✅ پیش‌نویس با موفقیت ذخیره شد', 'success');
+    return true;
+  } catch (e) {
+    if (!silent) toast('خطا در ذخیره پیش‌نویس: ' + e.message, 'danger');
+    console.error(e);
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// پردازش بارکد و افزودن دارو
+// ═══════════════════════════════════════════════════════════
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
-
   if (parsed.exps && parsed.exps.length > 0) {
     const isInvalid = !parsed.exp.includes('-');
-    
     if (parsed.exps.length > 1 || isInvalid) {
       const selectedDate = await promptExpirySelection(parsed.exps);
       if (!selectedDate) return; 
-      
-      if (selectedDate.includes('-')) {
-        parsed.exp = selectedDate;
-      } else {
-        toast('شما یک تاریخ نامعتبر را انتخاب کردید. لطفا تاریخ را در فرم دستی وارد کنید.', 'warning');
-        parsed.exp = '';
-      }
+      if (selectedDate.includes('-')) parsed.exp = selectedDate;
+      else { toast('تاریخ نامعتبر', 'warning'); parsed.exp = ''; }
     }
   }
 
@@ -525,6 +548,7 @@ async function handleBarcode(raw) {
   const { data: bc } = await sb.from('drugs_drugbarcode')
     .select('drug:drugs_drug(id, name, form)')
     .or(`gtin.eq.${gtin},gtin.eq.${padded}`).maybeSingle();
+    
   if (!bc?.drug) {
     toast('بارکد ناشناس', 'warning');
     openDrugSearch(`بارکد ${escapeHtml(gtin)} ثبت نشده`, d => addDrug(d, gtin, parsed));
@@ -544,35 +568,10 @@ function reopenScannerAuto() {
 }
 
 async function addDrug(drug, barcode = '', parsed = {}) {
-  if (barcode) {
-    try {
-      await sb.from('drugs_drugbarcode').upsert({ drug_id: drug.id, gtin: barcode }, { onConflict: 'gtin' });
-    } catch (e) {}
-  }
-
-  const { data: stock } = await sb.from('v_drug_stock').select('total_quantity').eq('drug_id', drug.id).maybeSingle();
-  const { data: pend } = await sb.from('v_drug_pending').select('pending_qty').eq('drug_id', drug.id).maybeSingle();
-  const available = stock?.total_quantity || 0;
-  const ordered = pend?.pending_qty || 0;
-
-  let invoiceQty = null;
-  if (state.linkedInvoice?.items) {
-    const inv = state.linkedInvoice.items.find(i => Number(i.drug_id) === Number(drug.id));
-    if (inv) invoiceQty = inv.quantity;
-  }
-
-  const extraInfo = `
-    <div class="row g-2 text-center">
-      <div class="col-4"><div class="badge-soft primary w-100" style="justify-content:center;">موجودی: <strong>${faNum(available)}</strong></div></div>
-      <div class="col-4"><div class="badge-soft warning w-100" style="justify-content:center;">سفارش: <strong>${faNum(ordered)}</strong></div></div>
-      <div class="col-4"><div class="badge-soft gray w-100" style="justify-content:center;">فاکتور: <strong>${invoiceQty !== null ? faNum(invoiceQty) : '—'}</strong></div></div>
-    </div>`;
-
   const res = await askQty({
     title: 'تایید دریافت',
     headerClass: 'bg-warning',
     drugName: drug.name + (drug.form ? ` (${drug.form})` : ''),
-    extraInfo,
     defaultQty: 1,
     defaultExpiry: parsed?.exp || '',
     showExtras: true,
@@ -581,30 +580,10 @@ async function addDrug(drug, barcode = '', parsed = {}) {
   });
 
   if (res.qty < 1) return false;
-
-  if (!res.expiry_gregorian) {
-    toast('تاریخ انقضا الزامی است — قلم ذخیره نشد', 'danger');
-    beep(300);
-    return false;
-  }
-
-  const warnings = [];
-  if (ordered > 0 && res.qty < ordered) warnings.push({ level: 'warning', text: `کمتر از سفارش (${faNum(ordered - res.qty)} کسری)` });
-  else if (ordered === 0) warnings.push({ level: 'info', text: 'خارج از لیست سفارش' });
-  else if (res.qty > ordered) warnings.push({ level: 'info', text: `${faNum(res.qty - ordered)} مازاد` });
-  if (invoiceQty !== null) {
-    if (res.qty < invoiceQty) warnings.push({ level: 'warning', text: `کمتر از فاکتور (${faNum(invoiceQty - res.qty)})` });
-    else if (res.qty > invoiceQty) warnings.push({ level: 'info', text: `${faNum(res.qty - invoiceQty)} مازاد فاکتور` });
-  }
-  const chk = checkExpiry(res.expiry_gregorian);
-  if (chk && (chk.level === 'danger' || chk.level === 'expired')) warnings.push({ level: 'danger', text: chk.msg });
-  else if (chk && chk.level === 'warning') warnings.push({ level: 'warning', text: chk.msg });
+  if (!res.expiry_gregorian) { toast('تاریخ انقضا الزامی است', 'danger'); beep(300); return false; }
 
   const finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian);
-  if (!finalBatch) {
-    toast('ساخت بچ ناموفق', 'danger');
-    return false;
-  }
+  if (!finalBatch) { toast('ساخت بچ ناموفق', 'danger'); return false; }
 
   const ex = state.items.find(it => it.drug_id === drug.id && (it.batch || '') === finalBatch);
   if (ex && ex.expiry === res.expiry_gregorian) ex.qty += res.qty;
@@ -615,11 +594,7 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     qty: res.qty,
     batch: finalBatch,
     expiry: res.expiry_gregorian,
-    expiry_jalali: res.expiry_jalali || '',
-    barcode,
-    ordered_qty: ordered,
-    invoice_qty: invoiceQty,
-    warnings
+    barcode
   });
 
   renderList();
@@ -627,122 +602,103 @@ async function addDrug(drug, barcode = '', parsed = {}) {
   return true;
 }
 
+// ═══════════════════════════════════════════════════════════
+// ذخیره نهایی (با دابل چک)
+// ═══════════════════════════════════════════════════════════
 async function finalize() {
   if (!state.supplierId) { toast('تامین‌کننده را انتخاب کنید', 'warning'); return; }
   if (!state.items.length) { toast('حداقل یک قلم', 'warning'); return; }
 
-  const noExpiry = state.items.filter(it => !it.expiry);
-  if (noExpiry.length) {
-    toast(`این اقلام تاریخ انقضا ندارند: ${noExpiry.map(i => i.drug_name).join('، ')}`, 'danger');
-    return;
-  }
+  // ⬅️ دابل چک (دو مرحله تایید)
+  if (!confirm(`آیا از ثبت نهایی ${faNum(state.items.length)} قلم اطمینان دارید؟`)) return;
+  if (!confirm('⚠️ هشدار نهایی: با این کار موجودی انبار افزایش می‌یابد و سند قفل می‌شود. ادامه می‌دهید؟')) return;
 
-  if (!confirm(`ذخیره ${faNum(state.items.length)} قلم؟`)) return;
-
+  state.isFinalizing = true;
   const btn = $('recvFinalize');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ذخیره...';
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ثبت نهایی...';
 
   try {
-    const today = new Date();
-    const code = `RCV-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}-${Date.now().toString().slice(-4)}`;
+    // ۱. اگر پیش‌نویس داشتیم، اول ذخیره می‌کنیم
+    if (!state.receiptId) {
+      const saved = await saveDraft(true);
+      if (!saved) throw new Error('خطا در آماده‌سازی سند');
+    }
 
-    const { data: receipt, error: e1 } = await sb.from('drugs_receipt').insert({
-      receipt_number: code,
-      supplier_name: state.supplierName || 'نامشخص',
-      status: 'final',
-      receipt_type: state.linkedInvoice ? 'with_invoice' : 'without_invoice',
-      invoice_id: state.linkedInvoice?.id || null,
-      date_received: today.toISOString().slice(0, 10)
-    }).select().single();
-    if (e1) throw new Error('سربرگ: ' + e1.message);
+    const receiptId = state.receiptId;
+
+    // ۲. تغییر وضعیت به نهایی
+    const { error: eStatus } = await sb.from('drugs_receipt').update({ status: 'final' }).eq('id', receiptId);
+    if (eStatus) throw eStatus;
 
     const errors = [];
     const successes = [];
 
+    // ۳. اعمال روی موجودی (با چک کردن بچ تکراری)
     for (const it of state.items) {
-      const batchForDb = makeBatchNumber(it.drug_name, it.drug_form || '', it.expiry)
-                      || it.batch
-                      || `AUTO-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-
-      const { error: e2 } = await sb.from('drugs_receiptitem').insert({
-        receipt_id: receipt.id,
-        drug_id: it.drug_id,
-        received_quantity: it.qty,
-        batch_number: batchForDb,
-        expiry_date: it.expiry,
-        force_close_shortage: false
-      });
-      if (e2) { errors.push(`${it.drug_name} (آیتم): ${e2.message}`); continue; }
-
       try {
         const { data: existing, error: eFind } = await sb.from('drugs_drugbatch')
           .select('id, quantity')
           .eq('drug_id', it.drug_id)
-          .eq('batch_number', batchForDb)
+          .eq('batch_number', it.batch)
           .maybeSingle();
-        if (eFind) { errors.push(`${it.drug_name} (جستجو بچ): ${eFind.message}`); continue; }
+          
+        if (eFind) throw new Error(`جستجو بچ: ${eFind.message}`);
 
         if (existing) {
+          // اگر بچ قبلا بود، فقط تعداد رو اضافه میکنیم
           const newQty = (existing.quantity || 0) + it.qty;
-          const { error: eUpd, data: updData } = await sb.from('drugs_drugbatch')
-            .update({ quantity: newQty, expiry_date: it.expiry })
-            .eq('id', existing.id)
-            .select();
-          if (eUpd) { errors.push(`${it.drug_name} (آپدیت بچ): ${eUpd.message}`); continue; }
-          if (!updData?.length) { errors.push(`${it.drug_name}: دسترسی ندارید`); continue; }
-          successes.push(`${it.drug_name}: ${existing.quantity} → ${newQty}`);
+          const { error: eUpd } = await sb.from('drugs_drugbatch')
+            .update({ quantity: newQty })
+            .eq('id', existing.id);
+          if (eUpd) throw new Error(`آپدیت بچ: ${eUpd.message}`);
+          successes.push(`${it.drug_name}: بچ موجود، افزایش تعداد`);
         } else {
-          const { error: eIns, data: insData } = await sb.from('drugs_drugbatch')
+          // اگر نبود، بچ جدید میسازیم
+          const { error: eIns } = await sb.from('drugs_drugbatch')
             .insert({
               drug_id: it.drug_id,
-              batch_number: batchForDb,
+              batch_number: it.batch,
               expiry_date: it.expiry,
               quantity: it.qty,
               supplier_id: state.supplierId,
               purchase_price: 0,
               is_active: true,
               is_temporary: false
-            })
-            .select();
-          if (eIns) { errors.push(`${it.drug_name} (درج بچ): ${eIns.message}`); continue; }
-          if (!insData?.length) { errors.push(`${it.drug_name}: دسترسی ندارید`); continue; }
-          successes.push(`${it.drug_name}: بچ جدید ${batchForDb}`);
+            });
+          if (eIns) throw new Error(`درج بچ: ${eIns.message}`);
+          successes.push(`${it.drug_name}: بچ جدید ایجاد شد`);
         }
-      } catch (e) {
-        errors.push(`${it.drug_name}: ${e.message}`);
-        continue;
-      }
 
-      try {
-        const { error: e3 } = await sb.rpc('allocate_to_requests', {
-          p_drug_id: it.drug_id, p_quantity: it.qty, p_force_close: false
-        });
-        if (e3) errors.push(`FIFO ${it.drug_name}: ${e3.message}`);
-      } catch (errRpc) {
-        errors.push(`FIFO ${it.drug_name}: ${errRpc.message || 'خطای شبکه'}`);
+        // تخصیص به درخواست‌ها
+        await sb.rpc('allocate_to_requests', { p_drug_id: it.drug_id, p_quantity: it.qty, p_force_close: false });
+
+      } catch (err) {
+        errors.push(`${it.drug_name}: ${err.message}`);
       }
     }
 
     if (errors.length) {
-      alert('⚠ برخی قلم‌ها ذخیره نشدند:\n\n' + '❌ خطاها:\n' + errors.join('\n\n') +
-        (successes.length ? '\n\n✅ موفق:\n' + successes.join('\n') : ''));
+      alert('⚠ برخی اقلام با خطا مواجه شدند:\n\n' + errors.join('\n'));
     } else {
-      toast('✅ رسید ' + code + ' با ' + faNum(successes.length) + ' قلم ثبت شد', 'success');
+      toast('✅ رسید با موفقیت ثبت نهایی شد', 'success');
     }
 
-    localStorage.removeItem(AUTOSAVE_KEY);
+    // پاکسازی فرم
     state.items = [];
     state.supplierId = null;
     state.supplierName = '';
-    state.linkedInvoice = null;
+    state.receiptId = null;
+    state.isFinalizing = false;
 
     state.view = 'list';
     state.listPage = 1;
     await renderListView();
+    
   } catch (e) {
     alert('❌ ' + (e.message || e));
     btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> ذخیره نهایی';
+    btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> ثبت نهایی';
+    state.isFinalizing = false;
   }
 }
