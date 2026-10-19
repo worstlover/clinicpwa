@@ -16,12 +16,12 @@ function resolveExport(mod, name) {
   return null;
 }
 
-const openScanner         = resolveExport(SCANNER_MOD, 'openScanner');
-const closeScanner        = resolveExport(SCANNER_MOD, 'closeScanner');
-const initScannerButtons  = resolveExport(SCANNER_MOD, 'initScannerButtons');
-const openDrugSearch      = resolveExport(MODALS_MOD,  'openDrugSearch');
-const promptExpirySelection = resolveExport(MODALS_MOD, 'promptExpirySelection');
-const initSearchModal     = resolveExport(MODALS_MOD,  'initSearchModal');
+const openScanner           = resolveExport(SCANNER_MOD, 'openScanner');
+const closeScanner          = resolveExport(SCANNER_MOD, 'closeScanner');
+const initScannerButtons    = resolveExport(SCANNER_MOD, 'initScannerButtons');
+const openDrugSearch        = resolveExport(MODALS_MOD,  'openDrugSearch');
+const promptExpirySelection = resolveExport(MODALS_MOD,  'promptExpirySelection');
+const initSearchModal       = resolveExport(MODALS_MOD,  'initSearchModal');
 
 console.log('[RECEIVE] imports:', {
   openScanner: typeof openScanner,
@@ -32,7 +32,7 @@ console.log('[RECEIVE] imports:', {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// ⭐ تزریق DOM های گم‌شده — همان چیزی که scanner.js و modals.js انتظار دارند
+// تزریق DOM های گم‌شده — scanner.js و modals.js انتظار دارند
 // ═══════════════════════════════════════════════════════════════════
 const SCANNER_HTML = `
 <div id="scannerWrap" style="display:none; position:fixed; inset:0; background:#000; z-index:9999999; flex-direction:column; direction:rtl; color:#fff; font-family:inherit;">
@@ -77,7 +77,6 @@ function ensureScannerDOM() {
     console.log('[RECEIVE] #scannerWrap injected');
   }
 
-  // CSS لازم برای نمایش/مخفی کردن
   if (!document.getElementById('scannerRecvStyle')) {
     const s = document.createElement('style');
     s.id = 'scannerRecvStyle';
@@ -90,16 +89,13 @@ function ensureScannerDOM() {
     document.head.appendChild(s);
   }
 
-  // اتصال هندلرها فقط اگر قبلاً وصل نشده
-  if (injected || !wrap?.dataset?.initialized) {
-    if (typeof initScannerButtons === 'function') {
-      try {
-        initScannerButtons();
-        console.log('[RECEIVE] initScannerButtons() re-run');
-        document.getElementById('scannerWrap').dataset.initialized = '1';
-      } catch (e) {
-        console.warn('[RECEIVE] initScannerButtons failed:', e.message);
-      }
+  if ((injected || !wrap?.dataset?.initialized) && typeof initScannerButtons === 'function') {
+    try {
+      initScannerButtons();
+      console.log('[RECEIVE] initScannerButtons() re-run');
+      document.getElementById('scannerWrap').dataset.initialized = '1';
+    } catch (e) {
+      console.warn('[RECEIVE] initScannerButtons failed:', e.message);
     }
   }
 }
@@ -122,13 +118,16 @@ function ensureModalsReady() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// ⭐ مودال تعداد — ورودی میلادی (type=date) — بدون فیلد بچ
+// مودال تعداد — با نمایش زنده وضعیت فاکتور/سفارش و روزهای انقضا
 // ═══════════════════════════════════════════════════════════════════
 async function askQtyForReceive(opts) {
   const {
     title = 'تایید دریافت',
     drugName = '',
-    extraInfo = '',
+    stockQty = 0,
+    orderQty = 0,
+    invoiceQty = null,
+    invoiceLinked = false,
     defaultQty = 1,
     defaultExpiry = '',
     requireExpiry = true
@@ -137,6 +136,13 @@ async function askQtyForReceive(opts) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl;overflow-y:auto;font-family:inherit;`;
+
+    const invoiceStat = invoiceQty !== null
+      ? `<strong style="color:#10b981;">${faNum(invoiceQty)}</strong>`
+      : invoiceLinked
+        ? `<strong style="color:#dc2626;">نیست</strong>`
+        : `<strong style="color:#9ca3af;">—</strong>`;
+
     overlay.innerHTML = `
       <div style="background:#fff;border-radius:16px;max-width:500px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
         <div style="padding:16px;background:#fef3c7;border-bottom:1px solid #fde68a;border-radius:16px 16px 0 0;">
@@ -144,7 +150,22 @@ async function askQtyForReceive(opts) {
           <div style="font-size:14px;color:#92400e;margin-top:4px;opacity:.85;">${escapeHtml(drugName)}</div>
         </div>
 
-        ${extraInfo ? `<div style="padding:12px;background:#fffbeb;border-bottom:1px solid #fde68a;">${extraInfo}</div>` : ''}
+        <div style="padding:12px;background:#fffbeb;border-bottom:1px solid #fde68a;">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
+            <div style="background:#eff6ff;padding:8px;border-radius:8px;">
+              <div style="font-size:11px;color:#1e40af;margin-bottom:2px;">موجودی</div>
+              <div style="font-size:15px;font-weight:700;color:#1e40af;">${faNum(stockQty)}</div>
+            </div>
+            <div style="background:#fef3c7;padding:8px;border-radius:8px;">
+              <div style="font-size:11px;color:#92400e;margin-bottom:2px;">سفارش</div>
+              <div style="font-size:15px;font-weight:700;color:#92400e;">${faNum(orderQty)}</div>
+            </div>
+            <div style="background:${invoiceQty !== null ? '#d1fae5' : (invoiceLinked ? '#fee2e2' : '#f3f4f6')};padding:8px;border-radius:8px;">
+              <div style="font-size:11px;color:#374151;margin-bottom:2px;">فاکتور</div>
+              <div style="font-size:15px;font-weight:700;">${invoiceStat}</div>
+            </div>
+          </div>
+        </div>
 
         <div style="padding:16px;">
           <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:#374151;">تعداد دریافتی <span style="color:#dc2626;">*</span></label>
@@ -156,12 +177,14 @@ async function askQtyForReceive(opts) {
           <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
             ${[1,2,5,10,20,50,100].map(n=>`<button type="button" class="rq-quick" data-n="${n}" style="padding:6px 12px;border:1px solid #fcd34d;background:#fffbeb;color:#92400e;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit;">${n}</button>`).join('')}
           </div>
+          <div id="rqQtyStatus" style="margin-top:10px;"></div>
 
           <label style="display:block;font-size:13px;font-weight:600;margin:18px 0 8px;color:#374151;">
             تاریخ انقضا (میلادی) ${requireExpiry ? '<span style="color:#dc2626;">*</span>' : ''}
           </label>
           <input type="date" id="rqExpiry" value="${escapeHtml(defaultExpiry || '')}" style="width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:15px;direction:ltr;text-align:center;">
           <div id="rqJalali" style="font-size:12px;color:#6b7280;margin-top:6px;min-height:18px;text-align:center;"></div>
+          <div id="rqExpiryWarn" style="margin-top:8px;"></div>
         </div>
 
         <div style="padding:12px;border-top:1px solid #eee;display:flex;gap:8px;">
@@ -174,50 +197,130 @@ async function askQtyForReceive(opts) {
 
     const close = (result) => { overlay.remove(); resolve(result); };
 
-    overlay.querySelector('#rqMinus').onclick = () => {
-      const el = overlay.querySelector('#rqQty');
-      el.value = Math.max(1, (parseInt(el.value) || 0) - 1);
+    const qtyEl = overlay.querySelector('#rqQty');
+    const expiryEl = overlay.querySelector('#rqExpiry');
+    const jalaliEl = overlay.querySelector('#rqJalali');
+    const qtyStatusEl = overlay.querySelector('#rqQtyStatus');
+    const expiryWarnEl = overlay.querySelector('#rqExpiryWarn');
+
+    const updateQtyStatus = () => {
+      const qty = parseInt(qtyEl.value) || 0;
+      const parts = [];
+
+      if (invoiceLinked) {
+        if (invoiceQty === null) {
+          parts.push(`<div style="padding:10px 12px;background:#fee2e2;color:#991b1b;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span>این دارو در فاکتور انتخابی <strong>نیست</strong></span>
+          </div>`);
+        } else if (qty < invoiceQty) {
+          parts.push(`<div style="padding:10px 12px;background:#fef3c7;color:#92400e;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <i class="bi bi-exclamation-circle-fill"></i>
+            <span><strong>${faNum(invoiceQty - qty)}</strong> عدد کمتر از فاکتور (${faNum(invoiceQty)})</span>
+          </div>`);
+        } else if (qty > invoiceQty) {
+          parts.push(`<div style="padding:10px 12px;background:#dbeafe;color:#1e40af;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <i class="bi bi-info-circle-fill"></i>
+            <span><strong>${faNum(qty - invoiceQty)}</strong> عدد مازاد فاکتور (${faNum(invoiceQty)})</span>
+          </div>`);
+        } else {
+          parts.push(`<div style="padding:10px 12px;background:#d1fae5;color:#065f46;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <i class="bi bi-check-circle-fill"></i>
+            <span>مطابق فاکتور (${faNum(invoiceQty)})</span>
+          </div>`);
+        }
+      }
+
+      if (orderQty > 0) {
+        if (qty < orderQty) {
+          parts.push(`<div style="padding:10px 12px;background:#fef3c7;color:#92400e;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <i class="bi bi-clock-history"></i>
+            <span><strong>${faNum(orderQty - qty)}</strong> عدد کمتر از سفارش (${faNum(orderQty)})</span>
+          </div>`);
+        } else if (qty > orderQty) {
+          parts.push(`<div style="padding:10px 12px;background:#dbeafe;color:#1e40af;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <i class="bi bi-info-circle-fill"></i>
+            <span><strong>${faNum(qty - orderQty)}</strong> عدد مازاد سفارش (${faNum(orderQty)})</span>
+          </div>`);
+        } else {
+          parts.push(`<div style="padding:10px 12px;background:#d1fae5;color:#065f46;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <i class="bi bi-check-circle-fill"></i>
+            <span>مطابق سفارش (${faNum(orderQty)})</span>
+          </div>`);
+        }
+      } else if (!invoiceLinked) {
+        parts.push(`<div style="padding:10px 12px;background:#f3f4f6;color:#6b7280;border-radius:8px;font-size:13px;margin-bottom:6px;">
+          ℹ️ نه سفارشی دارد، نه فاکتوری لینک شده
+        </div>`);
+      }
+
+      qtyStatusEl.innerHTML = parts.join('');
     };
-    overlay.querySelector('#rqPlus').onclick = () => {
-      const el = overlay.querySelector('#rqQty');
-      el.value = (parseInt(el.value) || 0) + 1;
+
+    const updateExpiryStatus = () => {
+      const exp = expiryEl.value;
+      if (!exp) {
+        jalaliEl.textContent = '';
+        expiryWarnEl.innerHTML = '';
+        return;
+      }
+      try {
+        const j = gregorianToJalali(exp);
+        jalaliEl.textContent = j ? `شمسی: ${j}` : '';
+      } catch (_) { jalaliEl.textContent = ''; }
+
+      const chk = checkExpiry(exp);
+      if (!chk || !chk.msg) { expiryWarnEl.innerHTML = ''; return; }
+
+      let bg, color, icon;
+      const lvl = chk.level || '';
+      if (lvl === 'expired' || lvl === 'danger') {
+        bg = '#fee2e2'; color = '#991b1b'; icon = 'bi-exclamation-octagon-fill';
+      } else if (lvl === 'warning') {
+        bg = '#fef3c7'; color = '#92400e'; icon = 'bi-exclamation-triangle-fill';
+      } else {
+        bg = '#d1fae5'; color = '#065f46'; icon = 'bi-check-circle-fill';
+      }
+      expiryWarnEl.innerHTML = `<div style="padding:10px 12px;background:${bg};color:${color};border-radius:8px;font-size:13px;display:flex;align-items:center;gap:8px;">
+        <i class="bi ${icon}"></i>
+        <span>${escapeHtml(chk.msg)}</span>
+      </div>`;
     };
+
+    qtyEl.addEventListener('input', updateQtyStatus);
+    expiryEl.addEventListener('input', updateExpiryStatus);
+    expiryEl.addEventListener('change', updateExpiryStatus);
+
+    overlay.querySelector('#rqMinus').onclick = () => { qtyEl.value = Math.max(1, (parseInt(qtyEl.value) || 0) - 1); updateQtyStatus(); };
+    overlay.querySelector('#rqPlus').onclick  = () => { qtyEl.value = (parseInt(qtyEl.value) || 0) + 1; updateQtyStatus(); };
     overlay.querySelectorAll('.rq-quick').forEach(b => {
-      b.onclick = () => { overlay.querySelector('#rqQty').value = b.dataset.n; };
+      b.onclick = () => { qtyEl.value = b.dataset.n; updateQtyStatus(); };
     });
 
-    const expiry = overlay.querySelector('#rqExpiry');
-    const jalaliEl = overlay.querySelector('#rqJalali');
-    const updateJalali = () => {
-      if (expiry.value) {
-        try { jalaliEl.textContent = 'شمسی: ' + (gregorianToJalali(expiry.value) || ''); }
-        catch (_) { jalaliEl.textContent = ''; }
-      } else jalaliEl.textContent = '';
-    };
-    expiry.onchange = updateJalali;
-    updateJalali();
+    updateQtyStatus();
+    updateExpiryStatus();
 
     overlay.querySelector('#rqCancel').onclick = () => close({ qty: 0 });
     overlay.querySelector('#rqConfirm').onclick = () => {
-      const qty = parseInt(overlay.querySelector('#rqQty').value) || 0;
-      const exp = expiry.value;
+      const qty = parseInt(qtyEl.value) || 0;
+      const exp = expiryEl.value;
       if (qty < 1) { toast('تعداد نامعتبر', 'warning'); return; }
-      if (requireExpiry && !exp) { toast('تاریخ انقضا الزامی است', 'warning'); expiry.focus(); return; }
+      if (requireExpiry && !exp) { toast('تاریخ انقضا الزامی است', 'warning'); expiryEl.focus(); return; }
       close({
         qty,
         expiry_gregorian: exp || null,
         expiry_jalali: exp ? (gregorianToJalali(exp) || '') : '',
-        batch: null // بچ همیشه سیستمی ساخته می‌شود
+        batch: null
       });
     };
 
     overlay.addEventListener('click', e => { if (e.target === overlay) close({ qty: 0 }); });
-    setTimeout(() => overlay.querySelector('#rqQty').focus(), 100);
+    setTimeout(() => qtyEl.focus(), 100);
   });
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// ⭐ مودال انتخاب فاکتور حرفه‌ای
+// مودال انتخاب فاکتور حرفه‌ای
 // ═══════════════════════════════════════════════════════════════════
 async function openInvoicePicker() {
   const overlay = document.createElement('div');
@@ -941,7 +1044,6 @@ async function renderFormView() {
     }
   }
 
-  // ⭐ اسکنر — از scanner.js موجود استفاده می‌کند
   $('recvScan').onclick = async (ev) => {
     ev.preventDefault();
     console.log('[RECEIVE] Scan clicked');
@@ -959,14 +1061,12 @@ async function renderFormView() {
     }
   };
 
-  // ⭐ جستجو — از modals.js
   $('recvSearch').onclick = async (ev) => {
     ev.preventDefault();
     console.log('[RECEIVE] Search clicked');
     await safeOpenDrugSearch('دارو را جستجو کنید', d => addDrug(d));
   };
 
-  // ⭐ اتصال فاکتور — مودال اختصاصی
   $('recvLinkInvoice').onclick = () => openInvoicePicker();
 
   $('recvUnlinkInvoice').onclick = () => {
@@ -1148,17 +1248,13 @@ async function addDrug(drug, barcode = '', parsed = {}) {
       if (inv) invoiceQty = inv.quantity;
     }
 
-    const extraInfo = `
-      <div class="row g-2 text-center">
-        <div class="col-4"><div class="badge-soft primary w-100" style="justify-content:center;">موجودی: <strong>${faNum(available)}</strong></div></div>
-        <div class="col-4"><div class="badge-soft warning w-100" style="justify-content:center;">سفارش: <strong>${faNum(ordered)}</strong></div></div>
-        <div class="col-4"><div class="badge-soft gray w-100" style="justify-content:center;">فاکتور: <strong>${invoiceQty !== null ? faNum(invoiceQty) : '—'}</strong></div></div>
-      </div>`;
-
     const res = await askQtyForReceive({
       title: 'تایید دریافت',
       drugName: drug.name + (drug.form ? ` (${drug.form})` : ''),
-      extraInfo,
+      stockQty: available,
+      orderQty: ordered,
+      invoiceQty: invoiceQty,
+      invoiceLinked: !!state.linkedInvoice,
       defaultQty: 1,
       defaultExpiry: parsed?.exp || '',
       requireExpiry: true
@@ -1179,7 +1275,6 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     if (chk && (chk.level === 'danger' || chk.level === 'expired')) warnings.push({ level: 'danger', text: chk.msg });
     else if (chk && chk.level === 'warning') warnings.push({ level: 'warning', text: chk.msg });
 
-    // بچ همیشه خودکار
     let finalBatch = '';
     if (res.expiry_gregorian) finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian) || '';
     if (!finalBatch) finalBatch = `AUTO-${Date.now()}`;
