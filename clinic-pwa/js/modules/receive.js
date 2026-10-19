@@ -5,8 +5,33 @@ import {
   jalaliToGregorian, checkExpiry, toast, beep, makeBatchNumber
 } from '../utils.js';
 import { showScreen } from '../ui.js';
-import { openScanner } from '../scanner.js';
-import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js';
+
+// ⭐ Import مقاوم برای هر دو حالت named/default export
+import * as SCANNER_MOD from '../scanner.js';
+import * as MODALS_MOD  from '../modals.js';
+
+function resolveExport(mod, name) {
+  if (!mod) return null;
+  if (typeof mod[name] === 'function') return mod[name];
+  if (mod.default) {
+    if (typeof mod.default === 'function' && name === 'default') return mod.default;
+    if (typeof mod.default[name] === 'function') return mod.default[name];
+  }
+  return null;
+}
+
+const openScanner = resolveExport(SCANNER_MOD, 'openScanner');
+const openDrugSearch = resolveExport(MODALS_MOD, 'openDrugSearch');
+const askQty = resolveExport(MODALS_MOD, 'askQty');
+const promptExpirySelection = resolveExport(MODALS_MOD, 'promptExpirySelection');
+
+// ⭐ لاگ وضعیت ایمپورت‌ها — برای دیباگ
+console.log('[RECEIVE] imports status:', {
+  openScanner: typeof openScanner,
+  openDrugSearch: typeof openDrugSearch,
+  askQty: typeof askQty,
+  promptExpirySelection: typeof promptExpirySelection,
+});
 
 const state = {
   view: 'list',
@@ -27,13 +52,10 @@ const state = {
 const PAGE_SIZE = 20;
 const AUTOSAVE_KEY = 'recv_autosave';
 
-// ═══ ذخیره خودکار هر ۵ ثانیه در دیتابیس + بکاپ localStorage ═══
 setInterval(async () => {
   if (state.view !== 'form' || state.isFinalizing) return;
   if (!state.items.length) return;
-
   await saveDraft(true);
-
   try {
     localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
       items: state.items,
@@ -45,7 +67,6 @@ setInterval(async () => {
   } catch (_) {}
 }, 5000);
 
-// ═══ بازیابی از localStorage ═══
 async function restoreReceiveState() {
   const saved = localStorage.getItem(AUTOSAVE_KEY);
   if (!saved) return false;
@@ -350,16 +371,14 @@ async function openReceiptDetail(row) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ⭐ گزارش مغایرت (فاکتور و سفارش مجزا)
+// گزارش مغایرت
 // ═══════════════════════════════════════════════════════════
 async function loadDiscrepancyData(receiptId, invoiceId) {
-  // ۱. اقلام رسید
   const { data: receiptItems, error: e1 } = await sb.from('drugs_receiptitem')
     .select('drug_id, received_quantity, drug:drugs_drug(id, name, form)')
     .eq('receipt_id', receiptId);
   if (e1) throw e1;
 
-  // ۲. اقلام فاکتور (اگر لینک شده)
   let invoiceItems = [];
   if (invoiceId) {
     const { data, error: e2 } = await sb.from('drugs_purchaseinvoiceitem')
@@ -369,8 +388,7 @@ async function loadDiscrepancyData(receiptId, invoiceId) {
     invoiceItems = data || [];
   }
 
-  // ۳. اتحاد داروها (رسید + فاکتور)
-  const drugSet = new Map(); // drug_id → { drug, received, invoice_qty }
+  const drugSet = new Map();
   (receiptItems || []).forEach(it => {
     drugSet.set(it.drug_id, {
       drug: it.drug,
@@ -393,7 +411,6 @@ async function loadDiscrepancyData(receiptId, invoiceId) {
 
   if (!drugSet.size) return { rows: [], invoiceLinked: !!invoiceId };
 
-  // ۴. pending سفارش‌های فعلی برای همه داروها
   const drugIds = Array.from(drugSet.keys());
   const { data: pendings, error: e3 } = await sb.from('v_drug_pending')
     .select('drug_id, pending_qty')
@@ -403,21 +420,12 @@ async function loadDiscrepancyData(receiptId, invoiceId) {
   const pendingMap = new Map();
   (pendings || []).forEach(p => pendingMap.set(p.drug_id, Number(p.pending_qty) || 0));
 
-  // ۵. محاسبه
   const rows = Array.from(drugSet.entries()).map(([drugId, info]) => {
     const currentPending = pendingMap.get(drugId) || 0;
     const received = info.received;
     const invoice_qty = info.invoice_qty;
-
-    // مقدار اصلی سفارش هنگام دریافت (تخمین):
-    // چون after finalize موجودی به سفارش اختصاص داده شده و pending کم شده،
-    // مقدار اصلی سفارش = pending فعلی + دریافت شده (فقط وقتی received <= original pending)
     const original_order_qty = currentPending + received;
-
-    // مغایرت فاکتور = فاکتور - دریافتی
     const invoice_disc = invoice_qty - received;
-
-    // مغایرت سفارش = pending فعلی (چیزی که هنوز تأمین نشده)
     const order_disc = currentPending;
 
     return {
@@ -435,7 +443,6 @@ async function loadDiscrepancyData(receiptId, invoiceId) {
     };
   });
 
-  // مرتب‌سازی: داروهای دارای مغایرت اول
   rows.sort((a, b) => {
     const aHas = (a.invoice_disc > 0 || a.order_disc > 0) ? 1 : 0;
     const bHas = (b.invoice_disc > 0 || b.order_disc > 0) ? 1 : 0;
@@ -574,12 +581,11 @@ async function openDiscrepancyReport(receiptRow) {
 
     backdrop.querySelector('#discBody').innerHTML = invoiceSection + orderSection;
 
-    // اتصال دکمه‌های «تکمیل سفارش»
     backdrop.querySelectorAll('.discCloseOrderBtn').forEach(btn => {
       btn.onclick = async () => {
         const drugId = parseInt(btn.dataset.drugId);
         const drugName = btn.dataset.drugName;
-        await closeDrugOrders(drugId, drugName, btn, backdrop);
+        await closeDrugOrders(drugId, drugName, btn);
       };
     });
 
@@ -589,33 +595,23 @@ async function openDiscrepancyReport(receiptRow) {
   }
 }
 
-// ⭐ بستن اجباری سفارش‌های باز یک دارو
-async function closeDrugOrders(drugId, drugName, btn, backdrop) {
+async function closeDrugOrders(drugId, drugName, btn) {
   if (!confirm(`همه سفارش‌های باز «${drugName}» بسته شوند؟\n(کسری نادیده گرفته می‌شود)`)) return;
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
 
   try {
-    // تلاش با p_quantity: 0 و p_force_close: true
-    // این کار باعث می‌شود تابع، همه سفارش‌های باز این دارو را ببندد
     const { error } = await sb.rpc('allocate_to_requests', {
       p_drug_id: drugId,
       p_quantity: 0,
       p_force_close: true
     });
     if (error) throw error;
-
     toast(`✅ سفارش‌های «${drugName}» بسته شد`, 'success');
-
-    // رفرش گزارش
-    if (backdrop && backdrop.isConnected) {
-      backdrop.remove();
-      // گزارش را دوباره باز کن
-      const row = state.listRows.find(r => r.id === state._lastReportReceiptId);
-      // fallback: باز کردن از state
-      // برای سادگی، به کاربر می‌گوییم صفحه را refresh کند
-    }
+    btn.closest('tr').querySelector('td:nth-child(3)').textContent = '۰';
+    btn.closest('tr').querySelector('td:nth-child(4)').innerHTML = '<span class="badge bg-success">تأمین شده</span>';
+    btn.closest('td').innerHTML = '—';
   } catch (e) {
     toast('خطا در بستن سفارش: ' + (e.message || 'نامشخص'), 'danger');
     btn.disabled = false;
@@ -697,8 +693,8 @@ async function renderFormView() {
       </div>
     </div>
     <div class="row g-2 mb-3">
-      <div class="col-6"><button class="btn btn-warning w-100 py-3" id="recvScan"><i class="bi bi-upc-scan"></i> اسکن</button></div>
-      <div class="col-6"><button class="btn btn-outline-warning w-100 py-3" id="recvSearch"><i class="bi bi-search"></i> جستجو</button></div>
+      <div class="col-6"><button type="button" class="btn btn-warning w-100 py-3" id="recvScan"><i class="bi bi-upc-scan"></i> اسکن</button></div>
+      <div class="col-6"><button type="button" class="btn btn-outline-warning w-100 py-3" id="recvSearch"><i class="bi bi-search"></i> جستجو</button></div>
     </div>
     <div class="section-title"><span>اقلام دریافتی</span><span class="badge-soft warning" id="recvCount">۰</span></div>
     <div id="recvList"></div>
@@ -707,6 +703,7 @@ async function renderFormView() {
       <button class="btn btn-success btn-lg w-100 py-3" id="recvFinalize"><i class="bi bi-check-circle-fill"></i> ثبت نهایی</button>
     </div>`;
 
+  // ─── بقیه دکمه‌ها ───
   $('recvBackToList').onclick = () => { state.view = 'list'; renderListView(); };
   $('recvSupplier').onchange = e => {
     state.supplierId = parseInt(e.target.value) || null;
@@ -725,9 +722,49 @@ async function renderFormView() {
     }
   }
 
-  $('recvScan').onclick = () => openScanner(handleBarcode);
-  $('recvSearch').onclick = () => openDrugSearch('دارو را جستجو کنید', d => addDrug(d));
+  // ⭐⭐⭐ اسکنر — با تشخیص دقیق خطا ⭐⭐⭐
+  const scanBtn = $('recvScan');
+  if (scanBtn) {
+    scanBtn.onclick = async (ev) => {
+      ev.preventDefault();
+      console.log('[RECEIVE] Scan button clicked');
+      if (typeof openScanner !== 'function') {
+        console.error('[RECEIVE] openScanner is not a function. Check that scanner.js exports it (named or default).');
+        alert('❌ سیستم اسکنر لود نشده.\nلطفاً به برنامه‌نویس بگویید:\nscanner.js باید openScanner را export کند.');
+        return;
+      }
+      try {
+        await openScanner(handleBarcode);
+        console.log('[RECEIVE] openScanner resolved');
+      } catch (e) {
+        console.error('[RECEIVE] openScanner threw:', e);
+        alert('❌ خطا در باز کردن اسکنر:\n' + (e.message || e));
+      }
+    };
+  }
 
+  // ⭐⭐⭐ جستجو — با تشخیص دقیق خطا ⭐⭐⭐
+  const searchBtn = $('recvSearch');
+  if (searchBtn) {
+    searchBtn.onclick = async (ev) => {
+      ev.preventDefault();
+      console.log('[RECEIVE] Search button clicked');
+      if (typeof openDrugSearch !== 'function') {
+        console.error('[RECEIVE] openDrugSearch is not a function. Check that modals.js exports it (named or default).');
+        alert('❌ سیستم جستجو لود نشده.\nلطفاً به برنامه‌نویس بگویید:\nmodals.js باید openDrugSearch را export کند.');
+        return;
+      }
+      try {
+        await openDrugSearch('دارو را جستجو کنید', (d) => addDrug(d));
+        console.log('[RECEIVE] openDrugSearch resolved');
+      } catch (e) {
+        console.error('[RECEIVE] openDrugSearch threw:', e);
+        alert('❌ خطا در باز کردن جستجو:\n' + (e.message || e));
+      }
+    };
+  }
+
+  // فاکتور
   $('recvLinkInvoice').onclick = linkInvoice;
   $('recvUnlinkInvoice').onclick = () => {
     state.linkedInvoice = null;
@@ -743,6 +780,8 @@ async function renderFormView() {
     $('recvInvoiceBox').classList.remove('hidden');
     $('recvLinkInvoice').classList.add('hidden');
   }
+
+  console.log('[RECEIVE] All button handlers attached. Scan:', typeof openScanner, '| Search:', typeof openDrugSearch);
 
   renderList();
 }
@@ -833,7 +872,6 @@ function renderList() {
     };
   });
 
-  // ⭐ چک‌باکس بستن سفارش
   list.querySelectorAll('[data-close-order]').forEach(cb => {
     cb.onchange = () => {
       const i = +cb.dataset.closeOrder;
@@ -842,9 +880,6 @@ function renderList() {
   });
 }
 
-// ═══════════════════════════════════════════════════════════
-// ذخیره پیش‌نویس
-// ═══════════════════════════════════════════════════════════
 async function saveDraft(silent = false) {
   if (!state.items.length) {
     if (!silent) toast('قلمی برای ذخیره وجود ندارد', 'warning');
@@ -907,126 +942,145 @@ async function saveDraft(silent = false) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// اسکن و افزودن دارو
-// ═══════════════════════════════════════════════════════════
 async function handleBarcode(raw) {
-  const parsed = parseGS1(raw);
-  if (parsed.exps && parsed.exps.length > 0) {
-    const isInvalid = !parsed.exp || !parsed.exp.includes('-');
-    if (parsed.exps.length > 1 || isInvalid) {
-      const selectedDate = await promptExpirySelection(parsed.exps);
-      if (!selectedDate) return;
-      if (selectedDate.includes('-')) parsed.exp = selectedDate;
-      else { toast('تاریخ نامعتبر', 'warning'); parsed.exp = ''; }
+  console.log('[RECEIVE] handleBarcode received:', raw);
+  try {
+    const parsed = parseGS1(raw);
+    if (parsed.exps && parsed.exps.length > 0) {
+      const isInvalid = !parsed.exp || !parsed.exp.includes('-');
+      if (parsed.exps.length > 1 || isInvalid) {
+        if (typeof promptExpirySelection !== 'function') {
+          toast('سیستم انتخاب انقضا لود نشده', 'danger');
+          return;
+        }
+        const selectedDate = await promptExpirySelection(parsed.exps);
+        if (!selectedDate) return;
+        if (selectedDate.includes('-')) parsed.exp = selectedDate;
+        else { toast('تاریخ نامعتبر', 'warning'); parsed.exp = ''; }
+      }
     }
-  }
 
-  const gtin = cleanGTIN(parsed.gtin);
-  const padded = gtin.padStart(14, '0');
-  const { data: bc } = await sb.from('drugs_drugbarcode')
-    .select('drug:drugs_drug(id, name, form)')
-    .or(`gtin.eq.${gtin},gtin.eq.${padded}`).maybeSingle();
+    const gtin = cleanGTIN(parsed.gtin);
+    const padded = gtin.padStart(14, '0');
+    const { data: bc } = await sb.from('drugs_drugbarcode')
+      .select('drug:drugs_drug(id, name, form)')
+      .or(`gtin.eq.${gtin},gtin.eq.${padded}`).maybeSingle();
 
-  if (!bc?.drug) {
-    toast('بارکد ناشناس', 'warning');
-    openDrugSearch(`بارکد ${escapeHtml(gtin)} ثبت نشده`, d => addDrug(d, gtin, parsed));
-    return;
+    if (!bc?.drug) {
+      toast('بارکد ناشناس', 'warning');
+      openDrugSearch(`بارکد ${escapeHtml(gtin)} ثبت نشده`, d => addDrug(d, gtin, parsed));
+      return;
+    }
+    const added = await addDrug(bc.drug, gtin, parsed);
+    if (added) reopenScannerAuto();
+  } catch (e) {
+    console.error('[RECEIVE] handleBarcode error:', e);
+    toast('خطا در پردازش بارکد: ' + (e.message || ''), 'danger');
   }
-  const added = await addDrug(bc.drug, gtin, parsed);
-  if (added) reopenScannerAuto();
 }
 
 function reopenScannerAuto() {
   setTimeout(() => {
     const wrap = $('scannerWrap');
-    if (!wrap || !wrap.classList.contains('active')) openScanner(handleBarcode);
+    if (!wrap || !wrap.classList.contains('active')) {
+      if (typeof openScanner === 'function') openScanner(handleBarcode);
+    }
   }, 350);
 }
 
 async function addDrug(drug, barcode = '', parsed = {}) {
-  if (barcode) {
-    try {
-      await sb.from('drugs_drugbarcode').upsert({ drug_id: drug.id, gtin: barcode }, { onConflict: 'gtin' });
-    } catch (_) {}
+  console.log('[RECEIVE] addDrug called:', drug.name);
+  try {
+    if (barcode) {
+      try {
+        await sb.from('drugs_drugbarcode').upsert({ drug_id: drug.id, gtin: barcode }, { onConflict: 'gtin' });
+      } catch (_) {}
+    }
+
+    const { data: stock } = await sb.from('v_drug_stock').select('total_quantity').eq('drug_id', drug.id).maybeSingle();
+    const { data: pend }  = await sb.from('v_drug_pending').select('pending_qty').eq('drug_id', drug.id).maybeSingle();
+    const available = stock?.total_quantity || 0;
+    const ordered   = pend?.pending_qty || 0;
+
+    let invoiceQty = null;
+    if (state.linkedInvoice?.items) {
+      const inv = state.linkedInvoice.items.find(i => Number(i.drug_id) === Number(drug.id));
+      if (inv) invoiceQty = inv.quantity;
+    }
+
+    const extraInfo = `
+      <div class="row g-2 text-center">
+        <div class="col-4"><div class="badge-soft primary w-100" style="justify-content:center;">موجودی: <strong>${faNum(available)}</strong></div></div>
+        <div class="col-4"><div class="badge-soft warning w-100" style="justify-content:center;">سفارش: <strong>${faNum(ordered)}</strong></div></div>
+        <div class="col-4"><div class="badge-soft gray w-100" style="justify-content:center;">فاکتور: <strong>${invoiceQty !== null ? faNum(invoiceQty) : '—'}</strong></div></div>
+      </div>`;
+
+    if (typeof askQty !== 'function') {
+      console.error('[RECEIVE] askQty is not a function');
+      alert('❌ سیستم مودال تعداد لود نشده.\nmodals.js باید askQty را export کند.');
+      return false;
+    }
+
+    const res = await askQty({
+      title: 'تایید دریافت',
+      headerClass: 'bg-warning',
+      drugName: drug.name + (drug.form ? ` (${drug.form})` : ''),
+      extraInfo,
+      defaultQty: 1,
+      defaultExpiry: parsed?.exp || '',
+      defaultBatch: parsed?.batch || '',
+      showExtras: true,
+      requireExpiry: true
+    });
+
+    if (!res || res.qty < 1) return false;
+    if (!res.expiry_gregorian) { toast('تاریخ انقضا الزامی است', 'danger'); beep(300); return false; }
+
+    const warnings = [];
+    if (ordered > 0 && res.qty < ordered) warnings.push({ level: 'warning', text: `کمتر از سفارش (${faNum(ordered - res.qty)} کسری)` });
+    else if (ordered === 0) warnings.push({ level: 'info', text: 'خارج از لیست سفارش' });
+    else if (res.qty > ordered) warnings.push({ level: 'info', text: `${faNum(res.qty - ordered)} مازاد` });
+    if (invoiceQty !== null) {
+      if (res.qty < invoiceQty) warnings.push({ level: 'warning', text: `کمتر از فاکتور (${faNum(invoiceQty - res.qty)})` });
+      else if (res.qty > invoiceQty) warnings.push({ level: 'info', text: `${faNum(res.qty - invoiceQty)} مازاد فاکتور` });
+    }
+    const chk = checkExpiry(res.expiry_gregorian);
+    if (chk && (chk.level === 'danger' || chk.level === 'expired')) warnings.push({ level: 'danger', text: chk.msg });
+    else if (chk && chk.level === 'warning') warnings.push({ level: 'warning', text: chk.msg });
+
+    let finalBatch = res.batch || '';
+    if (!finalBatch && res.expiry_gregorian) {
+      finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian) || '';
+    }
+    if (!finalBatch) finalBatch = `AUTO-${Date.now()}`;
+
+    const ex = state.items.find(it => it.drug_id === drug.id && (it.batch || '') === finalBatch);
+    if (ex && ex.expiry === res.expiry_gregorian) ex.qty += res.qty;
+    else state.items.push({
+      drug_id: drug.id,
+      drug_name: drug.name,
+      drug_form: drug.form || '',
+      qty: res.qty,
+      batch: finalBatch,
+      expiry: res.expiry_gregorian,
+      expiry_jalali: res.expiry_jalali || '',
+      barcode,
+      ordered_qty: ordered,
+      invoice_qty: invoiceQty,
+      warnings,
+      closeOrder: false,
+    });
+
+    renderList();
+    beep();
+    return true;
+  } catch (e) {
+    console.error('[RECEIVE] addDrug error:', e);
+    alert('❌ خطا در افزودن دارو:\n' + (e.message || e));
+    return false;
   }
-
-  const { data: stock } = await sb.from('v_drug_stock').select('total_quantity').eq('drug_id', drug.id).maybeSingle();
-  const { data: pend }  = await sb.from('v_drug_pending').select('pending_qty').eq('drug_id', drug.id).maybeSingle();
-  const available = stock?.total_quantity || 0;
-  const ordered   = pend?.pending_qty || 0;
-
-  let invoiceQty = null;
-  if (state.linkedInvoice?.items) {
-    const inv = state.linkedInvoice.items.find(i => Number(i.drug_id) === Number(drug.id));
-    if (inv) invoiceQty = inv.quantity;
-  }
-
-  const extraInfo = `
-    <div class="row g-2 text-center">
-      <div class="col-4"><div class="badge-soft primary w-100" style="justify-content:center;">موجودی: <strong>${faNum(available)}</strong></div></div>
-      <div class="col-4"><div class="badge-soft warning w-100" style="justify-content:center;">سفارش: <strong>${faNum(ordered)}</strong></div></div>
-      <div class="col-4"><div class="badge-soft gray w-100" style="justify-content:center;">فاکتور: <strong>${invoiceQty !== null ? faNum(invoiceQty) : '—'}</strong></div></div>
-    </div>`;
-
-  const res = await askQty({
-    title: 'تایید دریافت',
-    headerClass: 'bg-warning',
-    drugName: drug.name + (drug.form ? ` (${drug.form})` : ''),
-    extraInfo,
-    defaultQty: 1,
-    defaultExpiry: parsed?.exp || '',
-    defaultBatch: parsed?.batch || '',
-    showExtras: true,
-    requireExpiry: true
-  });
-
-  if (!res || res.qty < 1) return false;
-  if (!res.expiry_gregorian) { toast('تاریخ انقضا الزامی است', 'danger'); beep(300); return false; }
-
-  const warnings = [];
-  if (ordered > 0 && res.qty < ordered) warnings.push({ level: 'warning', text: `کمتر از سفارش (${faNum(ordered - res.qty)} کسری)` });
-  else if (ordered === 0) warnings.push({ level: 'info', text: 'خارج از لیست سفارش' });
-  else if (res.qty > ordered) warnings.push({ level: 'info', text: `${faNum(res.qty - ordered)} مازاد` });
-  if (invoiceQty !== null) {
-    if (res.qty < invoiceQty) warnings.push({ level: 'warning', text: `کمتر از فاکتور (${faNum(invoiceQty - res.qty)})` });
-    else if (res.qty > invoiceQty) warnings.push({ level: 'info', text: `${faNum(res.qty - invoiceQty)} مازاد فاکتور` });
-  }
-  const chk = checkExpiry(res.expiry_gregorian);
-  if (chk && (chk.level === 'danger' || chk.level === 'expired')) warnings.push({ level: 'danger', text: chk.msg });
-  else if (chk && chk.level === 'warning') warnings.push({ level: 'warning', text: chk.msg });
-
-  let finalBatch = res.batch || '';
-  if (!finalBatch && res.expiry_gregorian) {
-    finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian) || '';
-  }
-  if (!finalBatch) finalBatch = `AUTO-${Date.now()}`;
-
-  const ex = state.items.find(it => it.drug_id === drug.id && (it.batch || '') === finalBatch);
-  if (ex && ex.expiry === res.expiry_gregorian) ex.qty += res.qty;
-  else state.items.push({
-    drug_id: drug.id,
-    drug_name: drug.name,
-    drug_form: drug.form || '',
-    qty: res.qty,
-    batch: finalBatch,
-    expiry: res.expiry_gregorian,
-    expiry_jalali: res.expiry_jalali || '',
-    barcode,
-    ordered_qty: ordered,
-    invoice_qty: invoiceQty,
-    warnings,
-    closeOrder: false,
-  });
-
-  renderList();
-  beep();
-  return true;
 }
 
-// ═══════════════════════════════════════════════════════════
-// ذخیره نهایی
-// ═══════════════════════════════════════════════════════════
 async function finalize() {
   if (!state.supplierId) { toast('تامین‌کننده را انتخاب کنید', 'warning'); return; }
   if (!state.items.length) { toast('حداقل یک قلم', 'warning'); return; }
@@ -1102,7 +1156,6 @@ async function finalize() {
           successes.push(`${it.drug_name}: بچ جدید ${batchForDb}`);
         }
 
-        // ⭐ پاس دادن closeOrder به RPC
         try {
           const { error: e3 } = await sb.rpc('allocate_to_requests', {
             p_drug_id: it.drug_id,
@@ -1121,11 +1174,9 @@ async function finalize() {
     console.log('✅ موفق:', successes);
     console.log('❌ خطاها:', errors);
 
-    // ذخیره شناسه رسید برای گزارش مغایرت بعدی
-    const finalizedReceiptId = receiptId;
     const finalizedRow = {
-      id: finalizedReceiptId,
-      receipt_number: 'RCV-' + finalizedReceiptId,
+      id: receiptId,
+      receipt_number: state.receiptId ? `RCV-${receiptId}` : '-',
       supplier_name: state.supplierName,
       status: 'final',
       invoice_id: state.linkedInvoice?.id || null,
@@ -1139,7 +1190,6 @@ async function finalize() {
       toast('✅ رسید با موفقیت ثبت نهایی شد', 'success');
     }
 
-    // ⭐ پیشنهاد مشاهده گزارش مغایرت
     setTimeout(() => {
       if (confirm('گزارش مغایرت فاکتور و سفارش این رسید را ببینید؟')) {
         openDiscrepancyReport(finalizedRow);
