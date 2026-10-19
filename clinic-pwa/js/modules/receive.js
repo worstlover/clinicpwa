@@ -12,35 +12,41 @@ import * as MODALS_MOD  from '../modals.js';
 function resolveExport(mod, name) {
   if (!mod) return null;
   if (typeof mod[name] === 'function') return mod[name];
-  if (mod.default) {
-    if (typeof mod.default === 'function' && name === 'default') return mod.default;
-    if (typeof mod.default[name] === 'function') return mod.default[name];
-  }
+  if (mod.default && typeof mod.default[name] === 'function') return mod.default[name];
   return null;
 }
 
-const openScanner = resolveExport(SCANNER_MOD, 'openScanner');
-const openDrugSearch = resolveExport(MODALS_MOD, 'openDrugSearch');
-const askQty = resolveExport(MODALS_MOD, 'askQty');
+const openScanner         = resolveExport(SCANNER_MOD, 'openScanner');
+const closeScanner        = resolveExport(SCANNER_MOD, 'closeScanner');
+const initScannerButtons  = resolveExport(SCANNER_MOD, 'initScannerButtons');
+const openDrugSearch      = resolveExport(MODALS_MOD,  'openDrugSearch');
 const promptExpirySelection = resolveExport(MODALS_MOD, 'promptExpirySelection');
-const initQtyModal = resolveExport(MODALS_MOD, 'initQtyModal');
-const initSearchModal = resolveExport(MODALS_MOD, 'initSearchModal');
+const initSearchModal     = resolveExport(MODALS_MOD,  'initSearchModal');
 
-console.log('[RECEIVE] imports status:', {
+console.log('[RECEIVE] imports:', {
   openScanner: typeof openScanner,
+  closeScanner: typeof closeScanner,
+  initScannerButtons: typeof initScannerButtons,
   openDrugSearch: typeof openDrugSearch,
-  askQty: typeof askQty,
   promptExpirySelection: typeof promptExpirySelection,
-  initQtyModal: typeof initQtyModal,
-  initSearchModal: typeof initSearchModal,
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// ⭐ FIX اصلی: تزریق HTML مودال‌های گم‌شده + دوباره init کردن
-// علت خطای: "can't access property 'backdrop', this._config is undefined"
-// این بود که #searchModal و #qtyModal در DOM نبودند، پس new bootstrap.Modal(null)
-// باعث کرش modals.js:16 و modals.js:213 می‌شد.
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// ⭐ تزریق DOM های گم‌شده — همان چیزی که scanner.js و modals.js انتظار دارند
+// ═══════════════════════════════════════════════════════════════════
+const SCANNER_HTML = `
+<div id="scannerWrap" style="display:none; position:fixed; inset:0; background:#000; z-index:9999999; flex-direction:column; direction:rtl; color:#fff; font-family:inherit;">
+  <div style="padding:12px 16px; background:rgba(0,0,0,0.85); display:flex; justify-content:space-between; align-items:center; gap:8px;">
+    <button id="btnScanClose" style="background:rgba(255,255,255,0.15); border:none; color:#fff; width:44px; height:44px; border-radius:50%; cursor:pointer; font-size:18px;"><i class="bi bi-x-lg"></i></button>
+    <div id="scannerStatus" style="flex:1; text-align:center; font-size:14px;">آماده اسکن...</div>
+    <button id="btnCameraSelect" style="background:rgba(255,255,255,0.15); border:none; color:#fff; width:44px; height:44px; border-radius:50%; cursor:pointer; font-size:18px;"><i class="bi bi-camera-video"></i></button>
+  </div>
+  <div id="reader" style="flex:1; position:relative; background:#000; overflow:hidden;"></div>
+  <div class="scanner-controls" style="position:absolute; bottom:24px; left:50%; transform:translateX(-50%); display:flex; gap:12px; z-index:10;">
+    <button id="btnScanPaste" style="background:rgba(255,255,255,0.2); border:none; color:#fff; width:54px; height:54px; border-radius:50%; cursor:pointer; font-size:20px;"><i class="bi bi-clipboard"></i></button>
+  </div>
+  <div id="cameraPopup" style="position:absolute; bottom:90px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.95); border-radius:12px; padding:8px; min-width:240px; max-width:90vw; display:none; z-index:20;"></div>
+</div>`;
 
 const SEARCH_MODAL_HTML = `
 <div class="modal fade" id="searchModal" tabindex="-1" aria-hidden="true">
@@ -59,226 +65,288 @@ const SEARCH_MODAL_HTML = `
   </div>
 </div>`;
 
-const QTY_MODAL_HTML = `
-<div class="modal fade" id="qtyModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header bg-primary text-white" id="qmHeader">
-        <h5 class="modal-title" id="qmTitle">ثبت تعداد</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="بستن"></button>
-      </div>
-      <div class="modal-body">
-        <div id="qmDrugName" class="fw-bold mb-2" style="font-size:1rem;"></div>
-        <div id="qmExtraInfo" class="mb-2"></div>
-        <div id="qmWarnings"></div>
+function ensureScannerDOM() {
+  const wrap = document.getElementById('scannerWrap');
+  const reader = document.getElementById('reader');
+  let injected = false;
 
-        <div class="mb-3">
-          <label class="form-label fw-bold">تعداد دریافتی</label>
-          <div class="d-flex gap-2 align-items-center">
-            <button type="button" class="btn btn-outline-secondary" id="qmMinus" style="width:44px;">−</button>
-            <input type="number" id="qmQty" class="form-control text-center fw-bold"
-              value="1" min="0" style="font-size:1.3rem;color:#d97706;">
-            <button type="button" class="btn btn-outline-secondary" id="qmPlus" style="width:44px;">+</button>
-          </div>
-          <div class="d-flex gap-1 mt-2 flex-wrap">
-            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="1">1</button>
-            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="2">2</button>
-            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="5">5</button>
-            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="10">10</button>
-            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="20">20</button>
-            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="50">50</button>
-          </div>
-        </div>
+  if (!wrap || !reader) {
+    if (wrap) wrap.remove();
+    document.body.insertAdjacentHTML('beforeend', SCANNER_HTML);
+    injected = true;
+    console.log('[RECEIVE] #scannerWrap injected');
+  }
 
-        <div id="qmExtraFields">
-          <div class="mb-3 qm-field">
-            <label class="form-label" for="qmExpiry">تاریخ انقضا (میلادی یا شمسی)</label>
-            <input type="text" id="qmExpiry" class="form-control" placeholder="2027-03-15 یا 1405/12/24" dir="ltr" autocomplete="off">
-            <div id="qmShamsi" class="small mt-1"></div>
-            <div id="qmExpiryBadge" class="mt-1"></div>
-          </div>
-          <div class="mb-3 qm-field">
-            <label class="form-label" for="qmBatch">شماره بچ (اختیاری)</label>
-            <input type="text" id="qmBatch" class="form-control" dir="ltr" autocomplete="off">
-            <div id="qmBatchInfo" class="mt-1"></div>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
-        <button type="button" class="btn btn-primary" id="qmSave"><i class="bi bi-check2"></i> تایید</button>
-      </div>
-    </div>
-  </div>
-</div>`;
+  // CSS لازم برای نمایش/مخفی کردن
+  if (!document.getElementById('scannerRecvStyle')) {
+    const s = document.createElement('style');
+    s.id = 'scannerRecvStyle';
+    s.textContent = `
+      #scannerWrap { display: none !important; }
+      #scannerWrap.active { display: flex !important; }
+      #scannerWrap #reader video { width:100%; height:100%; object-fit:cover; }
+      #scannerWrap #reader > div { width:100% !important; }
+    `;
+    document.head.appendChild(s);
+  }
+
+  // اتصال هندلرها فقط اگر قبلاً وصل نشده
+  if (injected || !wrap?.dataset?.initialized) {
+    if (typeof initScannerButtons === 'function') {
+      try {
+        initScannerButtons();
+        console.log('[RECEIVE] initScannerButtons() re-run');
+        document.getElementById('scannerWrap').dataset.initialized = '1';
+      } catch (e) {
+        console.warn('[RECEIVE] initScannerButtons failed:', e.message);
+      }
+    }
+  }
+}
 
 function ensureModalsReady() {
   let injected = false;
-
-  // ۱. تزریق مودال جستجو اگر نیست
   if (!document.getElementById('searchModal')) {
     document.body.insertAdjacentHTML('beforeend', SEARCH_MODAL_HTML);
     injected = true;
-    console.log('[RECEIVE] #searchModal HTML injected');
+    console.log('[RECEIVE] #searchModal injected');
   }
-  // ۲. تزریق مودال تعداد اگر نیست
-  if (!document.getElementById('qtyModal')) {
-    document.body.insertAdjacentHTML('beforeend', QTY_MODAL_HTML);
-    injected = true;
-    console.log('[RECEIVE] #qtyModal HTML injected');
-  }
-
-  // ۳. اگر هندلرهای init قبلاً ست نشده بودند، الان ست کن
-  //    نشانه: initSearchModal → window._pickDrug
-  //           initQtyModal    → $('qmSave').onclick
-  if (!window._pickDrug && typeof initSearchModal === 'function') {
+  if ((injected || !window._pickDrug) && typeof initSearchModal === 'function') {
     try {
       initSearchModal();
-      console.log('[RECEIVE] initSearchModal() re-run successfully');
+      console.log('[RECEIVE] initSearchModal() re-run');
     } catch (e) {
       console.warn('[RECEIVE] initSearchModal failed:', e.message);
     }
   }
-  const qmSave = document.getElementById('qmSave');
-  if (qmSave && !qmSave.onclick && typeof initQtyModal === 'function') {
-    try {
-      initQtyModal();
-      console.log('[RECEIVE] initQtyModal() re-run successfully');
-    } catch (e) {
-      console.warn('[RECEIVE] initQtyModal failed:', e.message);
-    }
-  }
-
-  return injected;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Fallback ساده (فقط اگر بعد از تزریق هنوز کرش کرد — خیلی بعید)
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// ⭐ مودال تعداد — ورودی میلادی (type=date) — بدون فیلد بچ
+// ═══════════════════════════════════════════════════════════════════
+async function askQtyForReceive(opts) {
+  const {
+    title = 'تایید دریافت',
+    drugName = '',
+    extraInfo = '',
+    defaultQty = 1,
+    defaultExpiry = '',
+    requireExpiry = true
+  } = opts || {};
 
-function createOverlay(html) {
-  const overlay = document.createElement('div');
-  overlay.style.cssText = `
-    position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:999999;
-    display:flex;align-items:center;justify-content:center;padding:16px;
-    direction:rtl;overflow-y:auto;font-family:inherit;
-  `;
-  overlay.innerHTML = `<div style="background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);">${html}</div>`;
-  document.body.appendChild(overlay);
-  return overlay;
-}
-
-async function openDrugSearchFallback(title, onSelect) {
-  return new Promise(async (resolve) => {
-    const overlay = createOverlay(`
-      <div style="padding:16px;border-bottom:1px solid #eee;">
-        <div style="font-weight:700;font-size:16px;color:#92400e;">🔍 ${escapeHtml(title || 'جستجوی دارو')}</div>
-        <input type="text" id="fbSearchInput" placeholder="نام دارو..." autocomplete="off"
-          style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;margin-top:12px;font-family:inherit;">
-      </div>
-      <div id="fbResults" style="padding:8px;min-height:140px;max-height:50vh;overflow-y:auto;">
-        <div style="text-align:center;color:#999;padding:24px;">در حال بارگذاری...</div>
-      </div>
-      <div style="padding:12px;border-top:1px solid #eee;text-align:left;">
-        <button id="fbCancel" style="padding:8px 20px;background:#f3f4f6;border:none;border-radius:8px;cursor:pointer;font-family:inherit;">انصراف</button>
-      </div>`);
-
-    const close = (r) => { overlay.remove(); resolve(r); };
-    overlay.querySelector('#fbCancel').onclick = () => close(null);
-    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
-
-    const input = overlay.querySelector('#fbSearchInput');
-    const results = overlay.querySelector('#fbResults');
-
-    async function search(q) {
-      results.innerHTML = '<div style="text-align:center;padding:24px;">در حال جستجو...</div>';
-      try {
-        const { data, error } = await sb.from('drugs_drug')
-          .select('id, name, form').ilike('name', `%${q}%`).order('name').limit(30);
-        if (error) throw error;
-        if (!data?.length) {
-          results.innerHTML = '<div style="text-align:center;color:#999;padding:24px;">یافت نشد</div>';
-          return;
-        }
-        results.innerHTML = data.map(d => `
-          <div class="fb-drug" data-id="${d.id}" data-name="${escapeHtml(d.name)}" data-form="${escapeHtml(d.form || '')}"
-            style="padding:12px;border-bottom:1px solid #f5f5f5;cursor:pointer;">
-            <div style="font-weight:600;">${escapeHtml(d.name)}</div>
-            ${d.form ? `<div style="font-size:12px;color:#999;">${escapeHtml(d.form)}</div>` : ''}
-          </div>`).join('');
-        results.querySelectorAll('.fb-drug').forEach(el => {
-          el.onclick = async () => {
-            const drug = { id: parseInt(el.dataset.id), name: el.dataset.name, form: el.dataset.form || null };
-            overlay.remove();
-            try {
-              const r = onSelect(drug);
-              resolve(r && typeof r.then === 'function' ? await r : r);
-            } catch (e) { resolve(null); }
-          };
-        });
-      } catch (e) {
-        results.innerHTML = `<div style="color:#dc2626;padding:12px;">خطا: ${escapeHtml(e.message)}</div>`;
-      }
-    }
-    let t; input.oninput = () => { clearTimeout(t); t = setTimeout(() => search(input.value.trim()), 300); };
-    input.focus();
-    await search('');
-  });
-}
-
-async function askQtyFallback(opts) {
-  const { title, drugName, extraInfo = '', defaultQty = 1, defaultExpiry = '', defaultBatch = '', requireExpiry = true } = opts || {};
   return new Promise((resolve) => {
-    const overlay = createOverlay(`
-      <div style="padding:16px;border-bottom:1px solid #eee;background:#fffbeb;">
-        <div style="font-weight:700;color:#92400e;">${escapeHtml(title || 'تایید دریافت')}</div>
-        <div style="color:#666;font-size:13px;margin-top:4px;">${escapeHtml(drugName || '')}</div>
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl;overflow-y:auto;font-family:inherit;`;
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:500px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+        <div style="padding:16px;background:#fef3c7;border-bottom:1px solid #fde68a;border-radius:16px 16px 0 0;">
+          <div style="font-weight:700;font-size:16px;color:#92400e;">✅ ${escapeHtml(title)}</div>
+          <div style="font-size:14px;color:#92400e;margin-top:4px;opacity:.85;">${escapeHtml(drugName)}</div>
+        </div>
+
+        ${extraInfo ? `<div style="padding:12px;background:#fffbeb;border-bottom:1px solid #fde68a;">${extraInfo}</div>` : ''}
+
+        <div style="padding:16px;">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:#374151;">تعداد دریافتی <span style="color:#dc2626;">*</span></label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button type="button" id="rqMinus" style="width:44px;height:44px;border:2px solid #e5e7eb;background:#fff;border-radius:8px;font-size:20px;font-weight:700;cursor:pointer;color:#6b7280;font-family:inherit;">−</button>
+            <input type="number" id="rqQty" value="${defaultQty}" min="1" style="flex:1;padding:10px;border:2px solid #fbbf24;border-radius:8px;font-size:22px;text-align:center;font-weight:700;color:#d97706;font-family:inherit;">
+            <button type="button" id="rqPlus" style="width:44px;height:44px;border:2px solid #e5e7eb;background:#fff;border-radius:8px;font-size:20px;font-weight:700;cursor:pointer;color:#6b7280;font-family:inherit;">+</button>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+            ${[1,2,5,10,20,50,100].map(n=>`<button type="button" class="rq-quick" data-n="${n}" style="padding:6px 12px;border:1px solid #fcd34d;background:#fffbeb;color:#92400e;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit;">${n}</button>`).join('')}
+          </div>
+
+          <label style="display:block;font-size:13px;font-weight:600;margin:18px 0 8px;color:#374151;">
+            تاریخ انقضا (میلادی) ${requireExpiry ? '<span style="color:#dc2626;">*</span>' : ''}
+          </label>
+          <input type="date" id="rqExpiry" value="${escapeHtml(defaultExpiry || '')}" style="width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:15px;direction:ltr;text-align:center;">
+          <div id="rqJalali" style="font-size:12px;color:#6b7280;margin-top:6px;min-height:18px;text-align:center;"></div>
+        </div>
+
+        <div style="padding:12px;border-top:1px solid #eee;display:flex;gap:8px;">
+          <button id="rqCancel" style="flex:1;padding:12px;background:#f3f4f6;color:#374151;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;">انصراف</button>
+          <button id="rqConfirm" style="flex:1;padding:12px;background:#d97706;color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-size:14px;font-weight:700;">تایید</button>
+        </div>
       </div>
-      ${extraInfo ? `<div style="padding:12px;background:#fef3c7;border-bottom:1px solid #fde68a;">${extraInfo}</div>` : ''}
-      <div style="padding:16px;">
-        <label style="display:block;margin-bottom:6px;font-weight:600;">تعداد *</label>
-        <input type="number" id="fbQty" value="${defaultQty}" min="1"
-          style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:20px;text-align:center;font-weight:700;color:#d97706;">
-        <label style="display:block;margin:14px 0 6px;font-weight:600;">تاریخ انقضا ${requireExpiry ? '*' : ''}</label>
-        <input type="date" id="fbExp" value="${escapeHtml(defaultExpiry || '')}"
-          style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-family:inherit;">
-        <label style="display:block;margin:14px 0 6px;font-weight:600;">بچ (اختیاری)</label>
-        <input type="text" id="fbBatch" value="${escapeHtml(defaultBatch || '')}" dir="ltr"
-          style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;">
-      </div>
-      <div style="padding:12px;border-top:1px solid #eee;display:flex;gap:8px;">
-        <button id="fbQC" style="flex:1;padding:12px;background:#f3f4f6;border:none;border-radius:8px;cursor:pointer;font-family:inherit;">انصراف</button>
-        <button id="fbQS" style="flex:1;padding:12px;background:#d97706;color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:700;">تایید</button>
-      </div>`);
-    overlay.querySelector('#fbQC').onclick = () => { overlay.remove(); resolve({ qty: 0 }); };
-    overlay.querySelector('#fbQS').onclick = () => {
-      const qty = parseInt(overlay.querySelector('#fbQty').value) || 0;
-      const exp = overlay.querySelector('#fbExp').value;
-      const batch = overlay.querySelector('#fbBatch').value.trim();
-      if (qty < 1) return;
-      if (requireExpiry && !exp) return;
-      overlay.remove();
-      resolve({
+    `;
+    document.body.appendChild(overlay);
+
+    const close = (result) => { overlay.remove(); resolve(result); };
+
+    overlay.querySelector('#rqMinus').onclick = () => {
+      const el = overlay.querySelector('#rqQty');
+      el.value = Math.max(1, (parseInt(el.value) || 0) - 1);
+    };
+    overlay.querySelector('#rqPlus').onclick = () => {
+      const el = overlay.querySelector('#rqQty');
+      el.value = (parseInt(el.value) || 0) + 1;
+    };
+    overlay.querySelectorAll('.rq-quick').forEach(b => {
+      b.onclick = () => { overlay.querySelector('#rqQty').value = b.dataset.n; };
+    });
+
+    const expiry = overlay.querySelector('#rqExpiry');
+    const jalaliEl = overlay.querySelector('#rqJalali');
+    const updateJalali = () => {
+      if (expiry.value) {
+        try { jalaliEl.textContent = 'شمسی: ' + (gregorianToJalali(expiry.value) || ''); }
+        catch (_) { jalaliEl.textContent = ''; }
+      } else jalaliEl.textContent = '';
+    };
+    expiry.onchange = updateJalali;
+    updateJalali();
+
+    overlay.querySelector('#rqCancel').onclick = () => close({ qty: 0 });
+    overlay.querySelector('#rqConfirm').onclick = () => {
+      const qty = parseInt(overlay.querySelector('#rqQty').value) || 0;
+      const exp = expiry.value;
+      if (qty < 1) { toast('تعداد نامعتبر', 'warning'); return; }
+      if (requireExpiry && !exp) { toast('تاریخ انقضا الزامی است', 'warning'); expiry.focus(); return; }
+      close({
         qty,
         expiry_gregorian: exp || null,
         expiry_jalali: exp ? (gregorianToJalali(exp) || '') : '',
-        batch
+        batch: null // بچ همیشه سیستمی ساخته می‌شود
       });
     };
+
+    overlay.addEventListener('click', e => { if (e.target === overlay) close({ qty: 0 }); });
+    setTimeout(() => overlay.querySelector('#rqQty').focus(), 100);
   });
 }
 
-async function promptExpirySelectionFallback(exps) {
-  if (!exps?.length) return null;
-  const list = exps.map((e, i) => `${i + 1}) ${e}`).join('\n');
-  const input = prompt('چند تاریخ یافت شد:\n' + list + '\n\nشماره یا تاریخ YYYY-MM-DD:');
-  if (!input) return null;
-  const idx = parseInt(input, 10) - 1;
-  if (!isNaN(idx) && exps[idx]) return exps[idx];
-  if (/^\d{4}-\d{2}-\d{2}$/.test(input.trim())) return input.trim();
-  return null;
+// ═══════════════════════════════════════════════════════════════════
+// ⭐ مودال انتخاب فاکتور حرفه‌ای
+// ═══════════════════════════════════════════════════════════════════
+async function openInvoicePicker() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl;overflow-y:auto;font-family:inherit;`;
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;max-width:620px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <div style="padding:16px;background:#dbeafe;border-bottom:1px solid #bfdbfe;border-radius:16px 16px 0 0;">
+        <div style="font-weight:700;font-size:16px;color:#1e40af;"><i class="bi bi-receipt"></i> انتخاب فاکتور</div>
+        <input type="text" id="invSearchInput" placeholder="جستجوی شماره فاکتور..." style="margin-top:12px;width:100%;padding:10px;border:1px solid #93c5fd;border-radius:8px;font-family:inherit;font-size:14px;">
+      </div>
+      <div id="invListBox" style="padding:12px;overflow-y:auto;flex:1;">
+        <div style="text-align:center;padding:24px;color:#999;"><div class="spinner-border text-primary"></div></div>
+      </div>
+      <div style="padding:12px;border-top:1px solid #eee;">
+        <button id="invCancelBtn" style="width:100%;padding:12px;background:#f3f4f6;color:#374151;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:600;">انصراف</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('#invCancelBtn').onclick = close;
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+  const listBox = overlay.querySelector('#invListBox');
+  const searchInput = overlay.querySelector('#invSearchInput');
+  let timer;
+  searchInput.oninput = () => { clearTimeout(timer); timer = setTimeout(() => load(searchInput.value.trim()), 300); };
+
+  async function load(q) {
+    listBox.innerHTML = `<div style="text-align:center;padding:24px;"><div class="spinner-border text-primary"></div></div>`;
+    try {
+      let query = sb.from('drugs_purchaseinvoice')
+        .select('id, invoice_number, supplier_id, supplier:drugs_supplier(name)')
+        .order('id', { ascending: false }).limit(50);
+      if (q) query = query.ilike('invoice_number', `%${q}%`);
+      const { data, error } = await query;
+      if (error) throw error;
+
+      if (!data?.length) {
+        listBox.innerHTML = `<div style="text-align:center;color:#999;padding:40px;">فاکتوری یافت نشد</div>`;
+        return;
+      }
+
+      const ids = data.map(inv => inv.id);
+      const { data: itemRows } = await sb.from('drugs_purchaseinvoiceitem')
+        .select('invoice_id, quantity').in('invoice_id', ids);
+
+      const statsMap = {};
+      (itemRows || []).forEach(it => {
+        if (!statsMap[it.invoice_id]) statsMap[it.invoice_id] = { count: 0, qty: 0 };
+        statsMap[it.invoice_id].count++;
+        statsMap[it.invoice_id].qty += Number(it.quantity) || 0;
+      });
+
+      listBox.innerHTML = data.map(inv => {
+        const st = statsMap[inv.id] || { count: 0, qty: 0 };
+        return `
+          <div class="recv-inv-row" data-id="${inv.id}" style="padding:12px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all .15s;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+              <div style="font-weight:700;color:#1e40af;font-size:15px;">${escapeHtml(inv.invoice_number || '-')}</div>
+            </div>
+            <div style="font-size:13px;color:#666;margin-bottom:4px;"><i class="bi bi-truck"></i> ${escapeHtml(inv.supplier?.name || '—')}</div>
+            <div style="font-size:12px;color:#999;display:flex;gap:12px;">
+              <span><i class="bi bi-box"></i> ${faNum(st.count)} قلم</span>
+              <span><i class="bi bi-hash"></i> ${faNum(st.qty)} عدد</span>
+            </div>
+          </div>`;
+      }).join('');
+
+      listBox.querySelectorAll('.recv-inv-row').forEach(row => {
+        row.onmouseenter = () => { row.style.background = '#f0f9ff'; row.style.borderColor = '#93c5fd'; };
+        row.onmouseleave = () => { row.style.background = ''; row.style.borderColor = '#e5e7eb'; };
+        row.onclick = () => selectInvoice(parseInt(row.dataset.id));
+      });
+    } catch (e) {
+      listBox.innerHTML = `<div style="color:#dc2626;padding:24px;text-align:center;">خطا: ${escapeHtml(e.message || '')}</div>`;
+    }
+  }
+
+  async function selectInvoice(invoiceId) {
+    try {
+      const { data: inv, error: e1 } = await sb.from('drugs_purchaseinvoice')
+        .select('id, invoice_number, supplier_id, supplier:drugs_supplier(name)')
+        .eq('id', invoiceId).single();
+      if (e1) throw e1;
+
+      const { data: items, error: e2 } = await sb.from('drugs_purchaseinvoiceitem')
+        .select('drug_id, quantity, unit_price, drug:drugs_drug(name, form)')
+        .eq('invoice_id', invoiceId);
+      if (e2) throw e2;
+
+      state.linkedInvoice = { id: inv.id, invoice_number: inv.invoice_number, items: items || [] };
+
+      if (inv.supplier_id) {
+        state.supplierId = inv.supplier_id;
+        const suppSel = $('recvSupplier');
+        if (suppSel) {
+          suppSel.value = inv.supplier_id;
+          const opts = suppSel.options;
+          for (let i = 0; i < opts.length; i++) {
+            if (parseInt(opts[i].value) === inv.supplier_id) {
+              state.supplierName = opts[i].text;
+              break;
+            }
+          }
+        }
+      }
+
+      const box = $('recvInvoiceBox');
+      const num = $('recvInvoiceNum');
+      const btn = $('recvLinkInvoice');
+      if (box) box.classList.remove('hidden');
+      if (num) num.textContent = inv.invoice_number;
+      if (btn) btn.classList.add('hidden');
+
+      close();
+      toast(`فاکتور ${inv.invoice_number} لینک شد (${faNum(items?.length || 0)} قلم)`, 'success');
+    } catch (e) {
+      toast('خطا: ' + (e.message || ''), 'danger');
+    }
+  }
+
+  await load('');
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Safe wrappers
+// ═══════════════════════════════════════════════════════════════════
 async function safeOpenDrugSearch(title, cb) {
   ensureModalsReady();
   if (typeof openDrugSearch === 'function') {
@@ -287,41 +355,34 @@ async function safeOpenDrugSearch(title, cb) {
       if (r && typeof r.then === 'function') await r;
       return;
     } catch (e) {
-      console.warn('[RECEIVE] openDrugSearch failed → fallback:', e.message);
+      console.warn('[RECEIVE] openDrugSearch failed:', e.message);
     }
   }
-  await openDrugSearchFallback(title, cb);
-}
-
-async function safeAskQty(opts) {
-  ensureModalsReady();
-  if (typeof askQty === 'function') {
-    try {
-      const r = askQty(opts);
-      return (r && typeof r.then === 'function') ? await r : r;
-    } catch (e) {
-      console.warn('[RECEIVE] askQty failed → fallback:', e.message);
-    }
-  }
-  return await askQtyFallback(opts);
+  toast('مودال جستجو در دسترس نیست', 'danger');
 }
 
 async function safePromptExpirySelection(exps) {
-  ensureModalsReady();
   if (typeof promptExpirySelection === 'function') {
     try {
       const r = promptExpirySelection(exps);
       return (r && typeof r.then === 'function') ? await r : r;
     } catch (e) {
-      console.warn('[RECEIVE] promptExpirySelection failed → fallback:', e.message);
+      console.warn('[RECEIVE] promptExpirySelection failed:', e.message);
     }
   }
-  return await promptExpirySelectionFallback(exps);
+  if (!exps?.length) return null;
+  const list = exps.map((e, i) => `${i + 1}) ${e}`).join('\n');
+  const input = prompt('چند تاریخ یافت شد:\n' + list + '\n\nشماره یا YYYY-MM-DD:');
+  if (!input) return null;
+  const idx = parseInt(input, 10) - 1;
+  if (!isNaN(idx) && exps[idx]) return exps[idx];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input.trim())) return input.trim();
+  return null;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 // State
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 const state = {
   view: 'list',
   receiptId: null,
@@ -380,9 +441,8 @@ async function restoreReceiveState() {
 
 export async function openReceive() {
   showScreen('Receive');
-  // ⭐ FIX: مودال‌ها را قبل از هر کاری آماده کن
+  ensureScannerDOM();
   ensureModalsReady();
-
   const restored = await restoreReceiveState();
   if (restored) { await renderFormView(); return; }
   state.view = 'list';
@@ -390,9 +450,9 @@ export async function openReceive() {
   await renderListView();
 }
 
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 // لیست رسیدها
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 async function renderListView() {
   const c = $('recvContent');
   if (!c) return;
@@ -615,9 +675,9 @@ async function openReceiptDetail(row) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 // گزارش مغایرت
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 async function loadDiscrepancyData(receiptId, invoiceId) {
   const { data: receiptItems, error: e1 } = await sb.from('drugs_receiptitem')
     .select('drug_id, received_quantity, drug:drugs_drug(id, name, form)').eq('receipt_id', receiptId);
@@ -788,16 +848,18 @@ async function closeDrugOrders(drugId, drugName, btn) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 // فرم دریافت
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
 async function openNewReceive(existingDraft = null) {
   state.view = 'form';
   state.isFinalizing = false;
+
   if (existingDraft) {
     state.receiptId = existingDraft.id;
     state.supplierId = existingDraft.supplier_id || null;
     state.supplierName = existingDraft.supplier_name || '';
+
     if (existingDraft.invoice_id) {
       try {
         const { data: inv } = await sb.from('drugs_purchaseinvoice')
@@ -809,6 +871,7 @@ async function openNewReceive(existingDraft = null) {
         }
       } catch (_) {}
     }
+
     const { data: items } = await sb.from('drugs_receiptitem')
       .select('*, drug:drugs_drug(name, form)').eq('receipt_id', existingDraft.id);
     state.items = (items || []).map(i => ({
@@ -878,29 +941,40 @@ async function renderFormView() {
     }
   }
 
-  // ⭐ اسکنر
+  // ⭐ اسکنر — از scanner.js موجود استفاده می‌کند
   $('recvScan').onclick = async (ev) => {
     ev.preventDefault();
     console.log('[RECEIVE] Scan clicked');
-    if (typeof openScanner !== 'function') { alert('اسکنر لود نشده'); return; }
-    try { await openScanner(handleBarcode); }
-    catch (e) { console.error('[RECEIVE] openScanner:', e); alert('خطا در اسکنر: ' + (e.message || e)); }
+    ensureScannerDOM();
+    if (typeof openScanner !== 'function') {
+      toast('ماژول اسکنر در دسترس نیست', 'danger');
+      return;
+    }
+    try {
+      await openScanner(handleBarcode);
+      console.log('[RECEIVE] openScanner returned');
+    } catch (e) {
+      console.error('[RECEIVE] openScanner error:', e);
+      toast('خطا در اسکنر: ' + (e.message || ''), 'danger');
+    }
   };
 
-  // ⭐ جستجو — FIX: قبلش ensureModalsReady (داخل safeOpenDrugSearch)
+  // ⭐ جستجو — از modals.js
   $('recvSearch').onclick = async (ev) => {
     ev.preventDefault();
     console.log('[RECEIVE] Search clicked');
     await safeOpenDrugSearch('دارو را جستجو کنید', d => addDrug(d));
-    console.log('[RECEIVE] Search flow done');
   };
 
-  $('recvLinkInvoice').onclick = linkInvoice;
+  // ⭐ اتصال فاکتور — مودال اختصاصی
+  $('recvLinkInvoice').onclick = () => openInvoicePicker();
+
   $('recvUnlinkInvoice').onclick = () => {
     state.linkedInvoice = null;
     $('recvInvoiceBox').classList.add('hidden');
     $('recvLinkInvoice').classList.remove('hidden');
   };
+
   $('recvSaveDraft').onclick = () => saveDraft(false);
   $('recvFinalize').onclick = finalize;
 
@@ -909,36 +983,8 @@ async function renderFormView() {
     $('recvInvoiceBox').classList.remove('hidden');
     $('recvLinkInvoice').classList.add('hidden');
   }
-  console.log('[RECEIVE] handlers attached. openScanner:', typeof openScanner, '| openDrugSearch:', typeof openDrugSearch);
+  console.log('[RECEIVE] handlers attached');
   renderList();
-}
-
-async function linkInvoice() {
-  const q = prompt('شماره فاکتور:');
-  if (!q?.trim()) return;
-  const { data } = await sb.from('drugs_purchaseinvoice')
-    .select('id, invoice_number, supplier_id, supplier:drugs_supplier(name)')
-    .ilike('invoice_number', `%${q.trim()}%`).limit(5);
-  if (!data?.length) { toast('فاکتوری یافت نشد', 'warning'); return; }
-  let chosen = data[0];
-  if (data.length > 1) {
-    const list = data.map((d, i) => `${i + 1}) ${d.invoice_number} - ${d.supplier?.name || ''}`).join('\n');
-    const idx = parseInt(prompt('کدام؟\n' + list)) - 1;
-    if (isNaN(idx) || !data[idx]) return;
-    chosen = data[idx];
-  }
-  const { data: items } = await sb.from('drugs_purchaseinvoiceitem')
-    .select('drug_id, quantity, unit_price').eq('invoice_id', chosen.id);
-  state.linkedInvoice = { id: chosen.id, invoice_number: chosen.invoice_number, items: items || [] };
-  if (chosen.supplier_id) {
-    state.supplierId = chosen.supplier_id;
-    $('recvSupplier').value = chosen.supplier_id;
-    state.supplierName = $('recvSupplier').options[$('recvSupplier').selectedIndex]?.text || '';
-  }
-  $('recvInvoiceNum').textContent = chosen.invoice_number;
-  $('recvInvoiceBox').classList.remove('hidden');
-  $('recvLinkInvoice').classList.add('hidden');
-  toast(`فاکتور ${chosen.invoice_number} لینک شد`, 'success');
 }
 
 function renderList() {
@@ -960,7 +1006,7 @@ function renderList() {
         <div class="flex-grow-1">
           <div class="name">${escapeHtml(it.drug_name)}</div>
           <div class="meta">${it.batch ? `بچ: <code dir="ltr">${escapeHtml(it.batch)}</code> | ` : ''}
-            انقضا: ${escapeHtml(it.expiry || '—')} <span class="muted">(${gregorianToJalali(it.expiry) || '—'})</span></div>
+            انقضا: ${escapeHtml(gregorianToJalali(it.expiry) || '—')}</div>
           ${it.warnings?.length ? `<div class="meta" style="color:#dc3545;">${it.warnings.map(w => `• ${escapeHtml(w.text)}`).join('<br>')}</div>` : ''}
           <div class="mt-1"><label class="d-flex align-items-center gap-2 small" style="cursor:pointer;color:#d97706;font-weight:600;">
             <input type="checkbox" data-close-order="${i}" ${it.closeOrder ? 'checked' : ''} style="width:16px;height:16px;accent-color:#d97706;">
@@ -1063,6 +1109,7 @@ async function handleBarcode(raw) {
         else { toast('تاریخ نامعتبر', 'warning'); parsed.exp = ''; }
       }
     }
+
     const gtin = cleanGTIN(parsed.gtin);
     const padded = gtin.padStart(14, '0');
     const { data: bc } = await sb.from('drugs_drugbarcode')
@@ -1070,19 +1117,13 @@ async function handleBarcode(raw) {
       .or(`gtin.eq.${gtin},gtin.eq.${padded}`).maybeSingle();
 
     if (!bc?.drug) {
-      toast('بارکد ناشناس', 'warning');
-      await safeOpenDrugSearch(`بارکد ${escapeHtml(gtin)} ثبت نشده`, d => addDrug(d, gtin, parsed));
+      toast('بارکد ناشناس — جستجو کنید', 'warning');
+      await safeOpenDrugSearch(`بارکد ${escapeHtml(gtin)} ثبت نشده`, async (d) => {
+        await addDrug(d, gtin, parsed);
+      });
       return;
     }
-    const added = await addDrug(bc.drug, gtin, parsed);
-    if (added) {
-      setTimeout(() => {
-        const wrap = $('scannerWrap');
-        if ((!wrap || !wrap.classList.contains('active')) && typeof openScanner === 'function') {
-          openScanner(handleBarcode);
-        }
-      }, 350);
-    }
+    await addDrug(bc.drug, gtin, parsed);
   } catch (e) {
     console.error('[RECEIVE] handleBarcode error:', e);
     toast('خطا: ' + (e.message || ''), 'danger');
@@ -1114,15 +1155,12 @@ async function addDrug(drug, barcode = '', parsed = {}) {
         <div class="col-4"><div class="badge-soft gray w-100" style="justify-content:center;">فاکتور: <strong>${invoiceQty !== null ? faNum(invoiceQty) : '—'}</strong></div></div>
       </div>`;
 
-    const res = await safeAskQty({
+    const res = await askQtyForReceive({
       title: 'تایید دریافت',
-      headerClass: 'bg-warning',
       drugName: drug.name + (drug.form ? ` (${drug.form})` : ''),
       extraInfo,
       defaultQty: 1,
       defaultExpiry: parsed?.exp || '',
-      defaultBatch: parsed?.batch || '',
-      showExtras: true,
       requireExpiry: true
     });
 
@@ -1141,8 +1179,9 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     if (chk && (chk.level === 'danger' || chk.level === 'expired')) warnings.push({ level: 'danger', text: chk.msg });
     else if (chk && chk.level === 'warning') warnings.push({ level: 'warning', text: chk.msg });
 
-    let finalBatch = res.batch || '';
-    if (!finalBatch && res.expiry_gregorian) finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian) || '';
+    // بچ همیشه خودکار
+    let finalBatch = '';
+    if (res.expiry_gregorian) finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian) || '';
     if (!finalBatch) finalBatch = `AUTO-${Date.now()}`;
 
     const ex = state.items.find(it => it.drug_id === drug.id && (it.batch || '') === finalBatch);
