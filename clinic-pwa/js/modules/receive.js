@@ -6,7 +6,6 @@ import {
 } from '../utils.js';
 import { showScreen } from '../ui.js';
 
-// ⭐ Import مقاوم برای هر دو حالت named/default export
 import * as SCANNER_MOD from '../scanner.js';
 import * as MODALS_MOD  from '../modals.js';
 
@@ -24,15 +23,305 @@ const openScanner = resolveExport(SCANNER_MOD, 'openScanner');
 const openDrugSearch = resolveExport(MODALS_MOD, 'openDrugSearch');
 const askQty = resolveExport(MODALS_MOD, 'askQty');
 const promptExpirySelection = resolveExport(MODALS_MOD, 'promptExpirySelection');
+const initQtyModal = resolveExport(MODALS_MOD, 'initQtyModal');
+const initSearchModal = resolveExport(MODALS_MOD, 'initSearchModal');
 
-// ⭐ لاگ وضعیت ایمپورت‌ها — برای دیباگ
 console.log('[RECEIVE] imports status:', {
   openScanner: typeof openScanner,
   openDrugSearch: typeof openDrugSearch,
   askQty: typeof askQty,
   promptExpirySelection: typeof promptExpirySelection,
+  initQtyModal: typeof initQtyModal,
+  initSearchModal: typeof initSearchModal,
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ⭐ FIX اصلی: تزریق HTML مودال‌های گم‌شده + دوباره init کردن
+// علت خطای: "can't access property 'backdrop', this._config is undefined"
+// این بود که #searchModal و #qtyModal در DOM نبودند، پس new bootstrap.Modal(null)
+// باعث کرش modals.js:16 و modals.js:213 می‌شد.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SEARCH_MODAL_HTML = `
+<div class="modal fade" id="searchModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title"><i class="bi bi-search"></i> جستجوی دارو</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+      </div>
+      <div class="modal-body">
+        <div id="smInfo" class="mb-2 small text-muted"></div>
+        <input type="text" id="smQuery" class="form-control" placeholder="نام دارو را تایپ کنید..." autocomplete="off" dir="rtl">
+        <div id="smResults" class="mt-2"></div>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+const QTY_MODAL_HTML = `
+<div class="modal fade" id="qtyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white" id="qmHeader">
+        <h5 class="modal-title" id="qmTitle">ثبت تعداد</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="بستن"></button>
+      </div>
+      <div class="modal-body">
+        <div id="qmDrugName" class="fw-bold mb-2" style="font-size:1rem;"></div>
+        <div id="qmExtraInfo" class="mb-2"></div>
+        <div id="qmWarnings"></div>
+
+        <div class="mb-3">
+          <label class="form-label fw-bold">تعداد دریافتی</label>
+          <div class="d-flex gap-2 align-items-center">
+            <button type="button" class="btn btn-outline-secondary" id="qmMinus" style="width:44px;">−</button>
+            <input type="number" id="qmQty" class="form-control text-center fw-bold"
+              value="1" min="0" style="font-size:1.3rem;color:#d97706;">
+            <button type="button" class="btn btn-outline-secondary" id="qmPlus" style="width:44px;">+</button>
+          </div>
+          <div class="d-flex gap-1 mt-2 flex-wrap">
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="1">1</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="2">2</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="5">5</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="10">10</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="20">20</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="50">50</button>
+          </div>
+        </div>
+
+        <div id="qmExtraFields">
+          <div class="mb-3 qm-field">
+            <label class="form-label" for="qmExpiry">تاریخ انقضا (میلادی یا شمسی)</label>
+            <input type="text" id="qmExpiry" class="form-control" placeholder="2027-03-15 یا 1405/12/24" dir="ltr" autocomplete="off">
+            <div id="qmShamsi" class="small mt-1"></div>
+            <div id="qmExpiryBadge" class="mt-1"></div>
+          </div>
+          <div class="mb-3 qm-field">
+            <label class="form-label" for="qmBatch">شماره بچ (اختیاری)</label>
+            <input type="text" id="qmBatch" class="form-control" dir="ltr" autocomplete="off">
+            <div id="qmBatchInfo" class="mt-1"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+        <button type="button" class="btn btn-primary" id="qmSave"><i class="bi bi-check2"></i> تایید</button>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+function ensureModalsReady() {
+  let injected = false;
+
+  // ۱. تزریق مودال جستجو اگر نیست
+  if (!document.getElementById('searchModal')) {
+    document.body.insertAdjacentHTML('beforeend', SEARCH_MODAL_HTML);
+    injected = true;
+    console.log('[RECEIVE] #searchModal HTML injected');
+  }
+  // ۲. تزریق مودال تعداد اگر نیست
+  if (!document.getElementById('qtyModal')) {
+    document.body.insertAdjacentHTML('beforeend', QTY_MODAL_HTML);
+    injected = true;
+    console.log('[RECEIVE] #qtyModal HTML injected');
+  }
+
+  // ۳. اگر هندلرهای init قبلاً ست نشده بودند، الان ست کن
+  //    نشانه: initSearchModal → window._pickDrug
+  //           initQtyModal    → $('qmSave').onclick
+  if (!window._pickDrug && typeof initSearchModal === 'function') {
+    try {
+      initSearchModal();
+      console.log('[RECEIVE] initSearchModal() re-run successfully');
+    } catch (e) {
+      console.warn('[RECEIVE] initSearchModal failed:', e.message);
+    }
+  }
+  const qmSave = document.getElementById('qmSave');
+  if (qmSave && !qmSave.onclick && typeof initQtyModal === 'function') {
+    try {
+      initQtyModal();
+      console.log('[RECEIVE] initQtyModal() re-run successfully');
+    } catch (e) {
+      console.warn('[RECEIVE] initQtyModal failed:', e.message);
+    }
+  }
+
+  return injected;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fallback ساده (فقط اگر بعد از تزریق هنوز کرش کرد — خیلی بعید)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function createOverlay(html) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:999999;
+    display:flex;align-items:center;justify-content:center;padding:16px;
+    direction:rtl;overflow-y:auto;font-family:inherit;
+  `;
+  overlay.innerHTML = `<div style="background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);">${html}</div>`;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+async function openDrugSearchFallback(title, onSelect) {
+  return new Promise(async (resolve) => {
+    const overlay = createOverlay(`
+      <div style="padding:16px;border-bottom:1px solid #eee;">
+        <div style="font-weight:700;font-size:16px;color:#92400e;">🔍 ${escapeHtml(title || 'جستجوی دارو')}</div>
+        <input type="text" id="fbSearchInput" placeholder="نام دارو..." autocomplete="off"
+          style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;margin-top:12px;font-family:inherit;">
+      </div>
+      <div id="fbResults" style="padding:8px;min-height:140px;max-height:50vh;overflow-y:auto;">
+        <div style="text-align:center;color:#999;padding:24px;">در حال بارگذاری...</div>
+      </div>
+      <div style="padding:12px;border-top:1px solid #eee;text-align:left;">
+        <button id="fbCancel" style="padding:8px 20px;background:#f3f4f6;border:none;border-radius:8px;cursor:pointer;font-family:inherit;">انصراف</button>
+      </div>`);
+
+    const close = (r) => { overlay.remove(); resolve(r); };
+    overlay.querySelector('#fbCancel').onclick = () => close(null);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+
+    const input = overlay.querySelector('#fbSearchInput');
+    const results = overlay.querySelector('#fbResults');
+
+    async function search(q) {
+      results.innerHTML = '<div style="text-align:center;padding:24px;">در حال جستجو...</div>';
+      try {
+        const { data, error } = await sb.from('drugs_drug')
+          .select('id, name, form').ilike('name', `%${q}%`).order('name').limit(30);
+        if (error) throw error;
+        if (!data?.length) {
+          results.innerHTML = '<div style="text-align:center;color:#999;padding:24px;">یافت نشد</div>';
+          return;
+        }
+        results.innerHTML = data.map(d => `
+          <div class="fb-drug" data-id="${d.id}" data-name="${escapeHtml(d.name)}" data-form="${escapeHtml(d.form || '')}"
+            style="padding:12px;border-bottom:1px solid #f5f5f5;cursor:pointer;">
+            <div style="font-weight:600;">${escapeHtml(d.name)}</div>
+            ${d.form ? `<div style="font-size:12px;color:#999;">${escapeHtml(d.form)}</div>` : ''}
+          </div>`).join('');
+        results.querySelectorAll('.fb-drug').forEach(el => {
+          el.onclick = async () => {
+            const drug = { id: parseInt(el.dataset.id), name: el.dataset.name, form: el.dataset.form || null };
+            overlay.remove();
+            try {
+              const r = onSelect(drug);
+              resolve(r && typeof r.then === 'function' ? await r : r);
+            } catch (e) { resolve(null); }
+          };
+        });
+      } catch (e) {
+        results.innerHTML = `<div style="color:#dc2626;padding:12px;">خطا: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+    let t; input.oninput = () => { clearTimeout(t); t = setTimeout(() => search(input.value.trim()), 300); };
+    input.focus();
+    await search('');
+  });
+}
+
+async function askQtyFallback(opts) {
+  const { title, drugName, extraInfo = '', defaultQty = 1, defaultExpiry = '', defaultBatch = '', requireExpiry = true } = opts || {};
+  return new Promise((resolve) => {
+    const overlay = createOverlay(`
+      <div style="padding:16px;border-bottom:1px solid #eee;background:#fffbeb;">
+        <div style="font-weight:700;color:#92400e;">${escapeHtml(title || 'تایید دریافت')}</div>
+        <div style="color:#666;font-size:13px;margin-top:4px;">${escapeHtml(drugName || '')}</div>
+      </div>
+      ${extraInfo ? `<div style="padding:12px;background:#fef3c7;border-bottom:1px solid #fde68a;">${extraInfo}</div>` : ''}
+      <div style="padding:16px;">
+        <label style="display:block;margin-bottom:6px;font-weight:600;">تعداد *</label>
+        <input type="number" id="fbQty" value="${defaultQty}" min="1"
+          style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:20px;text-align:center;font-weight:700;color:#d97706;">
+        <label style="display:block;margin:14px 0 6px;font-weight:600;">تاریخ انقضا ${requireExpiry ? '*' : ''}</label>
+        <input type="date" id="fbExp" value="${escapeHtml(defaultExpiry || '')}"
+          style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-family:inherit;">
+        <label style="display:block;margin:14px 0 6px;font-weight:600;">بچ (اختیاری)</label>
+        <input type="text" id="fbBatch" value="${escapeHtml(defaultBatch || '')}" dir="ltr"
+          style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;">
+      </div>
+      <div style="padding:12px;border-top:1px solid #eee;display:flex;gap:8px;">
+        <button id="fbQC" style="flex:1;padding:12px;background:#f3f4f6;border:none;border-radius:8px;cursor:pointer;font-family:inherit;">انصراف</button>
+        <button id="fbQS" style="flex:1;padding:12px;background:#d97706;color:#fff;border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:700;">تایید</button>
+      </div>`);
+    overlay.querySelector('#fbQC').onclick = () => { overlay.remove(); resolve({ qty: 0 }); };
+    overlay.querySelector('#fbQS').onclick = () => {
+      const qty = parseInt(overlay.querySelector('#fbQty').value) || 0;
+      const exp = overlay.querySelector('#fbExp').value;
+      const batch = overlay.querySelector('#fbBatch').value.trim();
+      if (qty < 1) return;
+      if (requireExpiry && !exp) return;
+      overlay.remove();
+      resolve({
+        qty,
+        expiry_gregorian: exp || null,
+        expiry_jalali: exp ? (gregorianToJalali(exp) || '') : '',
+        batch
+      });
+    };
+  });
+}
+
+async function promptExpirySelectionFallback(exps) {
+  if (!exps?.length) return null;
+  const list = exps.map((e, i) => `${i + 1}) ${e}`).join('\n');
+  const input = prompt('چند تاریخ یافت شد:\n' + list + '\n\nشماره یا تاریخ YYYY-MM-DD:');
+  if (!input) return null;
+  const idx = parseInt(input, 10) - 1;
+  if (!isNaN(idx) && exps[idx]) return exps[idx];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input.trim())) return input.trim();
+  return null;
+}
+
+async function safeOpenDrugSearch(title, cb) {
+  ensureModalsReady();
+  if (typeof openDrugSearch === 'function') {
+    try {
+      const r = openDrugSearch(title, cb);
+      if (r && typeof r.then === 'function') await r;
+      return;
+    } catch (e) {
+      console.warn('[RECEIVE] openDrugSearch failed → fallback:', e.message);
+    }
+  }
+  await openDrugSearchFallback(title, cb);
+}
+
+async function safeAskQty(opts) {
+  ensureModalsReady();
+  if (typeof askQty === 'function') {
+    try {
+      const r = askQty(opts);
+      return (r && typeof r.then === 'function') ? await r : r;
+    } catch (e) {
+      console.warn('[RECEIVE] askQty failed → fallback:', e.message);
+    }
+  }
+  return await askQtyFallback(opts);
+}
+
+async function safePromptExpirySelection(exps) {
+  ensureModalsReady();
+  if (typeof promptExpirySelection === 'function') {
+    try {
+      const r = promptExpirySelection(exps);
+      return (r && typeof r.then === 'function') ? await r : r;
+    } catch (e) {
+      console.warn('[RECEIVE] promptExpirySelection failed → fallback:', e.message);
+    }
+  }
+  return await promptExpirySelectionFallback(exps);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════════════════
 const state = {
   view: 'list',
   receiptId: null,
@@ -58,10 +347,8 @@ setInterval(async () => {
   await saveDraft(true);
   try {
     localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
-      items: state.items,
-      supplierId: state.supplierId,
-      supplierName: state.supplierName,
-      linkedInvoice: state.linkedInvoice,
+      items: state.items, supplierId: state.supplierId,
+      supplierName: state.supplierName, linkedInvoice: state.linkedInvoice,
       savedAt: Date.now()
     }));
   } catch (_) {}
@@ -74,11 +361,10 @@ async function restoreReceiveState() {
     const data = JSON.parse(saved);
     if (!data.items?.length) return false;
     if (Date.now() - data.savedAt > 24 * 3600 * 1000) {
-      localStorage.removeItem(AUTOSAVE_KEY);
-      return false;
+      localStorage.removeItem(AUTOSAVE_KEY); return false;
     }
     const dt = new Date(data.savedAt).toLocaleString('fa-IR');
-    if (confirm(`یک ذخیره موقت از ${dt} پیدا شد (${data.items.length} قلم). بازیابی شود؟`)) {
+    if (confirm(`ذخیره موقت از ${dt} (${data.items.length} قلم) بازیابی شود؟`)) {
       state.items = data.items;
       state.supplierId = data.supplierId;
       state.supplierName = data.supplierName;
@@ -94,6 +380,9 @@ async function restoreReceiveState() {
 
 export async function openReceive() {
   showScreen('Receive');
+  // ⭐ FIX: مودال‌ها را قبل از هر کاری آماده کن
+  ensureModalsReady();
+
   const restored = await restoreReceiveState();
   if (restored) { await renderFormView(); return; }
   state.view = 'list';
@@ -116,13 +405,11 @@ async function renderListView() {
             <div class="fw-bold"><i class="bi bi-file-earmark-text text-warning"></i> رسیدهای دریافت</div>
             <div class="muted small">لیست سندهای دریافت دارو</div>
           </div>
-          <button class="btn btn-warning" id="recvNewBtn">
-            <i class="bi bi-plus-circle"></i> دریافت جدید
-          </button>
+          <button class="btn btn-warning" id="recvNewBtn"><i class="bi bi-plus-circle"></i> دریافت جدید</button>
         </div>
         <div class="input-group mt-2">
           <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-          <input type="text" class="form-control" id="recvListSearch" placeholder="شماره رسید یا نام تأمین‌کننده...">
+          <input type="text" class="form-control" id="recvListSearch" placeholder="شماره رسید یا تأمین‌کننده...">
         </div>
         <div class="row g-2 mt-2">
           <div class="col-6"><input type="text" class="form-control text-center" id="recvListFrom" placeholder="از تاریخ" dir="ltr" autocomplete="off"></div>
@@ -130,12 +417,12 @@ async function renderListView() {
         </div>
         <div class="d-flex gap-2 mt-2">
           <button class="btn btn-primary flex-grow-1" id="recvFilter"><i class="bi bi-funnel"></i> اعمال فیلتر</button>
-          <button class="btn btn-outline-secondary" id="recvClear" title="پاک کردن"><i class="bi bi-arrow-counterclockwise"></i></button>
+          <button class="btn btn-outline-secondary" id="recvClear"><i class="bi bi-arrow-counterclockwise"></i></button>
         </div>
       </div>
     </div>
     <div id="recvListBox"></div>
-    <div class="d-flex justify-content-between align-items-center mt-3" id="recvPagerWrap">
+    <div class="d-flex justify-content-between align-items-center mt-3">
       <button class="btn btn-sm btn-outline-primary" id="recvPrev"><i class="bi bi-chevron-right"></i> قبلی</button>
       <span class="small text-muted" id="recvPager">—</span>
       <button class="btn btn-sm btn-outline-primary" id="recvNext">بعدی <i class="bi bi-chevron-left"></i></button>
@@ -150,8 +437,7 @@ async function renderListView() {
     state.listQuery = $('recvListSearch').value.trim();
     state.listDateFrom = $('recvListFrom').value.trim();
     state.listDateTo = $('recvListTo').value.trim();
-    state.listPage = 1;
-    loadReceiptList();
+    state.listPage = 1; loadReceiptList();
   };
   $('recvClear').onclick = () => {
     $('recvListSearch').value = ''; $('recvListFrom').value = ''; $('recvListTo').value = '';
@@ -186,11 +472,7 @@ async function loadReceiptList() {
 
   try {
     let q = sb.from('drugs_receipt')
-      .select(
-        'id, receipt_number, supplier_name, status, receipt_type, date_received, created_at, ' +
-        'invoice_id, created_by, created_by_name, finalized_by, finalized_at',
-        { count: 'exact' }
-      )
+      .select('id, receipt_number, supplier_name, status, receipt_type, date_received, created_at, invoice_id, created_by, created_by_name, finalized_by, finalized_at', { count: 'exact' })
       .order('date_received', { ascending: false })
       .order('id', { ascending: false });
 
@@ -199,8 +481,7 @@ async function loadReceiptList() {
     if (state.listDateTo)   { const g = jalaliToGregorian(state.listDateTo);   if (g) q = q.lte('date_received', g); }
 
     const from = (state.listPage - 1) * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-    const { data, error, count } = await q.range(from, to);
+    const { data, error, count } = await q.range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
 
     state.listRows = data || [];
@@ -208,12 +489,8 @@ async function loadReceiptList() {
     renderReceiptRows();
   } catch (e) {
     console.error('[RECEIVE-LIST] error:', e);
-    box.innerHTML = `
-      <div class="alert alert-danger m-2">
-        <i class="bi bi-exclamation-triangle"></i>
-        خواندن لیست ناموفق بود: ${escapeHtml(e.message || 'خطای نامشخص')}
-        <button class="btn btn-sm btn-outline-danger mt-2 d-block" id="recvRetry">تلاش مجدد</button>
-      </div>`;
+    box.innerHTML = `<div class="alert alert-danger m-2">خواندن لیست ناموفق: ${escapeHtml(e.message || '')}
+      <button class="btn btn-sm btn-outline-danger mt-2 d-block" id="recvRetry">تلاش مجدد</button></div>`;
     const r = box.querySelector('#recvRetry');
     if (r) r.onclick = loadReceiptList;
   }
@@ -221,13 +498,13 @@ async function loadReceiptList() {
 
 function statusBadge(status) {
   const map = {
-    draft:     { cls: 'bg-warning text-dark', label: 'پیش‌نویس' },
-    final:     { cls: 'bg-success',           label: 'نهایی' },
-    finalized: { cls: 'bg-success',           label: 'نهایی' },
-    pending:   { cls: 'bg-info text-white',   label: 'در انتظار' },
-    cancelled: { cls: 'bg-danger',            label: 'لغو شده' },
-    canceled:  { cls: 'bg-danger',            label: 'لغو شده' },
-    void:      { cls: 'bg-secondary',         label: 'باطل' },
+    draft: { cls: 'bg-warning text-dark', label: 'پیش‌نویس' },
+    final: { cls: 'bg-success', label: 'نهایی' },
+    finalized: { cls: 'bg-success', label: 'نهایی' },
+    pending: { cls: 'bg-info text-white', label: 'در انتظار' },
+    cancelled: { cls: 'bg-danger', label: 'لغو شده' },
+    canceled: { cls: 'bg-danger', label: 'لغو شده' },
+    void: { cls: 'bg-secondary', label: 'باطل' },
   };
   const m = map[String(status || '').toLowerCase()] || { cls: 'bg-secondary', label: status || '—' };
   return `<span class="badge ${m.cls}">${escapeHtml(m.label)}</span>`;
@@ -236,17 +513,12 @@ function statusBadge(status) {
 function renderReceiptRows() {
   const box = $('recvListBox');
   if (!box) return;
-
   if (!state.listRows.length) {
-    box.innerHTML = `
-      <div class="card text-center py-5 muted">
-        <i class="bi bi-inbox" style="font-size:2.5rem;opacity:.4;"></i>
-        <div class="mt-2">رسیدی یافت نشد</div>
-        <div class="small">با دکمه «دریافت جدید» سند بسازید</div>
-      </div>`;
+    box.innerHTML = `<div class="card text-center py-5 muted">
+      <i class="bi bi-inbox" style="font-size:2.5rem;opacity:.4;"></i>
+      <div class="mt-2">رسیدی یافت نشد</div></div>`;
     updatePager(); return;
   }
-
   box.innerHTML = state.listRows.map(r => `
     <div class="item-card" data-id="${r.id}" style="cursor:pointer;">
       <div class="d-flex justify-content-between align-items-center">
@@ -258,8 +530,7 @@ function renderReceiptRows() {
           <div class="meta"><i class="bi bi-truck"></i> ${escapeHtml(r.supplier_name || '-')}</div>
           <div class="meta">
             <i class="bi bi-calendar3"></i> ${escapeHtml(gregorianToJalali(r.date_received) || '-')}
-            ${r.receipt_type ? `<span class="badge bg-light text-dark border ms-2">${
-              r.receipt_type === 'with_invoice' ? 'با فاکتور' : 'بدون فاکتور'}</span>` : ''}
+            ${r.receipt_type ? `<span class="badge bg-light text-dark border ms-2">${r.receipt_type === 'with_invoice' ? 'با فاکتور' : 'بدون فاکتور'}</span>` : ''}
           </div>
           <div class="meta small">
             <i class="bi bi-person"></i> ${escapeHtml(r.created_by_name || (r.created_by ? r.created_by.slice(0, 8) : '—'))}
@@ -271,12 +542,10 @@ function renderReceiptRows() {
 
   box.querySelectorAll('.item-card').forEach(el => {
     el.onclick = () => {
-      const id = el.dataset.id;
-      const row = state.listRows.find(x => String(x.id) === id);
+      const row = state.listRows.find(x => String(x.id) === el.dataset.id);
       if (row) openReceiptDetail(row);
     };
   });
-
   updatePager();
 }
 
@@ -294,40 +563,26 @@ async function openReceiptDetail(row) {
     <div class="archive-sheet">
       <div class="archive-sheet-handle"></div>
       <div class="archive-sheet-head">
-        <div class="archive-sheet-icon" style="background:#fef3c7;color:#d97706;">
-          <i class="bi bi-file-earmark-text-fill"></i>
-        </div>
+        <div class="archive-sheet-icon" style="background:#fef3c7;color:#d97706;"><i class="bi bi-file-earmark-text-fill"></i></div>
         <div>
           <div class="archive-sheet-title">${escapeHtml(row.receipt_number || '-')}</div>
           <div class="archive-sheet-sub">${escapeHtml(row.supplier_name || '-')}</div>
         </div>
       </div>
       <div class="archive-sheet-meta">
-        <div class="archive-meta-item"><i class="bi bi-calendar3"></i>
-          <span>${escapeHtml(gregorianToJalali(row.date_received) || '-')}</span>
-        </div>
+        <div class="archive-meta-item"><i class="bi bi-calendar3"></i> ${escapeHtml(gregorianToJalali(row.date_received) || '-')}</div>
         <div class="archive-meta-item">${statusBadge(row.status)}</div>
-        <div class="archive-meta-item"><i class="bi bi-person"></i>
-          <span>ثبت‌کننده: ${escapeHtml(row.created_by_name || (row.created_by ? row.created_by.slice(0, 8) : '—'))}</span>
-        </div>
-        ${row.finalized_at ? `
-          <div class="archive-meta-item"><i class="bi bi-check2-circle text-success"></i>
-            <span>نهایی: ${escapeHtml(gregorianToJalali(row.finalized_at) || '')}${
-              row.finalized_by ? ' • ' + escapeHtml(row.finalized_by.slice(0, 8)) : ''
-            }</span>
-          </div>` : ''}
+        <div class="archive-meta-item"><i class="bi bi-person"></i> ${escapeHtml(row.created_by_name || (row.created_by ? row.created_by.slice(0, 8) : '—'))}</div>
+        ${row.finalized_at ? `<div class="archive-meta-item"><i class="bi bi-check2-circle text-success"></i>
+          ${escapeHtml(gregorianToJalali(row.finalized_at) || '')}${row.finalized_by ? ' • ' + escapeHtml(row.finalized_by.slice(0, 8)) : ''}</div>` : ''}
       </div>
       <div class="archive-sheet-body" id="recvDetailItems">
         <div class="text-center py-4"><div class="spinner-border text-warning spinner-border-sm"></div></div>
       </div>
-      <div class="archive-sheet-actions" style="display:flex; flex-wrap:wrap; gap:8px;">
+      <div class="archive-sheet-actions" style="display:flex;flex-wrap:wrap;gap:8px;">
         <button class="btn btn-light flex-grow-1" id="recvDetailClose">بستن</button>
-        ${row.status === 'final' ? `
-          <button class="btn btn-outline-danger flex-grow-1" id="recvDetailDiscrepancy">
-            <i class="bi bi-exclamation-diamond"></i> گزارش مغایرت
-          </button>
-        ` : ''}
-        ${isDraft ? `<button class="btn btn-primary flex-grow-1" id="recvEditDraft">ویرایش پیش‌نویس</button>` : ''}
+        ${row.status === 'final' ? `<button class="btn btn-outline-danger flex-grow-1" id="recvDetailDiscrepancy"><i class="bi bi-exclamation-diamond"></i> گزارش مغایرت</button>` : ''}
+        ${isDraft ? `<button class="btn btn-primary flex-grow-1" id="recvEditDraft">ویرایش</button>` : ''}
       </div>
     </div>`;
   document.body.appendChild(backdrop);
@@ -336,37 +591,27 @@ async function openReceiptDetail(row) {
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
   backdrop.querySelector('#recvDetailClose').onclick = close;
   if (isDraft) backdrop.querySelector('#recvEditDraft').onclick = () => { close(); openNewReceive(row); };
-  if (row.status === 'final') {
-    backdrop.querySelector('#recvDetailDiscrepancy').onclick = () => {
-      close();
-      openDiscrepancyReport(row);
-    };
-  }
+  if (row.status === 'final') backdrop.querySelector('#recvDetailDiscrepancy').onclick = () => { close(); openDiscrepancyReport(row); };
 
   try {
     const { data: items, error } = await sb.from('drugs_receiptitem')
       .select('id, drug_id, received_quantity, batch_number, expiry_date, drug:drugs_drug(name, form)')
       .eq('receipt_id', row.id);
     if (error) throw error;
-
     const body = backdrop.querySelector('#recvDetailItems');
     if (!items?.length) { body.innerHTML = '<div class="text-center muted">قلمی ثبت نشده</div>'; return; }
-    body.innerHTML = `
-      <div class="archive-sheet-section-title">اقلام (${faNum(items.length)})</div>
+    body.innerHTML = `<div class="archive-sheet-section-title">اقلام (${faNum(items.length)})</div>
       <table class="archive-detail-table"><tbody>
-        ${items.map((it, i) => `
-          <tr>
-            <td class="detail-key">${faNum(i + 1)}. ${escapeHtml(it.drug?.name || '—')} ${it.drug?.form ? `(${escapeHtml(it.drug.form)})` : ''}</td>
-            <td class="detail-val">
-              <div>تعداد: <strong>${faNum(it.received_quantity)}</strong></div>
-              <div class="small muted">بچ: <bdi dir="ltr">${escapeHtml(it.batch_number || '-')}</bdi></div>
-              <div class="small muted">انقضا: ${escapeHtml(gregorianToJalali(it.expiry_date) || '-')}</div>
-            </td>
-          </tr>`).join('')}
+        ${items.map((it, i) => `<tr>
+          <td class="detail-key">${faNum(i + 1)}. ${escapeHtml(it.drug?.name || '—')} ${it.drug?.form ? `(${escapeHtml(it.drug.form)})` : ''}</td>
+          <td class="detail-val">
+            <div>تعداد: <strong>${faNum(it.received_quantity)}</strong></div>
+            <div class="small muted">بچ: <bdi dir="ltr">${escapeHtml(it.batch_number || '-')}</bdi></div>
+            <div class="small muted">انقضا: ${escapeHtml(gregorianToJalali(it.expiry_date) || '-')}</div>
+          </td></tr>`).join('')}
       </tbody></table>`;
   } catch (e) {
-    backdrop.querySelector('#recvDetailItems').innerHTML =
-      `<div class="alert alert-danger small m-2">${escapeHtml(e.message)}</div>`;
+    backdrop.querySelector('#recvDetailItems').innerHTML = `<div class="alert alert-danger small m-2">${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -375,46 +620,34 @@ async function openReceiptDetail(row) {
 // ═══════════════════════════════════════════════════════════
 async function loadDiscrepancyData(receiptId, invoiceId) {
   const { data: receiptItems, error: e1 } = await sb.from('drugs_receiptitem')
-    .select('drug_id, received_quantity, drug:drugs_drug(id, name, form)')
-    .eq('receipt_id', receiptId);
+    .select('drug_id, received_quantity, drug:drugs_drug(id, name, form)').eq('receipt_id', receiptId);
   if (e1) throw e1;
 
   let invoiceItems = [];
   if (invoiceId) {
     const { data, error: e2 } = await sb.from('drugs_purchaseinvoiceitem')
-      .select('drug_id, quantity, drug:drugs_drug(id, name, form)')
-      .eq('invoice_id', invoiceId);
+      .select('drug_id, quantity, drug:drugs_drug(id, name, form)').eq('invoice_id', invoiceId);
     if (e2) throw e2;
     invoiceItems = data || [];
   }
 
   const drugSet = new Map();
   (receiptItems || []).forEach(it => {
-    drugSet.set(it.drug_id, {
-      drug: it.drug,
-      received: Number(it.received_quantity) || 0,
-      invoice_qty: 0,
-    });
+    drugSet.set(it.drug_id, { drug: it.drug, received: Number(it.received_quantity) || 0, invoice_qty: 0 });
   });
   invoiceItems.forEach(it => {
     if (drugSet.has(it.drug_id)) {
       drugSet.get(it.drug_id).invoice_qty = Number(it.quantity) || 0;
       if (!drugSet.get(it.drug_id).drug) drugSet.get(it.drug_id).drug = it.drug;
     } else {
-      drugSet.set(it.drug_id, {
-        drug: it.drug,
-        received: 0,
-        invoice_qty: Number(it.quantity) || 0,
-      });
+      drugSet.set(it.drug_id, { drug: it.drug, received: 0, invoice_qty: Number(it.quantity) || 0 });
     }
   });
-
   if (!drugSet.size) return { rows: [], invoiceLinked: !!invoiceId };
 
   const drugIds = Array.from(drugSet.keys());
   const { data: pendings, error: e3 } = await sb.from('v_drug_pending')
-    .select('drug_id, pending_qty')
-    .in('drug_id', drugIds);
+    .select('drug_id, pending_qty').in('drug_id', drugIds);
   if (e3) throw e3;
 
   const pendingMap = new Map();
@@ -424,31 +657,23 @@ async function loadDiscrepancyData(receiptId, invoiceId) {
     const currentPending = pendingMap.get(drugId) || 0;
     const received = info.received;
     const invoice_qty = info.invoice_qty;
-    const original_order_qty = currentPending + received;
-    const invoice_disc = invoice_qty - received;
-    const order_disc = currentPending;
-
     return {
       drug_id: drugId,
       drug_name: info.drug?.name || '—',
       drug_form: info.drug?.form || '',
-      invoice_qty,
-      order_qty: original_order_qty,
-      received,
-      invoice_disc,
-      order_disc,
+      invoice_qty, received,
+      invoice_disc: invoice_qty - received,
+      order_disc: currentPending,
       current_pending: currentPending,
       has_invoice: invoice_qty > 0,
       has_order: currentPending > 0,
     };
   });
-
   rows.sort((a, b) => {
     const aHas = (a.invoice_disc > 0 || a.order_disc > 0) ? 1 : 0;
     const bHas = (b.invoice_disc > 0 || b.order_disc > 0) ? 1 : 0;
     return bHas - aHas;
   });
-
   return { rows, invoiceLinked: !!invoiceId };
 }
 
@@ -459,9 +684,7 @@ async function openDiscrepancyReport(receiptRow) {
     <div class="archive-sheet" style="max-width:760px;">
       <div class="archive-sheet-handle"></div>
       <div class="archive-sheet-head">
-        <div class="archive-sheet-icon" style="background:#fee2e2;color:#dc2626;">
-          <i class="bi bi-exclamation-diamond-fill"></i>
-        </div>
+        <div class="archive-sheet-icon" style="background:#fee2e2;color:#dc2626;"><i class="bi bi-exclamation-diamond-fill"></i></div>
         <div>
           <div class="archive-sheet-title">گزارش مغایرت‌ها</div>
           <div class="archive-sheet-sub">${escapeHtml(receiptRow.receipt_number || '-')} • ${escapeHtml(receiptRow.supplier_name || '-')}</div>
@@ -470,30 +693,21 @@ async function openDiscrepancyReport(receiptRow) {
       <div class="archive-sheet-body" id="discBody">
         <div class="text-center py-4"><div class="spinner-border text-danger spinner-border-sm"></div> در حال بارگذاری...</div>
       </div>
-      <div class="archive-sheet-actions">
-        <button class="btn btn-light w-100" id="discClose">بستن</button>
-      </div>
+      <div class="archive-sheet-actions"><button class="btn btn-light w-100" id="discClose">بستن</button></div>
     </div>`;
   document.body.appendChild(backdrop);
-
   const close = () => { backdrop.classList.add('closing'); setTimeout(() => backdrop.remove(), 200); };
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
   backdrop.querySelector('#discClose').onclick = close;
 
   try {
     const { rows, invoiceLinked } = await loadDiscrepancyData(receiptRow.id, receiptRow.invoice_id);
-
     if (!rows.length) {
-      backdrop.querySelector('#discBody').innerHTML = `
-        <div class="alert alert-info m-3">
-          <i class="bi bi-info-circle"></i> هیچ قلمی برای بررسی مغایرت ثبت نشده.
-        </div>`;
+      backdrop.querySelector('#discBody').innerHTML = `<div class="alert alert-info m-3">هیچ قلمی ثبت نشده.</div>`;
       return;
     }
-
     const invoiceRows = rows.filter(r => r.has_invoice);
     const orderRows = rows.filter(r => r.has_order || r.received > 0);
-
     const fmt = n => faNum(Math.abs(n));
     const discBadge = (val) => {
       if (val > 0) return `<span class="badge bg-danger">${fmt(val)} کسری</span>`;
@@ -503,117 +717,72 @@ async function openDiscrepancyReport(receiptRow) {
 
     const invoiceSection = invoiceLinked ? `
       <div class="mb-3">
-        <div class="fw-bold mb-2" style="color:#dc2626;">
-          <i class="bi bi-receipt"></i> مغایرت فاکتور (${faNum(invoiceRows.length)} قلم)
-        </div>
-        ${invoiceRows.length === 0 ? `
-          <div class="alert alert-light text-center small">فاکتور قلمی ندارد</div>
-        ` : `
+        <div class="fw-bold mb-2" style="color:#dc2626;"><i class="bi bi-receipt"></i> مغایرت فاکتور (${faNum(invoiceRows.length)} قلم)</div>
+        ${invoiceRows.length === 0 ? `<div class="alert alert-light text-center small">فاکتور قلمی ندارد</div>` : `
           <table class="archive-detail-table" style="width:100%;">
-            <thead>
-              <tr style="background:#fef2f2;">
-                <th style="text-align:right;padding:8px;font-size:12px;">دارو</th>
-                <th style="text-align:center;padding:8px;font-size:12px;">فاکتور</th>
-                <th style="text-align:center;padding:8px;font-size:12px;">دریافتی</th>
-                <th style="text-align:center;padding:8px;font-size:12px;">مغایرت</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${invoiceRows.map(r => `
-                <tr>
-                  <td style="padding:8px;">${escapeHtml(r.drug_name)}${r.drug_form ? ` <span class="muted small">(${escapeHtml(r.drug_form)})</span>` : ''}</td>
-                  <td style="padding:8px;text-align:center;">${faNum(r.invoice_qty)}</td>
-                  <td style="padding:8px;text-align:center;">${faNum(r.received)}</td>
-                  <td style="padding:8px;text-align:center;">${discBadge(r.invoice_disc)}</td>
-                </tr>`).join('')}
-            </tbody>
-          </table>
-        `}
-      </div>` : `
-      <div class="mb-3">
-        <div class="fw-bold mb-2" style="color:#6b7280;">
-          <i class="bi bi-receipt"></i> مغایرت فاکتور
-        </div>
-        <div class="alert alert-light text-center small">این رسید به فاکتور متصل نیست</div>
-      </div>`;
+            <thead><tr style="background:#fef2f2;">
+              <th style="text-align:right;padding:8px;font-size:12px;">دارو</th>
+              <th style="text-align:center;padding:8px;font-size:12px;">فاکتور</th>
+              <th style="text-align:center;padding:8px;font-size:12px;">دریافتی</th>
+              <th style="text-align:center;padding:8px;font-size:12px;">مغایرت</th>
+            </tr></thead>
+            <tbody>${invoiceRows.map(r => `<tr>
+              <td style="padding:8px;">${escapeHtml(r.drug_name)}${r.drug_form ? ` <span class="muted small">(${escapeHtml(r.drug_form)})</span>` : ''}</td>
+              <td style="padding:8px;text-align:center;">${faNum(r.invoice_qty)}</td>
+              <td style="padding:8px;text-align:center;">${faNum(r.received)}</td>
+              <td style="padding:8px;text-align:center;">${discBadge(r.invoice_disc)}</td>
+            </tr>`).join('')}</tbody>
+          </table>`}
+      </div>` : `<div class="mb-3"><div class="fw-bold mb-2" style="color:#6b7280;"><i class="bi bi-receipt"></i> مغایرت فاکتور</div>
+        <div class="alert alert-light text-center small">این رسید به فاکتور متصل نیست</div></div>`;
 
     const orderSection = `
       <div class="mb-2">
-        <div class="fw-bold mb-2" style="color:#d97706;">
-          <i class="bi bi-clipboard-check"></i> مغایرت سفارش (${faNum(orderRows.filter(r => r.has_order).length)} باز)
-        </div>
-        ${orderRows.length === 0 ? `
-          <div class="alert alert-light text-center small">هیچ سفارش بازی وجود ندارد</div>
-        ` : `
+        <div class="fw-bold mb-2" style="color:#d97706;"><i class="bi bi-clipboard-check"></i> مغایرت سفارش (${faNum(orderRows.filter(r => r.has_order).length)} باز)</div>
+        ${orderRows.length === 0 ? `<div class="alert alert-light text-center small">سفارش بازی نیست</div>` : `
           <table class="archive-detail-table" style="width:100%;">
-            <thead>
-              <tr style="background:#fffbeb;">
-                <th style="text-align:right;padding:8px;font-size:12px;">دارو</th>
-                <th style="text-align:center;padding:8px;font-size:12px;">دریافتی</th>
-                <th style="text-align:center;padding:8px;font-size:12px;">سفارش باز</th>
-                <th style="text-align:center;padding:8px;font-size:12px;">مغایرت</th>
-                <th style="text-align:center;padding:8px;font-size:12px;">اقدام</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${orderRows.map(r => `
-                <tr data-drug-id="${r.drug_id}">
-                  <td style="padding:8px;">${escapeHtml(r.drug_name)}${r.drug_form ? ` <span class="muted small">(${escapeHtml(r.drug_form)})</span>` : ''}</td>
-                  <td style="padding:8px;text-align:center;">${faNum(r.received)}</td>
-                  <td style="padding:8px;text-align:center;">${faNum(r.current_pending)}</td>
-                  <td style="padding:8px;text-align:center;">
-                    ${r.current_pending > 0
-                      ? `<span class="badge bg-danger">${faNum(r.current_pending)} کسری</span>`
-                      : `<span class="badge bg-success">تأمین شده</span>`}
-                  </td>
-                  <td style="padding:8px;text-align:center;">
-                    ${r.current_pending > 0 ? `
-                      <button class="btn btn-sm btn-warning discCloseOrderBtn" data-drug-id="${r.drug_id}" data-drug-name="${escapeHtml(r.drug_name)}">
-                        <i class="bi bi-check2-square"></i> تکمیل سفارش
-                      </button>
-                    ` : '—'}
-                  </td>
-                </tr>`).join('')}
-            </tbody>
-          </table>
-        `}
+            <thead><tr style="background:#fffbeb;">
+              <th style="text-align:right;padding:8px;font-size:12px;">دارو</th>
+              <th style="text-align:center;padding:8px;font-size:12px;">دریافتی</th>
+              <th style="text-align:center;padding:8px;font-size:12px;">سفارش باز</th>
+              <th style="text-align:center;padding:8px;font-size:12px;">مغایرت</th>
+              <th style="text-align:center;padding:8px;font-size:12px;">اقدام</th>
+            </tr></thead>
+            <tbody>${orderRows.map(r => `<tr data-drug-id="${r.drug_id}">
+              <td style="padding:8px;">${escapeHtml(r.drug_name)}${r.drug_form ? ` <span class="muted small">(${escapeHtml(r.drug_form)})</span>` : ''}</td>
+              <td style="padding:8px;text-align:center;">${faNum(r.received)}</td>
+              <td style="padding:8px;text-align:center;">${faNum(r.current_pending)}</td>
+              <td style="padding:8px;text-align:center;">${r.current_pending > 0 ? `<span class="badge bg-danger">${faNum(r.current_pending)} کسری</span>` : `<span class="badge bg-success">تأمین شده</span>`}</td>
+              <td style="padding:8px;text-align:center;">${r.current_pending > 0 ? `<button class="btn btn-sm btn-warning discCloseOrderBtn" data-drug-id="${r.drug_id}" data-drug-name="${escapeHtml(r.drug_name)}"><i class="bi bi-check2-square"></i> تکمیل سفارش</button>` : '—'}</td>
+            </tr>`).join('')}</tbody>
+          </table>`}
       </div>`;
 
     backdrop.querySelector('#discBody').innerHTML = invoiceSection + orderSection;
-
     backdrop.querySelectorAll('.discCloseOrderBtn').forEach(btn => {
       btn.onclick = async () => {
-        const drugId = parseInt(btn.dataset.drugId);
-        const drugName = btn.dataset.drugName;
-        await closeDrugOrders(drugId, drugName, btn);
+        await closeDrugOrders(parseInt(btn.dataset.drugId), btn.dataset.drugName, btn);
       };
     });
-
   } catch (e) {
-    backdrop.querySelector('#discBody').innerHTML =
-      `<div class="alert alert-danger m-3">${escapeHtml(e.message || 'خطا در بارگذاری')}</div>`;
+    backdrop.querySelector('#discBody').innerHTML = `<div class="alert alert-danger m-3">${escapeHtml(e.message || '')}</div>`;
   }
 }
 
 async function closeDrugOrders(drugId, drugName, btn) {
-  if (!confirm(`همه سفارش‌های باز «${drugName}» بسته شوند؟\n(کسری نادیده گرفته می‌شود)`)) return;
-
+  if (!confirm(`همه سفارش‌های باز «${drugName}» بسته شوند؟`)) return;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-
   try {
-    const { error } = await sb.rpc('allocate_to_requests', {
-      p_drug_id: drugId,
-      p_quantity: 0,
-      p_force_close: true
-    });
+    const { error } = await sb.rpc('allocate_to_requests', { p_drug_id: drugId, p_quantity: 0, p_force_close: true });
     if (error) throw error;
     toast(`✅ سفارش‌های «${drugName}» بسته شد`, 'success');
-    btn.closest('tr').querySelector('td:nth-child(3)').textContent = '۰';
-    btn.closest('tr').querySelector('td:nth-child(4)').innerHTML = '<span class="badge bg-success">تأمین شده</span>';
+    const tr = btn.closest('tr');
+    tr.querySelector('td:nth-child(3)').textContent = '۰';
+    tr.querySelector('td:nth-child(4)').innerHTML = '<span class="badge bg-success">تأمین شده</span>';
     btn.closest('td').innerHTML = '—';
   } catch (e) {
-    toast('خطا در بستن سفارش: ' + (e.message || 'نامشخص'), 'danger');
+    toast('خطا: ' + (e.message || ''), 'danger');
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-check2-square"></i> تکمیل سفارش';
   }
@@ -625,12 +794,10 @@ async function closeDrugOrders(drugId, drugName, btn) {
 async function openNewReceive(existingDraft = null) {
   state.view = 'form';
   state.isFinalizing = false;
-
   if (existingDraft) {
     state.receiptId = existingDraft.id;
     state.supplierId = existingDraft.supplier_id || null;
     state.supplierName = existingDraft.supplier_name || '';
-
     if (existingDraft.invoice_id) {
       try {
         const { data: inv } = await sb.from('drugs_purchaseinvoice')
@@ -642,27 +809,17 @@ async function openNewReceive(existingDraft = null) {
         }
       } catch (_) {}
     }
-
     const { data: items } = await sb.from('drugs_receiptitem')
       .select('*, drug:drugs_drug(name, form)').eq('receipt_id', existingDraft.id);
     state.items = (items || []).map(i => ({
-      drug_id: i.drug_id,
-      drug_name: i.drug?.name || 'نامشخص',
-      drug_form: i.drug?.form || '',
-      qty: i.received_quantity,
-      batch: i.batch_number,
-      expiry: i.expiry_date,
-      barcode: null,
-      closeOrder: false,
+      drug_id: i.drug_id, drug_name: i.drug?.name || 'نامشخص',
+      drug_form: i.drug?.form || '', qty: i.received_quantity,
+      batch: i.batch_number, expiry: i.expiry_date, barcode: null, closeOrder: false,
     }));
   } else {
-    state.receiptId = null;
-    state.items = [];
-    state.supplierId = null;
-    state.supplierName = '';
-    state.linkedInvoice = null;
+    state.receiptId = null; state.items = []; state.supplierId = null;
+    state.supplierName = ''; state.linkedInvoice = null;
   }
-
   await renderFormView();
 }
 
@@ -703,7 +860,6 @@ async function renderFormView() {
       <button class="btn btn-success btn-lg w-100 py-3" id="recvFinalize"><i class="bi bi-check-circle-fill"></i> ثبت نهایی</button>
     </div>`;
 
-  // ─── بقیه دکمه‌ها ───
   $('recvBackToList').onclick = () => { state.view = 'list'; renderListView(); };
   $('recvSupplier').onchange = e => {
     state.supplierId = parseInt(e.target.value) || null;
@@ -722,56 +878,29 @@ async function renderFormView() {
     }
   }
 
-  // ⭐⭐⭐ اسکنر — با تشخیص دقیق خطا ⭐⭐⭐
-  const scanBtn = $('recvScan');
-  if (scanBtn) {
-    scanBtn.onclick = async (ev) => {
-      ev.preventDefault();
-      console.log('[RECEIVE] Scan button clicked');
-      if (typeof openScanner !== 'function') {
-        console.error('[RECEIVE] openScanner is not a function. Check that scanner.js exports it (named or default).');
-        alert('❌ سیستم اسکنر لود نشده.\nلطفاً به برنامه‌نویس بگویید:\nscanner.js باید openScanner را export کند.');
-        return;
-      }
-      try {
-        await openScanner(handleBarcode);
-        console.log('[RECEIVE] openScanner resolved');
-      } catch (e) {
-        console.error('[RECEIVE] openScanner threw:', e);
-        alert('❌ خطا در باز کردن اسکنر:\n' + (e.message || e));
-      }
-    };
-  }
+  // ⭐ اسکنر
+  $('recvScan').onclick = async (ev) => {
+    ev.preventDefault();
+    console.log('[RECEIVE] Scan clicked');
+    if (typeof openScanner !== 'function') { alert('اسکنر لود نشده'); return; }
+    try { await openScanner(handleBarcode); }
+    catch (e) { console.error('[RECEIVE] openScanner:', e); alert('خطا در اسکنر: ' + (e.message || e)); }
+  };
 
-  // ⭐⭐⭐ جستجو — با تشخیص دقیق خطا ⭐⭐⭐
-  const searchBtn = $('recvSearch');
-  if (searchBtn) {
-    searchBtn.onclick = async (ev) => {
-      ev.preventDefault();
-      console.log('[RECEIVE] Search button clicked');
-      if (typeof openDrugSearch !== 'function') {
-        console.error('[RECEIVE] openDrugSearch is not a function. Check that modals.js exports it (named or default).');
-        alert('❌ سیستم جستجو لود نشده.\nلطفاً به برنامه‌نویس بگویید:\nmodals.js باید openDrugSearch را export کند.');
-        return;
-      }
-      try {
-        await openDrugSearch('دارو را جستجو کنید', (d) => addDrug(d));
-        console.log('[RECEIVE] openDrugSearch resolved');
-      } catch (e) {
-        console.error('[RECEIVE] openDrugSearch threw:', e);
-        alert('❌ خطا در باز کردن جستجو:\n' + (e.message || e));
-      }
-    };
-  }
+  // ⭐ جستجو — FIX: قبلش ensureModalsReady (داخل safeOpenDrugSearch)
+  $('recvSearch').onclick = async (ev) => {
+    ev.preventDefault();
+    console.log('[RECEIVE] Search clicked');
+    await safeOpenDrugSearch('دارو را جستجو کنید', d => addDrug(d));
+    console.log('[RECEIVE] Search flow done');
+  };
 
-  // فاکتور
   $('recvLinkInvoice').onclick = linkInvoice;
   $('recvUnlinkInvoice').onclick = () => {
     state.linkedInvoice = null;
     $('recvInvoiceBox').classList.add('hidden');
     $('recvLinkInvoice').classList.remove('hidden');
   };
-
   $('recvSaveDraft').onclick = () => saveDraft(false);
   $('recvFinalize').onclick = finalize;
 
@@ -780,20 +909,17 @@ async function renderFormView() {
     $('recvInvoiceBox').classList.remove('hidden');
     $('recvLinkInvoice').classList.add('hidden');
   }
-
-  console.log('[RECEIVE] All button handlers attached. Scan:', typeof openScanner, '| Search:', typeof openDrugSearch);
-
+  console.log('[RECEIVE] handlers attached. openScanner:', typeof openScanner, '| openDrugSearch:', typeof openDrugSearch);
   renderList();
 }
 
 async function linkInvoice() {
-  const q = prompt('شماره فاکتور را وارد کنید:');
+  const q = prompt('شماره فاکتور:');
   if (!q?.trim()) return;
   const { data } = await sb.from('drugs_purchaseinvoice')
     .select('id, invoice_number, supplier_id, supplier:drugs_supplier(name)')
     .ilike('invoice_number', `%${q.trim()}%`).limit(5);
   if (!data?.length) { toast('فاکتوری یافت نشد', 'warning'); return; }
-
   let chosen = data[0];
   if (data.length > 1) {
     const list = data.map((d, i) => `${i + 1}) ${d.invoice_number} - ${d.supplier?.name || ''}`).join('\n');
@@ -801,15 +927,9 @@ async function linkInvoice() {
     if (isNaN(idx) || !data[idx]) return;
     chosen = data[idx];
   }
-
   const { data: items } = await sb.from('drugs_purchaseinvoiceitem')
     .select('drug_id, quantity, unit_price').eq('invoice_id', chosen.id);
-
-  state.linkedInvoice = {
-    id: chosen.id,
-    invoice_number: chosen.invoice_number,
-    items: items || []
-  };
+  state.linkedInvoice = { id: chosen.id, invoice_number: chosen.invoice_number, items: items || [] };
   if (chosen.supplier_id) {
     state.supplierId = chosen.supplier_id;
     $('recvSupplier').value = chosen.supplier_id;
@@ -835,31 +955,26 @@ function renderList() {
   list.innerHTML = state.items.map((it, i) => {
     const cls = it.warnings?.some(w => w.level === 'danger') ? 'danger' :
                 it.warnings?.some(w => w.level === 'warning') ? 'warn' : '';
-    return `
-      <div class="item-card ${cls}">
-        <div class="d-flex justify-content-between align-items-center">
-          <div class="flex-grow-1">
-            <div class="name">${escapeHtml(it.drug_name)}</div>
-            <div class="meta">
-              ${it.batch ? `بچ: <code dir="ltr">${escapeHtml(it.batch)}</code> | ` : ''}
-              انقضا: ${escapeHtml(it.expiry || '—')} <span class="muted">(${gregorianToJalali(it.expiry) || '—'})</span>
-            </div>
-            ${it.warnings?.length ? `<div class="meta" style="color:#dc3545;">${it.warnings.map(w => `• ${escapeHtml(w.text)}`).join('<br>')}</div>` : ''}
-            <div class="mt-1">
-              <label class="d-flex align-items-center gap-2 small" style="cursor:pointer;color:#d97706;font-weight:600;">
-                <input type="checkbox" data-close-order="${i}" ${it.closeOrder ? 'checked' : ''} style="width:16px;height:16px;accent-color:#d97706;">
-                بستن سفارش این دارو (کسری نادیده گرفته شود)
-              </label>
-            </div>
-          </div>
-          <div class="d-flex align-items-center gap-2">
-            <button class="num-btn" style="width:38px;height:38px;" data-act="dec" data-i="${i}">−</button>
-            <div class="qty-display" style="color:#d97706;">${faNum(it.qty)}</div>
-            <button class="num-btn" style="width:38px;height:38px;" data-act="inc" data-i="${i}">+</button>
-            <button class="num-btn" style="width:38px;height:38px;" data-act="del" data-i="${i}"><i class="bi bi-trash text-danger"></i></button>
-          </div>
+    return `<div class="item-card ${cls}">
+      <div class="d-flex justify-content-between align-items-center">
+        <div class="flex-grow-1">
+          <div class="name">${escapeHtml(it.drug_name)}</div>
+          <div class="meta">${it.batch ? `بچ: <code dir="ltr">${escapeHtml(it.batch)}</code> | ` : ''}
+            انقضا: ${escapeHtml(it.expiry || '—')} <span class="muted">(${gregorianToJalali(it.expiry) || '—'})</span></div>
+          ${it.warnings?.length ? `<div class="meta" style="color:#dc3545;">${it.warnings.map(w => `• ${escapeHtml(w.text)}`).join('<br>')}</div>` : ''}
+          <div class="mt-1"><label class="d-flex align-items-center gap-2 small" style="cursor:pointer;color:#d97706;font-weight:600;">
+            <input type="checkbox" data-close-order="${i}" ${it.closeOrder ? 'checked' : ''} style="width:16px;height:16px;accent-color:#d97706;">
+            بستن سفارش این دارو (کسری نادیده گرفته شود)
+          </label></div>
         </div>
-      </div>`;
+        <div class="d-flex align-items-center gap-2">
+          <button class="num-btn" style="width:38px;height:38px;" data-act="dec" data-i="${i}">−</button>
+          <div class="qty-display" style="color:#d97706;">${faNum(it.qty)}</div>
+          <button class="num-btn" style="width:38px;height:38px;" data-act="inc" data-i="${i}">+</button>
+          <button class="num-btn" style="width:38px;height:38px;" data-act="del" data-i="${i}"><i class="bi bi-trash text-danger"></i></button>
+        </div>
+      </div>
+    </div>`;
   }).join('');
 
   list.querySelectorAll('[data-act]').forEach(b => {
@@ -867,11 +982,10 @@ function renderList() {
     b.onclick = () => {
       if (b.dataset.act === 'inc') state.items[i].qty++;
       else if (b.dataset.act === 'dec' && state.items[i].qty > 1) state.items[i].qty--;
-      else if (b.dataset.act === 'del' && confirm('حذف شود؟')) state.items.splice(i, 1);
+      else if (b.dataset.act === 'del' && confirm('حذف؟')) state.items.splice(i, 1);
       renderList();
     };
   });
-
   list.querySelectorAll('[data-close-order]').forEach(cb => {
     cb.onchange = () => {
       const i = +cb.dataset.closeOrder;
@@ -882,7 +996,7 @@ function renderList() {
 
 async function saveDraft(silent = false) {
   if (!state.items.length) {
-    if (!silent) toast('قلمی برای ذخیره وجود ندارد', 'warning');
+    if (!silent) toast('قلمی برای ذخیره نیست', 'warning');
     return false;
   }
   try {
@@ -894,12 +1008,8 @@ async function saveDraft(silent = false) {
       try {
         const { data: { user } } = await sb.auth.getUser();
         userId = user?.id || null;
-        userName = user?.user_metadata?.full_name
-                || user?.user_metadata?.name
-                || user?.email
-                || null;
+        userName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || null;
       } catch (_) {}
-
       const { data, error } = await sb.from('drugs_receipt').insert({
         receipt_number: code,
         supplier_name: state.supplierName || 'نامشخص',
@@ -922,44 +1032,37 @@ async function saveDraft(silent = false) {
     }
 
     await sb.from('drugs_receiptitem').delete().eq('receipt_id', receiptId);
-
-    const itemsToInsert = state.items.map(it => ({
+    await sb.from('drugs_receiptitem').insert(state.items.map(it => ({
       receipt_id: receiptId,
       drug_id: it.drug_id,
       received_quantity: it.qty,
       batch_number: it.batch,
       expiry_date: it.expiry,
       force_close_shortage: !!it.closeOrder
-    }));
-    await sb.from('drugs_receiptitem').insert(itemsToInsert);
+    })));
 
-    if (!silent) toast('✅ پیش‌نویس با موفقیت ذخیره شد', 'success');
+    if (!silent) toast('✅ پیش‌نویس ذخیره شد', 'success');
     return true;
   } catch (e) {
-    if (!silent) toast('خطا در ذخیره پیش‌نویس: ' + e.message, 'danger');
+    if (!silent) toast('خطا: ' + e.message, 'danger');
     console.error(e);
     return false;
   }
 }
 
 async function handleBarcode(raw) {
-  console.log('[RECEIVE] handleBarcode received:', raw);
+  console.log('[RECEIVE] handleBarcode:', raw);
   try {
     const parsed = parseGS1(raw);
     if (parsed.exps && parsed.exps.length > 0) {
       const isInvalid = !parsed.exp || !parsed.exp.includes('-');
       if (parsed.exps.length > 1 || isInvalid) {
-        if (typeof promptExpirySelection !== 'function') {
-          toast('سیستم انتخاب انقضا لود نشده', 'danger');
-          return;
-        }
-        const selectedDate = await promptExpirySelection(parsed.exps);
+        const selectedDate = await safePromptExpirySelection(parsed.exps);
         if (!selectedDate) return;
         if (selectedDate.includes('-')) parsed.exp = selectedDate;
         else { toast('تاریخ نامعتبر', 'warning'); parsed.exp = ''; }
       }
     }
-
     const gtin = cleanGTIN(parsed.gtin);
     const padded = gtin.padStart(14, '0');
     const { data: bc } = await sb.from('drugs_drugbarcode')
@@ -968,33 +1071,29 @@ async function handleBarcode(raw) {
 
     if (!bc?.drug) {
       toast('بارکد ناشناس', 'warning');
-      openDrugSearch(`بارکد ${escapeHtml(gtin)} ثبت نشده`, d => addDrug(d, gtin, parsed));
+      await safeOpenDrugSearch(`بارکد ${escapeHtml(gtin)} ثبت نشده`, d => addDrug(d, gtin, parsed));
       return;
     }
     const added = await addDrug(bc.drug, gtin, parsed);
-    if (added) reopenScannerAuto();
+    if (added) {
+      setTimeout(() => {
+        const wrap = $('scannerWrap');
+        if ((!wrap || !wrap.classList.contains('active')) && typeof openScanner === 'function') {
+          openScanner(handleBarcode);
+        }
+      }, 350);
+    }
   } catch (e) {
     console.error('[RECEIVE] handleBarcode error:', e);
-    toast('خطا در پردازش بارکد: ' + (e.message || ''), 'danger');
+    toast('خطا: ' + (e.message || ''), 'danger');
   }
 }
 
-function reopenScannerAuto() {
-  setTimeout(() => {
-    const wrap = $('scannerWrap');
-    if (!wrap || !wrap.classList.contains('active')) {
-      if (typeof openScanner === 'function') openScanner(handleBarcode);
-    }
-  }, 350);
-}
-
 async function addDrug(drug, barcode = '', parsed = {}) {
-  console.log('[RECEIVE] addDrug called:', drug.name);
+  console.log('[RECEIVE] addDrug:', drug.name);
   try {
     if (barcode) {
-      try {
-        await sb.from('drugs_drugbarcode').upsert({ drug_id: drug.id, gtin: barcode }, { onConflict: 'gtin' });
-      } catch (_) {}
+      try { await sb.from('drugs_drugbarcode').upsert({ drug_id: drug.id, gtin: barcode }, { onConflict: 'gtin' }); } catch (_) {}
     }
 
     const { data: stock } = await sb.from('v_drug_stock').select('total_quantity').eq('drug_id', drug.id).maybeSingle();
@@ -1015,13 +1114,7 @@ async function addDrug(drug, barcode = '', parsed = {}) {
         <div class="col-4"><div class="badge-soft gray w-100" style="justify-content:center;">فاکتور: <strong>${invoiceQty !== null ? faNum(invoiceQty) : '—'}</strong></div></div>
       </div>`;
 
-    if (typeof askQty !== 'function') {
-      console.error('[RECEIVE] askQty is not a function');
-      alert('❌ سیستم مودال تعداد لود نشده.\nmodals.js باید askQty را export کند.');
-      return false;
-    }
-
-    const res = await askQty({
+    const res = await safeAskQty({
       title: 'تایید دریافت',
       headerClass: 'bg-warning',
       drugName: drug.name + (drug.form ? ` (${drug.form})` : ''),
@@ -1049,9 +1142,7 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     else if (chk && chk.level === 'warning') warnings.push({ level: 'warning', text: chk.msg });
 
     let finalBatch = res.batch || '';
-    if (!finalBatch && res.expiry_gregorian) {
-      finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian) || '';
-    }
+    if (!finalBatch && res.expiry_gregorian) finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian) || '';
     if (!finalBatch) finalBatch = `AUTO-${Date.now()}`;
 
     const ex = state.items.find(it => it.drug_id === drug.id && (it.batch || '') === finalBatch);
@@ -1076,28 +1167,27 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     return true;
   } catch (e) {
     console.error('[RECEIVE] addDrug error:', e);
-    alert('❌ خطا در افزودن دارو:\n' + (e.message || e));
+    alert('خطا در افزودن: ' + (e.message || e));
     return false;
   }
 }
 
 async function finalize() {
-  if (!state.supplierId) { toast('تامین‌کننده را انتخاب کنید', 'warning'); return; }
+  if (!state.supplierId) { toast('تامین‌کننده انتخاب کنید', 'warning'); return; }
   if (!state.items.length) { toast('حداقل یک قلم', 'warning'); return; }
   for (const it of state.items) {
-    if (!it.expiry) { toast(`تاریخ انقضای «${it.drug_name}» الزامی است`, 'warning'); return; }
+    if (!it.expiry) { toast(`انقضای «${it.drug_name}» الزامی است`, 'warning'); return; }
   }
-
-  if (!confirm(`آیا از ثبت نهایی ${faNum(state.items.length)} قلم اطمینان دارید؟`)) return;
-  if (!confirm('⚠️ هشدار نهایی: با این کار موجودی انبار افزایش می‌یابد و سند قفل می‌شود. ادامه می‌دهید؟')) return;
+  if (!confirm(`ثبت نهایی ${faNum(state.items.length)} قلم؟`)) return;
+  if (!confirm('⚠️ موجودی انبار افزایش می‌یابد و سند قفل می‌شود. ادامه؟')) return;
 
   state.isFinalizing = true;
   const btn = $('recvFinalize');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ثبت نهایی...'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ثبت...'; }
 
   try {
     const saved = await saveDraft(true);
-    if (!saved) throw new Error('خطا در آماده‌سازی سند');
+    if (!saved) throw new Error('خطا در آماده‌سازی');
     const receiptId = state.receiptId;
 
     let finalizerId = null;
@@ -1115,9 +1205,7 @@ async function finalize() {
     }).eq('id', receiptId);
     if (eStatus) throw eStatus;
 
-    const errors = [];
-    const successes = [];
-
+    const errors = [], successes = [];
     for (const it of state.items) {
       let batchForDb = it.batch || '';
       if (!batchForDb && it.expiry) batchForDb = makeBatchNumber(it.drug_name, it.drug_form, it.expiry) || '';
@@ -1125,46 +1213,34 @@ async function finalize() {
 
       try {
         const { data: existing, error: eFind } = await sb.from('drugs_drugbatch')
-          .select('id, quantity')
-          .eq('drug_id', it.drug_id)
-          .eq('batch_number', batchForDb)
-          .maybeSingle();
+          .select('id, quantity').eq('drug_id', it.drug_id).eq('batch_number', batchForDb).maybeSingle();
         if (eFind) throw new Error(`جستجو بچ: ${eFind.message}`);
 
         if (existing) {
           const newQty = (existing.quantity || 0) + it.qty;
           const { error: eUpd, data: updData } = await sb.from('drugs_drugbatch')
-            .update({ quantity: newQty, expiry_date: it.expiry })
-            .eq('id', existing.id).select();
-          if (eUpd) throw new Error(`آپدیت بچ: ${eUpd.message}`);
-          if (!updData?.length) throw new Error('آپدیت بچ: دسترسی ندارید');
-          successes.push(`${it.drug_name}: بچ ${batchForDb} از ${existing.quantity} → ${newQty}`);
+            .update({ quantity: newQty, expiry_date: it.expiry }).eq('id', existing.id).select();
+          if (eUpd) throw new Error(`آپدیت: ${eUpd.message}`);
+          if (!updData?.length) throw new Error('آپدیت: دسترسی ندارید');
+          successes.push(`${it.drug_name}: ${existing.quantity} → ${newQty}`);
         } else {
-          const { error: eIns, data: insData } = await sb.from('drugs_drugbatch')
-            .insert({
-              drug_id: it.drug_id,
-              batch_number: batchForDb,
-              expiry_date: it.expiry,
-              quantity: it.qty,
-              supplier_id: state.supplierId,
-              purchase_price: 0,
-              is_active: true,
-              is_temporary: false
-            }).select();
-          if (eIns) throw new Error(`درج بچ: ${eIns.message}`);
-          if (!insData?.length) throw new Error('درج بچ: دسترسی ندارید');
+          const { error: eIns, data: insData } = await sb.from('drugs_drugbatch').insert({
+            drug_id: it.drug_id, batch_number: batchForDb, expiry_date: it.expiry,
+            quantity: it.qty, supplier_id: state.supplierId, purchase_price: 0,
+            is_active: true, is_temporary: false
+          }).select();
+          if (eIns) throw new Error(`درج: ${eIns.message}`);
+          if (!insData?.length) throw new Error('درج: دسترسی ندارید');
           successes.push(`${it.drug_name}: بچ جدید ${batchForDb}`);
         }
 
         try {
           const { error: e3 } = await sb.rpc('allocate_to_requests', {
-            p_drug_id: it.drug_id,
-            p_quantity: it.qty,
-            p_force_close: !!it.closeOrder
+            p_drug_id: it.drug_id, p_quantity: it.qty, p_force_close: !!it.closeOrder
           });
           if (e3) errors.push(`FIFO ${it.drug_name}: ${e3.message}`);
         } catch (errRpc) {
-          errors.push(`FIFO ${it.drug_name}: ${errRpc.message || 'خطای شبکه'}`);
+          errors.push(`FIFO ${it.drug_name}: ${errRpc.message || ''}`);
         }
       } catch (e) {
         errors.push(`${it.drug_name}: ${e.message}`);
@@ -1172,11 +1248,11 @@ async function finalize() {
     }
 
     console.log('✅ موفق:', successes);
-    console.log('❌ خطاها:', errors);
+    console.log('❌ خطا:', errors);
 
     const finalizedRow = {
       id: receiptId,
-      receipt_number: state.receiptId ? `RCV-${receiptId}` : '-',
+      receipt_number: 'RCV-' + receiptId,
       supplier_name: state.supplierName,
       status: 'final',
       invoice_id: state.linkedInvoice?.id || null,
@@ -1184,29 +1260,20 @@ async function finalize() {
     };
 
     if (errors.length) {
-      alert('⚠ برخی اقلام با خطا مواجه شدند:\n\n' + errors.join('\n\n') +
-        (successes.length ? '\n\n✅ موفق:\n' + successes.join('\n') : ''));
+      alert('⚠ برخی اقلام ناموفق:\n\n' + errors.join('\n\n') + (successes.length ? '\n\n✅ موفق:\n' + successes.join('\n') : ''));
     } else {
-      toast('✅ رسید با موفقیت ثبت نهایی شد', 'success');
+      toast('✅ رسید ثبت نهایی شد', 'success');
     }
 
     setTimeout(() => {
-      if (confirm('گزارش مغایرت فاکتور و سفارش این رسید را ببینید؟')) {
-        openDiscrepancyReport(finalizedRow);
-      }
+      if (confirm('گزارش مغایرت ببینید؟')) openDiscrepancyReport(finalizedRow);
     }, 400);
 
     localStorage.removeItem(AUTOSAVE_KEY);
-    state.items = [];
-    state.supplierId = null;
-    state.supplierName = '';
-    state.linkedInvoice = null;
-    state.receiptId = null;
-    state.isFinalizing = false;
-    state.view = 'list';
-    state.listPage = 1;
+    state.items = []; state.supplierId = null; state.supplierName = '';
+    state.linkedInvoice = null; state.receiptId = null;
+    state.isFinalizing = false; state.view = 'list'; state.listPage = 1;
     await renderListView();
-
   } catch (e) {
     alert('❌ ' + (e.message || e));
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> ثبت نهایی'; }
