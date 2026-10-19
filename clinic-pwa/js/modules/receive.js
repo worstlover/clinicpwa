@@ -7,11 +7,10 @@ import {
 import { showScreen } from '../ui.js';
 import { openScanner } from '../scanner.js';
 import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js';
-import { currentUser } from '../auth.js';
 
 const state = {
   view: 'list',
-  receiptId: null, // برای ذخیره پیش‌نویس
+  receiptId: null,
   supplierId: null,
   supplierName: '',
   linkedInvoice: null,
@@ -22,25 +21,68 @@ const state = {
   listQuery: '',
   listDateFrom: '',
   listDateTo: '',
-  listLoading: false,
+  isFinalizing: false,
 };
 
 const PAGE_SIZE = 20;
+const AUTOSAVE_KEY = 'recv_autosave';
 
-// ═══ ذخیره خودکار در دیتابیس هر ۵ ثانیه ═══
+// ═══ ذخیره خودکار هر ۵ ثانیه در دیتابیس + بکاپ localStorage ═══
 setInterval(async () => {
-  if (state.view === 'form' && state.items.length > 0 && !state.isFinalizing) {
-    await saveDraft(true); // true یعنی در پس‌زمینه بی‌صدا انجام شود
-  }
+  if (state.view !== 'form' || state.isFinalizing) return;
+  if (!state.items.length) return;
+
+  await saveDraft(true);
+
+  try {
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
+      items: state.items,
+      supplierId: state.supplierId,
+      supplierName: state.supplierName,
+      linkedInvoice: state.linkedInvoice,
+      savedAt: Date.now()
+    }));
+  } catch (_) {}
 }, 5000);
+
+// ═══ بازیابی از localStorage ═══
+async function restoreReceiveState() {
+  const saved = localStorage.getItem(AUTOSAVE_KEY);
+  if (!saved) return false;
+  try {
+    const data = JSON.parse(saved);
+    if (!data.items?.length) return false;
+    if (Date.now() - data.savedAt > 24 * 3600 * 1000) {
+      localStorage.removeItem(AUTOSAVE_KEY);
+      return false;
+    }
+    const dt = new Date(data.savedAt).toLocaleString('fa-IR');
+    if (confirm(`یک ذخیره موقت از ${dt} پیدا شد (${data.items.length} قلم). بازیابی شود؟`)) {
+      state.items = data.items;
+      state.supplierId = data.supplierId;
+      state.supplierName = data.supplierName;
+      state.linkedInvoice = data.linkedInvoice;
+      state.receiptId = null;
+      state.view = 'form';
+      return true;
+    }
+    localStorage.removeItem(AUTOSAVE_KEY);
+  } catch (_) {}
+  return false;
+}
 
 export async function openReceive() {
   showScreen('Receive');
+  const restored = await restoreReceiveState();
+  if (restored) { await renderFormView(); return; }
   state.view = 'list';
   state.listPage = 1;
   await renderListView();
 }
 
+// ═══════════════════════════════════════════════════════════
+// لیست رسیدها
+// ═══════════════════════════════════════════════════════════
 async function renderListView() {
   const c = $('recvContent');
   if (!c) return;
@@ -57,69 +99,46 @@ async function renderListView() {
             <i class="bi bi-plus-circle"></i> دریافت جدید
           </button>
         </div>
-
         <div class="input-group mt-2">
           <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-          <input type="text" class="form-control" id="recvSearch" placeholder="شماره رسید یا نام تأمین‌کننده...">
+          <input type="text" class="form-control" id="recvListSearch" placeholder="شماره رسید یا نام تأمین‌کننده...">
         </div>
-
         <div class="row g-2 mt-2">
-          <div class="col-6">
-            <input type="text" class="form-control text-center" id="recvFrom" placeholder="از تاریخ" dir="ltr" autocomplete="off">
-          </div>
-          <div class="col-6">
-            <input type="text" class="form-control text-center" id="recvTo" placeholder="تا تاریخ" dir="ltr" autocomplete="off">
-          </div>
+          <div class="col-6"><input type="text" class="form-control text-center" id="recvListFrom" placeholder="از تاریخ" dir="ltr" autocomplete="off"></div>
+          <div class="col-6"><input type="text" class="form-control text-center" id="recvListTo" placeholder="تا تاریخ" dir="ltr" autocomplete="off"></div>
         </div>
-
         <div class="d-flex gap-2 mt-2">
-          <button class="btn btn-primary flex-grow-1" id="recvFilter">
-            <i class="bi bi-funnel"></i> اعمال فیلتر
-          </button>
-          <button class="btn btn-outline-secondary" id="recvClear" title="پاک کردن">
-            <i class="bi bi-arrow-counterclockwise"></i>
-          </button>
+          <button class="btn btn-primary flex-grow-1" id="recvFilter"><i class="bi bi-funnel"></i> اعمال فیلتر</button>
+          <button class="btn btn-outline-secondary" id="recvClear" title="پاک کردن"><i class="bi bi-arrow-counterclockwise"></i></button>
         </div>
       </div>
     </div>
-
     <div id="recvListBox"></div>
-
     <div class="d-flex justify-content-between align-items-center mt-3" id="recvPagerWrap">
-      <button class="btn btn-sm btn-outline-primary" id="recvPrev">
-        <i class="bi bi-chevron-right"></i> قبلی
-      </button>
+      <button class="btn btn-sm btn-outline-primary" id="recvPrev"><i class="bi bi-chevron-right"></i> قبلی</button>
       <span class="small text-muted" id="recvPager">—</span>
-      <button class="btn btn-sm btn-outline-primary" id="recvNext">
-        بعدی <i class="bi bi-chevron-left"></i>
-      </button>
-    </div>
-  `;
+      <button class="btn btn-sm btn-outline-primary" id="recvNext">بعدی <i class="bi bi-chevron-left"></i></button>
+    </div>`;
 
-  $('recvSearch').value = state.listQuery || '';
-  $('recvFrom').value = state.listDateFrom || '';
-  $('recvTo').value = state.listDateTo || '';
+  $('recvListSearch').value = state.listQuery || '';
+  $('recvListFrom').value = state.listDateFrom || '';
+  $('recvListTo').value = state.listDateTo || '';
 
   $('recvNewBtn').onclick = () => openNewReceive(null);
   $('recvFilter').onclick = () => {
-    state.listQuery = $('recvSearch').value.trim();
-    state.listDateFrom = $('recvFrom').value.trim();
-    state.listDateTo = $('recvTo').value.trim();
+    state.listQuery = $('recvListSearch').value.trim();
+    state.listDateFrom = $('recvListFrom').value.trim();
+    state.listDateTo = $('recvListTo').value.trim();
     state.listPage = 1;
     loadReceiptList();
   };
   $('recvClear').onclick = () => {
-    $('recvSearch').value = '';
-    $('recvFrom').value = '';
-    $('recvTo').value = '';
+    $('recvListSearch').value = ''; $('recvListFrom').value = ''; $('recvListTo').value = '';
     state.listQuery = state.listDateFrom = state.listDateTo = '';
-    state.listPage = 1;
-    loadReceiptList();
+    state.listPage = 1; loadReceiptList();
   };
-  $('recvSearch').onkeydown = (e) => { if (e.key === 'Enter') $('recvFilter').click(); };
-  $('recvPrev').onclick = () => {
-    if (state.listPage > 1) { state.listPage--; loadReceiptList(); }
-  };
+  $('recvListSearch').onkeydown = (e) => { if (e.key === 'Enter') $('recvFilter').click(); };
+  $('recvPrev').onclick = () => { if (state.listPage > 1) { state.listPage--; loadReceiptList(); } };
   $('recvNext').onclick = () => {
     const maxPage = Math.max(1, Math.ceil(state.listTotal / PAGE_SIZE));
     if (state.listPage < maxPage) { state.listPage++; loadReceiptList(); }
@@ -132,11 +151,11 @@ async function renderListView() {
 function initJalaliPickers() {
   if (typeof jQuery === 'undefined' || !jQuery.fn.persianDatepicker) return;
   try {
-    jQuery('#recvFrom, #recvTo').persianDatepicker({
+    jQuery('#recvListFrom, #recvListTo').persianDatepicker({
       theme: 'melon', formatDate: 'YYYY/MM/DD',
       cellWidth: 32, cellHeight: 25, fontSize: 13
     });
-  } catch (e) {}
+  } catch (_) {}
 }
 
 async function loadReceiptList() {
@@ -146,21 +165,17 @@ async function loadReceiptList() {
 
   try {
     let q = sb.from('drugs_receipt')
-      .select('id, receipt_number, supplier_name, status, receipt_type, date_received, created_at', { count: 'exact' })
+      .select(
+        'id, receipt_number, supplier_name, status, receipt_type, date_received, created_at, ' +
+        'invoice_id, created_by, created_by_name, finalized_by, finalized_at',
+        { count: 'exact' }
+      )
       .order('date_received', { ascending: false })
       .order('id', { ascending: false });
 
-    if (state.listQuery) {
-      q = q.or(`receipt_number.ilike.%${state.listQuery}%,supplier_name.ilike.%${state.listQuery}%`);
-    }
-    if (state.listDateFrom) {
-      const g = jalaliToGregorian(state.listDateFrom);
-      if (g) q = q.gte('date_received', g);
-    }
-    if (state.listDateTo) {
-      const g = jalaliToGregorian(state.listDateTo);
-      if (g) q = q.lte('date_received', g);
-    }
+    if (state.listQuery) q = q.or(`receipt_number.ilike.%${state.listQuery}%,supplier_name.ilike.%${state.listQuery}%`);
+    if (state.listDateFrom) { const g = jalaliToGregorian(state.listDateFrom); if (g) q = q.gte('date_received', g); }
+    if (state.listDateTo)   { const g = jalaliToGregorian(state.listDateTo);   if (g) q = q.lte('date_received', g); }
 
     const from = (state.listPage - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -178,8 +193,8 @@ async function loadReceiptList() {
         خواندن لیست ناموفق بود: ${escapeHtml(e.message || 'خطای نامشخص')}
         <button class="btn btn-sm btn-outline-danger mt-2 d-block" id="recvRetry">تلاش مجدد</button>
       </div>`;
-    const retry = box.querySelector('#recvRetry');
-    if (retry) retry.onclick = loadReceiptList;
+    const r = box.querySelector('#recvRetry');
+    if (r) r.onclick = loadReceiptList;
   }
 }
 
@@ -208,8 +223,7 @@ function renderReceiptRows() {
         <div class="mt-2">رسیدی یافت نشد</div>
         <div class="small">با دکمه «دریافت جدید» سند بسازید</div>
       </div>`;
-    updatePager();
-    return;
+    updatePager(); return;
   }
 
   box.innerHTML = state.listRows.map(r => `
@@ -220,19 +234,19 @@ function renderReceiptRows() {
             <span class="fw-bold text-primary">${escapeHtml(r.receipt_number || '-')}</span>
             ${statusBadge(r.status)}
           </div>
-          <div class="meta">
-            <i class="bi bi-truck"></i> ${escapeHtml(r.supplier_name || '-')}
-          </div>
+          <div class="meta"><i class="bi bi-truck"></i> ${escapeHtml(r.supplier_name || '-')}</div>
           <div class="meta">
             <i class="bi bi-calendar3"></i> ${escapeHtml(gregorianToJalali(r.date_received) || '-')}
             ${r.receipt_type ? `<span class="badge bg-light text-dark border ms-2">${
               r.receipt_type === 'with_invoice' ? 'با فاکتور' : 'بدون فاکتور'}</span>` : ''}
           </div>
+          <div class="meta small">
+            <i class="bi bi-person"></i> ${escapeHtml(r.created_by_name || (r.created_by ? r.created_by.slice(0, 8) : '—'))}
+          </div>
         </div>
         <i class="bi bi-chevron-left text-muted"></i>
       </div>
-    </div>
-  `).join('');
+    </div>`).join('');
 
   box.querySelectorAll('.item-card').forEach(el => {
     el.onclick = () => {
@@ -253,7 +267,6 @@ function updatePager() {
 
 async function openReceiptDetail(row) {
   const isDraft = row.status === 'draft';
-  
   const backdrop = document.createElement('div');
   backdrop.className = 'archive-backdrop';
   backdrop.innerHTML = `
@@ -273,15 +286,27 @@ async function openReceiptDetail(row) {
           <span>${escapeHtml(gregorianToJalali(row.date_received) || '-')}</span>
         </div>
         <div class="archive-meta-item">${statusBadge(row.status)}</div>
+        <div class="archive-meta-item"><i class="bi bi-person"></i>
+          <span>ثبت‌کننده: ${escapeHtml(row.created_by_name || (row.created_by ? row.created_by.slice(0, 8) : '—'))}</span>
+        </div>
+        ${row.finalized_at ? `
+          <div class="archive-meta-item"><i class="bi bi-check2-circle text-success"></i>
+            <span>نهایی: ${escapeHtml(gregorianToJalali(row.finalized_at) || '')}${
+              row.finalized_by ? ' • ' + escapeHtml(row.finalized_by.slice(0, 8)) : ''
+            }</span>
+          </div>` : ''}
       </div>
       <div class="archive-sheet-body" id="recvDetailItems">
         <div class="text-center py-4"><div class="spinner-border text-warning spinner-border-sm"></div></div>
       </div>
-      <div class="archive-sheet-actions" style="display:flex; gap:8px;">
+      <div class="archive-sheet-actions" style="display:flex; flex-wrap:wrap; gap:8px;">
         <button class="btn btn-light flex-grow-1" id="recvDetailClose">بستن</button>
-        ${isDraft ? `
-          <button class="btn btn-primary flex-grow-1" id="recvEditDraft">ویرایش پیش‌نویس</button>
+        ${row.status === 'final' ? `
+          <button class="btn btn-outline-danger flex-grow-1" id="recvDetailDiscrepancy">
+            <i class="bi bi-exclamation-diamond"></i> گزارش مغایرت
+          </button>
         ` : ''}
+        ${isDraft ? `<button class="btn btn-primary flex-grow-1" id="recvEditDraft">ویرایش پیش‌نویس</button>` : ''}
       </div>
     </div>`;
   document.body.appendChild(backdrop);
@@ -289,11 +314,11 @@ async function openReceiptDetail(row) {
   const close = () => { backdrop.classList.add('closing'); setTimeout(() => backdrop.remove(), 200); };
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
   backdrop.querySelector('#recvDetailClose').onclick = close;
-
-  if (isDraft) {
-    backdrop.querySelector('#recvEditDraft').onclick = () => {
+  if (isDraft) backdrop.querySelector('#recvEditDraft').onclick = () => { close(); openNewReceive(row); };
+  if (row.status === 'final') {
+    backdrop.querySelector('#recvDetailDiscrepancy').onclick = () => {
       close();
-      openNewReceive(row);
+      openDiscrepancyReport(row);
     };
   }
 
@@ -304,25 +329,20 @@ async function openReceiptDetail(row) {
     if (error) throw error;
 
     const body = backdrop.querySelector('#recvDetailItems');
-    if (!items?.length) {
-      body.innerHTML = '<div class="text-center muted">قلمی ثبت نشده</div>';
-      return;
-    }
+    if (!items?.length) { body.innerHTML = '<div class="text-center muted">قلمی ثبت نشده</div>'; return; }
     body.innerHTML = `
       <div class="archive-sheet-section-title">اقلام (${faNum(items.length)})</div>
-      <table class="archive-detail-table">
-        <tbody>
-          ${items.map((it, i) => `
-            <tr>
-              <td class="detail-key">${faNum(i + 1)}. ${escapeHtml(it.drug?.name || '—')} ${it.drug?.form ? `(${escapeHtml(it.drug.form)})` : ''}</td>
-              <td class="detail-val">
-                <div>تعداد: <strong>${faNum(it.received_quantity)}</strong></div>
-                <div class="small muted">بچ: <bdi dir="ltr">${escapeHtml(it.batch_number || '-')}</bdi></div>
-                <div class="small muted">انقضا: ${escapeHtml(gregorianToJalali(it.expiry_date) || '-')}</div>
-              </td>
-            </tr>`).join('')}
-        </tbody>
-      </table>`;
+      <table class="archive-detail-table"><tbody>
+        ${items.map((it, i) => `
+          <tr>
+            <td class="detail-key">${faNum(i + 1)}. ${escapeHtml(it.drug?.name || '—')} ${it.drug?.form ? `(${escapeHtml(it.drug.form)})` : ''}</td>
+            <td class="detail-val">
+              <div>تعداد: <strong>${faNum(it.received_quantity)}</strong></div>
+              <div class="small muted">بچ: <bdi dir="ltr">${escapeHtml(it.batch_number || '-')}</bdi></div>
+              <div class="small muted">انقضا: ${escapeHtml(gregorianToJalali(it.expiry_date) || '-')}</div>
+            </td>
+          </tr>`).join('')}
+      </tbody></table>`;
   } catch (e) {
     backdrop.querySelector('#recvDetailItems').innerHTML =
       `<div class="alert alert-danger small m-2">${escapeHtml(e.message)}</div>`;
@@ -330,19 +350,305 @@ async function openReceiptDetail(row) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// فرم دریافت (جدید یا ویرایش پیش‌نویس)
+// ⭐ گزارش مغایرت (فاکتور و سفارش مجزا)
+// ═══════════════════════════════════════════════════════════
+async function loadDiscrepancyData(receiptId, invoiceId) {
+  // ۱. اقلام رسید
+  const { data: receiptItems, error: e1 } = await sb.from('drugs_receiptitem')
+    .select('drug_id, received_quantity, drug:drugs_drug(id, name, form)')
+    .eq('receipt_id', receiptId);
+  if (e1) throw e1;
+
+  // ۲. اقلام فاکتور (اگر لینک شده)
+  let invoiceItems = [];
+  if (invoiceId) {
+    const { data, error: e2 } = await sb.from('drugs_purchaseinvoiceitem')
+      .select('drug_id, quantity, drug:drugs_drug(id, name, form)')
+      .eq('invoice_id', invoiceId);
+    if (e2) throw e2;
+    invoiceItems = data || [];
+  }
+
+  // ۳. اتحاد داروها (رسید + فاکتور)
+  const drugSet = new Map(); // drug_id → { drug, received, invoice_qty }
+  (receiptItems || []).forEach(it => {
+    drugSet.set(it.drug_id, {
+      drug: it.drug,
+      received: Number(it.received_quantity) || 0,
+      invoice_qty: 0,
+    });
+  });
+  invoiceItems.forEach(it => {
+    if (drugSet.has(it.drug_id)) {
+      drugSet.get(it.drug_id).invoice_qty = Number(it.quantity) || 0;
+      if (!drugSet.get(it.drug_id).drug) drugSet.get(it.drug_id).drug = it.drug;
+    } else {
+      drugSet.set(it.drug_id, {
+        drug: it.drug,
+        received: 0,
+        invoice_qty: Number(it.quantity) || 0,
+      });
+    }
+  });
+
+  if (!drugSet.size) return { rows: [], invoiceLinked: !!invoiceId };
+
+  // ۴. pending سفارش‌های فعلی برای همه داروها
+  const drugIds = Array.from(drugSet.keys());
+  const { data: pendings, error: e3 } = await sb.from('v_drug_pending')
+    .select('drug_id, pending_qty')
+    .in('drug_id', drugIds);
+  if (e3) throw e3;
+
+  const pendingMap = new Map();
+  (pendings || []).forEach(p => pendingMap.set(p.drug_id, Number(p.pending_qty) || 0));
+
+  // ۵. محاسبه
+  const rows = Array.from(drugSet.entries()).map(([drugId, info]) => {
+    const currentPending = pendingMap.get(drugId) || 0;
+    const received = info.received;
+    const invoice_qty = info.invoice_qty;
+
+    // مقدار اصلی سفارش هنگام دریافت (تخمین):
+    // چون after finalize موجودی به سفارش اختصاص داده شده و pending کم شده،
+    // مقدار اصلی سفارش = pending فعلی + دریافت شده (فقط وقتی received <= original pending)
+    const original_order_qty = currentPending + received;
+
+    // مغایرت فاکتور = فاکتور - دریافتی
+    const invoice_disc = invoice_qty - received;
+
+    // مغایرت سفارش = pending فعلی (چیزی که هنوز تأمین نشده)
+    const order_disc = currentPending;
+
+    return {
+      drug_id: drugId,
+      drug_name: info.drug?.name || '—',
+      drug_form: info.drug?.form || '',
+      invoice_qty,
+      order_qty: original_order_qty,
+      received,
+      invoice_disc,
+      order_disc,
+      current_pending: currentPending,
+      has_invoice: invoice_qty > 0,
+      has_order: currentPending > 0,
+    };
+  });
+
+  // مرتب‌سازی: داروهای دارای مغایرت اول
+  rows.sort((a, b) => {
+    const aHas = (a.invoice_disc > 0 || a.order_disc > 0) ? 1 : 0;
+    const bHas = (b.invoice_disc > 0 || b.order_disc > 0) ? 1 : 0;
+    return bHas - aHas;
+  });
+
+  return { rows, invoiceLinked: !!invoiceId };
+}
+
+async function openDiscrepancyReport(receiptRow) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'archive-backdrop';
+  backdrop.innerHTML = `
+    <div class="archive-sheet" style="max-width:760px;">
+      <div class="archive-sheet-handle"></div>
+      <div class="archive-sheet-head">
+        <div class="archive-sheet-icon" style="background:#fee2e2;color:#dc2626;">
+          <i class="bi bi-exclamation-diamond-fill"></i>
+        </div>
+        <div>
+          <div class="archive-sheet-title">گزارش مغایرت‌ها</div>
+          <div class="archive-sheet-sub">${escapeHtml(receiptRow.receipt_number || '-')} • ${escapeHtml(receiptRow.supplier_name || '-')}</div>
+        </div>
+      </div>
+      <div class="archive-sheet-body" id="discBody">
+        <div class="text-center py-4"><div class="spinner-border text-danger spinner-border-sm"></div> در حال بارگذاری...</div>
+      </div>
+      <div class="archive-sheet-actions">
+        <button class="btn btn-light w-100" id="discClose">بستن</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  const close = () => { backdrop.classList.add('closing'); setTimeout(() => backdrop.remove(), 200); };
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+  backdrop.querySelector('#discClose').onclick = close;
+
+  try {
+    const { rows, invoiceLinked } = await loadDiscrepancyData(receiptRow.id, receiptRow.invoice_id);
+
+    if (!rows.length) {
+      backdrop.querySelector('#discBody').innerHTML = `
+        <div class="alert alert-info m-3">
+          <i class="bi bi-info-circle"></i> هیچ قلمی برای بررسی مغایرت ثبت نشده.
+        </div>`;
+      return;
+    }
+
+    const invoiceRows = rows.filter(r => r.has_invoice);
+    const orderRows = rows.filter(r => r.has_order || r.received > 0);
+
+    const fmt = n => faNum(Math.abs(n));
+    const discBadge = (val) => {
+      if (val > 0) return `<span class="badge bg-danger">${fmt(val)} کسری</span>`;
+      if (val < 0) return `<span class="badge bg-warning text-dark">${fmt(val)} مازاد</span>`;
+      return `<span class="badge bg-success">تطبیق</span>`;
+    };
+
+    const invoiceSection = invoiceLinked ? `
+      <div class="mb-3">
+        <div class="fw-bold mb-2" style="color:#dc2626;">
+          <i class="bi bi-receipt"></i> مغایرت فاکتور (${faNum(invoiceRows.length)} قلم)
+        </div>
+        ${invoiceRows.length === 0 ? `
+          <div class="alert alert-light text-center small">فاکتور قلمی ندارد</div>
+        ` : `
+          <table class="archive-detail-table" style="width:100%;">
+            <thead>
+              <tr style="background:#fef2f2;">
+                <th style="text-align:right;padding:8px;font-size:12px;">دارو</th>
+                <th style="text-align:center;padding:8px;font-size:12px;">فاکتور</th>
+                <th style="text-align:center;padding:8px;font-size:12px;">دریافتی</th>
+                <th style="text-align:center;padding:8px;font-size:12px;">مغایرت</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${invoiceRows.map(r => `
+                <tr>
+                  <td style="padding:8px;">${escapeHtml(r.drug_name)}${r.drug_form ? ` <span class="muted small">(${escapeHtml(r.drug_form)})</span>` : ''}</td>
+                  <td style="padding:8px;text-align:center;">${faNum(r.invoice_qty)}</td>
+                  <td style="padding:8px;text-align:center;">${faNum(r.received)}</td>
+                  <td style="padding:8px;text-align:center;">${discBadge(r.invoice_disc)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        `}
+      </div>` : `
+      <div class="mb-3">
+        <div class="fw-bold mb-2" style="color:#6b7280;">
+          <i class="bi bi-receipt"></i> مغایرت فاکتور
+        </div>
+        <div class="alert alert-light text-center small">این رسید به فاکتور متصل نیست</div>
+      </div>`;
+
+    const orderSection = `
+      <div class="mb-2">
+        <div class="fw-bold mb-2" style="color:#d97706;">
+          <i class="bi bi-clipboard-check"></i> مغایرت سفارش (${faNum(orderRows.filter(r => r.has_order).length)} باز)
+        </div>
+        ${orderRows.length === 0 ? `
+          <div class="alert alert-light text-center small">هیچ سفارش بازی وجود ندارد</div>
+        ` : `
+          <table class="archive-detail-table" style="width:100%;">
+            <thead>
+              <tr style="background:#fffbeb;">
+                <th style="text-align:right;padding:8px;font-size:12px;">دارو</th>
+                <th style="text-align:center;padding:8px;font-size:12px;">دریافتی</th>
+                <th style="text-align:center;padding:8px;font-size:12px;">سفارش باز</th>
+                <th style="text-align:center;padding:8px;font-size:12px;">مغایرت</th>
+                <th style="text-align:center;padding:8px;font-size:12px;">اقدام</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${orderRows.map(r => `
+                <tr data-drug-id="${r.drug_id}">
+                  <td style="padding:8px;">${escapeHtml(r.drug_name)}${r.drug_form ? ` <span class="muted small">(${escapeHtml(r.drug_form)})</span>` : ''}</td>
+                  <td style="padding:8px;text-align:center;">${faNum(r.received)}</td>
+                  <td style="padding:8px;text-align:center;">${faNum(r.current_pending)}</td>
+                  <td style="padding:8px;text-align:center;">
+                    ${r.current_pending > 0
+                      ? `<span class="badge bg-danger">${faNum(r.current_pending)} کسری</span>`
+                      : `<span class="badge bg-success">تأمین شده</span>`}
+                  </td>
+                  <td style="padding:8px;text-align:center;">
+                    ${r.current_pending > 0 ? `
+                      <button class="btn btn-sm btn-warning discCloseOrderBtn" data-drug-id="${r.drug_id}" data-drug-name="${escapeHtml(r.drug_name)}">
+                        <i class="bi bi-check2-square"></i> تکمیل سفارش
+                      </button>
+                    ` : '—'}
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        `}
+      </div>`;
+
+    backdrop.querySelector('#discBody').innerHTML = invoiceSection + orderSection;
+
+    // اتصال دکمه‌های «تکمیل سفارش»
+    backdrop.querySelectorAll('.discCloseOrderBtn').forEach(btn => {
+      btn.onclick = async () => {
+        const drugId = parseInt(btn.dataset.drugId);
+        const drugName = btn.dataset.drugName;
+        await closeDrugOrders(drugId, drugName, btn, backdrop);
+      };
+    });
+
+  } catch (e) {
+    backdrop.querySelector('#discBody').innerHTML =
+      `<div class="alert alert-danger m-3">${escapeHtml(e.message || 'خطا در بارگذاری')}</div>`;
+  }
+}
+
+// ⭐ بستن اجباری سفارش‌های باز یک دارو
+async function closeDrugOrders(drugId, drugName, btn, backdrop) {
+  if (!confirm(`همه سفارش‌های باز «${drugName}» بسته شوند؟\n(کسری نادیده گرفته می‌شود)`)) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+  try {
+    // تلاش با p_quantity: 0 و p_force_close: true
+    // این کار باعث می‌شود تابع، همه سفارش‌های باز این دارو را ببندد
+    const { error } = await sb.rpc('allocate_to_requests', {
+      p_drug_id: drugId,
+      p_quantity: 0,
+      p_force_close: true
+    });
+    if (error) throw error;
+
+    toast(`✅ سفارش‌های «${drugName}» بسته شد`, 'success');
+
+    // رفرش گزارش
+    if (backdrop && backdrop.isConnected) {
+      backdrop.remove();
+      // گزارش را دوباره باز کن
+      const row = state.listRows.find(r => r.id === state._lastReportReceiptId);
+      // fallback: باز کردن از state
+      // برای سادگی، به کاربر می‌گوییم صفحه را refresh کند
+    }
+  } catch (e) {
+    toast('خطا در بستن سفارش: ' + (e.message || 'نامشخص'), 'danger');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check2-square"></i> تکمیل سفارش';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// فرم دریافت
 // ═══════════════════════════════════════════════════════════
 async function openNewReceive(existingDraft = null) {
   state.view = 'form';
   state.isFinalizing = false;
-  
+
   if (existingDraft) {
-    // بارگذاری پیش‌نویس موجود
     state.receiptId = existingDraft.id;
     state.supplierId = existingDraft.supplier_id || null;
     state.supplierName = existingDraft.supplier_name || '';
-    
-    const { data: items } = await sb.from('drugs_receiptitem').select('*, drug:drugs_drug(name, form)').eq('receipt_id', existingDraft.id);
+
+    if (existingDraft.invoice_id) {
+      try {
+        const { data: inv } = await sb.from('drugs_purchaseinvoice')
+          .select('id, invoice_number').eq('id', existingDraft.invoice_id).maybeSingle();
+        if (inv) {
+          const { data: invItems } = await sb.from('drugs_purchaseinvoiceitem')
+            .select('drug_id, quantity, unit_price').eq('invoice_id', inv.id);
+          state.linkedInvoice = { id: inv.id, invoice_number: inv.invoice_number, items: invItems || [] };
+        }
+      } catch (_) {}
+    }
+
+    const { data: items } = await sb.from('drugs_receiptitem')
+      .select('*, drug:drugs_drug(name, form)').eq('receipt_id', existingDraft.id);
     state.items = (items || []).map(i => ({
       drug_id: i.drug_id,
       drug_name: i.drug?.name || 'نامشخص',
@@ -350,17 +656,17 @@ async function openNewReceive(existingDraft = null) {
       qty: i.received_quantity,
       batch: i.batch_number,
       expiry: i.expiry_date,
-      barcode: null // در پیش‌نویس ذخیره نمی‌شود
+      barcode: null,
+      closeOrder: false,
     }));
   } else {
-    // شروع جدید
     state.receiptId = null;
     state.items = [];
     state.supplierId = null;
     state.supplierName = '';
     state.linkedInvoice = null;
   }
-  
+
   await renderFormView();
 }
 
@@ -373,9 +679,7 @@ async function renderFormView() {
     <div class="card">
       <div class="card-head warning d-flex justify-content-between align-items-center">
         <span><i class="bi bi-truck"></i> ${state.receiptId ? 'ویرایش پیش‌نویس' : 'دریافت دارو (جدید)'}</span>
-        <button class="btn btn-sm btn-outline-light" id="recvBackToList">
-          <i class="bi bi-arrow-right"></i> لیست
-        </button>
+        <button class="btn btn-sm btn-outline-light" id="recvBackToList"><i class="bi bi-arrow-right"></i> لیست</button>
       </div>
       <div class="card-body">
         <label class="form-label">تامین‌کننده *</label>
@@ -389,9 +693,7 @@ async function renderFormView() {
             <button style="background:none;border:none;color:#dc3545;margin-right:8px;font-weight:700;" id="recvUnlinkInvoice">✕</button>
           </div>
         </div>
-        <button class="btn btn-outline-secondary w-100" id="recvLinkInvoice">
-          <i class="bi bi-receipt"></i> اتصال به فاکتور
-        </button>
+        <button class="btn btn-outline-secondary w-100" id="recvLinkInvoice"><i class="bi bi-receipt"></i> اتصال به فاکتور</button>
       </div>
     </div>
     <div class="row g-2 mb-3">
@@ -400,39 +702,89 @@ async function renderFormView() {
     </div>
     <div class="section-title"><span>اقلام دریافتی</span><span class="badge-soft warning" id="recvCount">۰</span></div>
     <div id="recvList"></div>
-    
     <div class="d-grid gap-2 mt-3">
-      <button class="btn btn-outline-primary btn-lg w-100 py-3" id="recvSaveDraft">
-        <i class="bi bi-save"></i> ذخیره پیش‌نویس
-      </button>
-      <button class="btn btn-success btn-lg w-100 py-3" id="recvFinalize">
-        <i class="bi bi-check-circle-fill"></i> ثبت نهایی
-      </button>
+      <button class="btn btn-outline-primary btn-lg w-100 py-3" id="recvSaveDraft"><i class="bi bi-save"></i> ذخیره پیش‌نویس</button>
+      <button class="btn btn-success btn-lg w-100 py-3" id="recvFinalize"><i class="bi bi-check-circle-fill"></i> ثبت نهایی</button>
     </div>`;
 
   $('recvBackToList').onclick = () => { state.view = 'list'; renderListView(); };
-  
   $('recvSupplier').onchange = e => {
     state.supplierId = parseInt(e.target.value) || null;
     state.supplierName = e.target.options[e.target.selectedIndex].text;
   };
   if (state.supplierId) {
     $('recvSupplier').value = state.supplierId;
+  } else if (state.supplierName) {
+    const opts = $('recvSupplier').options;
+    for (let i = 0; i < opts.length; i++) {
+      if (opts[i].text === state.supplierName) {
+        $('recvSupplier').selectedIndex = i;
+        state.supplierId = parseInt(opts[i].value) || null;
+        break;
+      }
+    }
   }
 
   $('recvScan').onclick = () => openScanner(handleBarcode);
   $('recvSearch').onclick = () => openDrugSearch('دارو را جستجو کنید', d => addDrug(d));
-  
+
+  $('recvLinkInvoice').onclick = linkInvoice;
+  $('recvUnlinkInvoice').onclick = () => {
+    state.linkedInvoice = null;
+    $('recvInvoiceBox').classList.add('hidden');
+    $('recvLinkInvoice').classList.remove('hidden');
+  };
+
   $('recvSaveDraft').onclick = () => saveDraft(false);
   $('recvFinalize').onclick = finalize;
 
-  // کد اتصال فاکتور حذف شد تا کد کوتاه‌تر شود (در صورت نیاز می‌توانید اضافه کنید)
-  
+  if (state.linkedInvoice) {
+    $('recvInvoiceNum').textContent = state.linkedInvoice.invoice_number;
+    $('recvInvoiceBox').classList.remove('hidden');
+    $('recvLinkInvoice').classList.add('hidden');
+  }
+
   renderList();
+}
+
+async function linkInvoice() {
+  const q = prompt('شماره فاکتور را وارد کنید:');
+  if (!q?.trim()) return;
+  const { data } = await sb.from('drugs_purchaseinvoice')
+    .select('id, invoice_number, supplier_id, supplier:drugs_supplier(name)')
+    .ilike('invoice_number', `%${q.trim()}%`).limit(5);
+  if (!data?.length) { toast('فاکتوری یافت نشد', 'warning'); return; }
+
+  let chosen = data[0];
+  if (data.length > 1) {
+    const list = data.map((d, i) => `${i + 1}) ${d.invoice_number} - ${d.supplier?.name || ''}`).join('\n');
+    const idx = parseInt(prompt('کدام؟\n' + list)) - 1;
+    if (isNaN(idx) || !data[idx]) return;
+    chosen = data[idx];
+  }
+
+  const { data: items } = await sb.from('drugs_purchaseinvoiceitem')
+    .select('drug_id, quantity, unit_price').eq('invoice_id', chosen.id);
+
+  state.linkedInvoice = {
+    id: chosen.id,
+    invoice_number: chosen.invoice_number,
+    items: items || []
+  };
+  if (chosen.supplier_id) {
+    state.supplierId = chosen.supplier_id;
+    $('recvSupplier').value = chosen.supplier_id;
+    state.supplierName = $('recvSupplier').options[$('recvSupplier').selectedIndex]?.text || '';
+  }
+  $('recvInvoiceNum').textContent = chosen.invoice_number;
+  $('recvInvoiceBox').classList.remove('hidden');
+  $('recvLinkInvoice').classList.add('hidden');
+  toast(`فاکتور ${chosen.invoice_number} لینک شد`, 'success');
 }
 
 function renderList() {
   const c = $('recvContent');
+  if (!c) return;
   const cnt = c.querySelector('#recvCount');
   if (cnt) cnt.textContent = faNum(state.items.length);
   const list = c.querySelector('#recvList');
@@ -451,7 +803,14 @@ function renderList() {
             <div class="name">${escapeHtml(it.drug_name)}</div>
             <div class="meta">
               ${it.batch ? `بچ: <code dir="ltr">${escapeHtml(it.batch)}</code> | ` : ''}
-              انقضا: ${escapeHtml(it.expiry || '—')} <span class="muted">(${gregorianToJalali(it.expiry)})</span>
+              انقضا: ${escapeHtml(it.expiry || '—')} <span class="muted">(${gregorianToJalali(it.expiry) || '—'})</span>
+            </div>
+            ${it.warnings?.length ? `<div class="meta" style="color:#dc3545;">${it.warnings.map(w => `• ${escapeHtml(w.text)}`).join('<br>')}</div>` : ''}
+            <div class="mt-1">
+              <label class="d-flex align-items-center gap-2 small" style="cursor:pointer;color:#d97706;font-weight:600;">
+                <input type="checkbox" data-close-order="${i}" ${it.closeOrder ? 'checked' : ''} style="width:16px;height:16px;accent-color:#d97706;">
+                بستن سفارش این دارو (کسری نادیده گرفته شود)
+              </label>
             </div>
           </div>
           <div class="d-flex align-items-center gap-2">
@@ -463,6 +822,7 @@ function renderList() {
         </div>
       </div>`;
   }).join('');
+
   list.querySelectorAll('[data-act]').forEach(b => {
     const i = +b.dataset.i;
     b.onclick = () => {
@@ -472,51 +832,70 @@ function renderList() {
       renderList();
     };
   });
+
+  // ⭐ چک‌باکس بستن سفارش
+  list.querySelectorAll('[data-close-order]').forEach(cb => {
+    cb.onchange = () => {
+      const i = +cb.dataset.closeOrder;
+      if (state.items[i]) state.items[i].closeOrder = cb.checked;
+    };
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
-// ذخیره پیش‌نویس (دستی یا خودکار)
+// ذخیره پیش‌نویس
 // ═══════════════════════════════════════════════════════════
 async function saveDraft(silent = false) {
   if (!state.items.length) {
     if (!silent) toast('قلمی برای ذخیره وجود ندارد', 'warning');
     return false;
   }
-
   try {
     let receiptId = state.receiptId;
     const code = receiptId ? null : `RCV-${Date.now().toString().slice(-6)}`;
 
-    // ۱. ایجاد یا آپدیت سربرگ
     if (!receiptId) {
+      let userId = null, userName = null;
+      try {
+        const { data: { user } } = await sb.auth.getUser();
+        userId = user?.id || null;
+        userName = user?.user_metadata?.full_name
+                || user?.user_metadata?.name
+                || user?.email
+                || null;
+      } catch (_) {}
+
       const { data, error } = await sb.from('drugs_receipt').insert({
         receipt_number: code,
         supplier_name: state.supplierName || 'نامشخص',
         status: 'draft',
-        receipt_type: 'without_invoice',
-        date_received: new Date().toISOString().slice(0, 10)
+        receipt_type: state.linkedInvoice ? 'with_invoice' : 'without_invoice',
+        invoice_id: state.linkedInvoice?.id || null,
+        date_received: new Date().toISOString().slice(0, 10),
+        created_by: userId,
+        created_by_name: userName
       }).select().single();
-      
       if (error) throw error;
       receiptId = data.id;
       state.receiptId = receiptId;
     } else {
       await sb.from('drugs_receipt').update({
         supplier_name: state.supplierName || 'نامشخص',
+        receipt_type: state.linkedInvoice ? 'with_invoice' : 'without_invoice',
+        invoice_id: state.linkedInvoice?.id || null
       }).eq('id', receiptId);
     }
 
-    // ۲. پاک کردن اقلام قبلی و درج مجدد
     await sb.from('drugs_receiptitem').delete().eq('receipt_id', receiptId);
-    
+
     const itemsToInsert = state.items.map(it => ({
       receipt_id: receiptId,
       drug_id: it.drug_id,
       received_quantity: it.qty,
       batch_number: it.batch,
-      expiry_date: it.expiry
+      expiry_date: it.expiry,
+      force_close_shortage: !!it.closeOrder
     }));
-    
     await sb.from('drugs_receiptitem').insert(itemsToInsert);
 
     if (!silent) toast('✅ پیش‌نویس با موفقیت ذخیره شد', 'success');
@@ -529,15 +908,15 @@ async function saveDraft(silent = false) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// پردازش بارکد و افزودن دارو
+// اسکن و افزودن دارو
 // ═══════════════════════════════════════════════════════════
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
   if (parsed.exps && parsed.exps.length > 0) {
-    const isInvalid = !parsed.exp.includes('-');
+    const isInvalid = !parsed.exp || !parsed.exp.includes('-');
     if (parsed.exps.length > 1 || isInvalid) {
       const selectedDate = await promptExpirySelection(parsed.exps);
-      if (!selectedDate) return; 
+      if (!selectedDate) return;
       if (selectedDate.includes('-')) parsed.exp = selectedDate;
       else { toast('تاریخ نامعتبر', 'warning'); parsed.exp = ''; }
     }
@@ -548,7 +927,7 @@ async function handleBarcode(raw) {
   const { data: bc } = await sb.from('drugs_drugbarcode')
     .select('drug:drugs_drug(id, name, form)')
     .or(`gtin.eq.${gtin},gtin.eq.${padded}`).maybeSingle();
-    
+
   if (!bc?.drug) {
     toast('بارکد ناشناس', 'warning');
     openDrugSearch(`بارکد ${escapeHtml(gtin)} ثبت نشده`, d => addDrug(d, gtin, parsed));
@@ -561,29 +940,67 @@ async function handleBarcode(raw) {
 function reopenScannerAuto() {
   setTimeout(() => {
     const wrap = $('scannerWrap');
-    if (!wrap || !wrap.classList.contains('active')) {
-      openScanner(handleBarcode);
-    }
+    if (!wrap || !wrap.classList.contains('active')) openScanner(handleBarcode);
   }, 350);
 }
 
 async function addDrug(drug, barcode = '', parsed = {}) {
+  if (barcode) {
+    try {
+      await sb.from('drugs_drugbarcode').upsert({ drug_id: drug.id, gtin: barcode }, { onConflict: 'gtin' });
+    } catch (_) {}
+  }
+
+  const { data: stock } = await sb.from('v_drug_stock').select('total_quantity').eq('drug_id', drug.id).maybeSingle();
+  const { data: pend }  = await sb.from('v_drug_pending').select('pending_qty').eq('drug_id', drug.id).maybeSingle();
+  const available = stock?.total_quantity || 0;
+  const ordered   = pend?.pending_qty || 0;
+
+  let invoiceQty = null;
+  if (state.linkedInvoice?.items) {
+    const inv = state.linkedInvoice.items.find(i => Number(i.drug_id) === Number(drug.id));
+    if (inv) invoiceQty = inv.quantity;
+  }
+
+  const extraInfo = `
+    <div class="row g-2 text-center">
+      <div class="col-4"><div class="badge-soft primary w-100" style="justify-content:center;">موجودی: <strong>${faNum(available)}</strong></div></div>
+      <div class="col-4"><div class="badge-soft warning w-100" style="justify-content:center;">سفارش: <strong>${faNum(ordered)}</strong></div></div>
+      <div class="col-4"><div class="badge-soft gray w-100" style="justify-content:center;">فاکتور: <strong>${invoiceQty !== null ? faNum(invoiceQty) : '—'}</strong></div></div>
+    </div>`;
+
   const res = await askQty({
     title: 'تایید دریافت',
     headerClass: 'bg-warning',
     drugName: drug.name + (drug.form ? ` (${drug.form})` : ''),
+    extraInfo,
     defaultQty: 1,
     defaultExpiry: parsed?.exp || '',
+    defaultBatch: parsed?.batch || '',
     showExtras: true,
-    hideBatchInput: true,
-    requireExpiry: true,
+    requireExpiry: true
   });
 
-  if (res.qty < 1) return false;
+  if (!res || res.qty < 1) return false;
   if (!res.expiry_gregorian) { toast('تاریخ انقضا الزامی است', 'danger'); beep(300); return false; }
 
-  const finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian);
-  if (!finalBatch) { toast('ساخت بچ ناموفق', 'danger'); return false; }
+  const warnings = [];
+  if (ordered > 0 && res.qty < ordered) warnings.push({ level: 'warning', text: `کمتر از سفارش (${faNum(ordered - res.qty)} کسری)` });
+  else if (ordered === 0) warnings.push({ level: 'info', text: 'خارج از لیست سفارش' });
+  else if (res.qty > ordered) warnings.push({ level: 'info', text: `${faNum(res.qty - ordered)} مازاد` });
+  if (invoiceQty !== null) {
+    if (res.qty < invoiceQty) warnings.push({ level: 'warning', text: `کمتر از فاکتور (${faNum(invoiceQty - res.qty)})` });
+    else if (res.qty > invoiceQty) warnings.push({ level: 'info', text: `${faNum(res.qty - invoiceQty)} مازاد فاکتور` });
+  }
+  const chk = checkExpiry(res.expiry_gregorian);
+  if (chk && (chk.level === 'danger' || chk.level === 'expired')) warnings.push({ level: 'danger', text: chk.msg });
+  else if (chk && chk.level === 'warning') warnings.push({ level: 'warning', text: chk.msg });
+
+  let finalBatch = res.batch || '';
+  if (!finalBatch && res.expiry_gregorian) {
+    finalBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian) || '';
+  }
+  if (!finalBatch) finalBatch = `AUTO-${Date.now()}`;
 
   const ex = state.items.find(it => it.drug_id === drug.id && (it.batch || '') === finalBatch);
   if (ex && ex.expiry === res.expiry_gregorian) ex.qty += res.qty;
@@ -594,7 +1011,12 @@ async function addDrug(drug, barcode = '', parsed = {}) {
     qty: res.qty,
     batch: finalBatch,
     expiry: res.expiry_gregorian,
-    barcode
+    expiry_jalali: res.expiry_jalali || '',
+    barcode,
+    ordered_qty: ordered,
+    invoice_qty: invoiceQty,
+    warnings,
+    closeOrder: false,
   });
 
   renderList();
@@ -603,102 +1025,141 @@ async function addDrug(drug, barcode = '', parsed = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ذخیره نهایی (با دابل چک)
+// ذخیره نهایی
 // ═══════════════════════════════════════════════════════════
 async function finalize() {
   if (!state.supplierId) { toast('تامین‌کننده را انتخاب کنید', 'warning'); return; }
   if (!state.items.length) { toast('حداقل یک قلم', 'warning'); return; }
+  for (const it of state.items) {
+    if (!it.expiry) { toast(`تاریخ انقضای «${it.drug_name}» الزامی است`, 'warning'); return; }
+  }
 
-  // ⬅️ دابل چک (دو مرحله تایید)
   if (!confirm(`آیا از ثبت نهایی ${faNum(state.items.length)} قلم اطمینان دارید؟`)) return;
   if (!confirm('⚠️ هشدار نهایی: با این کار موجودی انبار افزایش می‌یابد و سند قفل می‌شود. ادامه می‌دهید؟')) return;
 
   state.isFinalizing = true;
   const btn = $('recvFinalize');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ثبت نهایی...';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ثبت نهایی...'; }
 
   try {
-    // ۱. اگر پیش‌نویس داشتیم، اول ذخیره می‌کنیم
-    if (!state.receiptId) {
-      const saved = await saveDraft(true);
-      if (!saved) throw new Error('خطا در آماده‌سازی سند');
-    }
-
+    const saved = await saveDraft(true);
+    if (!saved) throw new Error('خطا در آماده‌سازی سند');
     const receiptId = state.receiptId;
 
-    // ۲. تغییر وضعیت به نهایی
-    const { error: eStatus } = await sb.from('drugs_receipt').update({ status: 'final' }).eq('id', receiptId);
+    let finalizerId = null;
+    try {
+      const { data: { user } } = await sb.auth.getUser();
+      finalizerId = user?.id || null;
+    } catch (_) {}
+
+    const { error: eStatus } = await sb.from('drugs_receipt').update({
+      status: 'final',
+      invoice_id: state.linkedInvoice?.id || null,
+      receipt_type: state.linkedInvoice ? 'with_invoice' : 'without_invoice',
+      finalized_by: finalizerId,
+      finalized_at: new Date().toISOString()
+    }).eq('id', receiptId);
     if (eStatus) throw eStatus;
 
     const errors = [];
     const successes = [];
 
-    // ۳. اعمال روی موجودی (با چک کردن بچ تکراری)
     for (const it of state.items) {
+      let batchForDb = it.batch || '';
+      if (!batchForDb && it.expiry) batchForDb = makeBatchNumber(it.drug_name, it.drug_form, it.expiry) || '';
+      if (!batchForDb) batchForDb = `AUTO-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
       try {
         const { data: existing, error: eFind } = await sb.from('drugs_drugbatch')
           .select('id, quantity')
           .eq('drug_id', it.drug_id)
-          .eq('batch_number', it.batch)
+          .eq('batch_number', batchForDb)
           .maybeSingle();
-          
         if (eFind) throw new Error(`جستجو بچ: ${eFind.message}`);
 
         if (existing) {
-          // اگر بچ قبلا بود، فقط تعداد رو اضافه میکنیم
           const newQty = (existing.quantity || 0) + it.qty;
-          const { error: eUpd } = await sb.from('drugs_drugbatch')
-            .update({ quantity: newQty })
-            .eq('id', existing.id);
+          const { error: eUpd, data: updData } = await sb.from('drugs_drugbatch')
+            .update({ quantity: newQty, expiry_date: it.expiry })
+            .eq('id', existing.id).select();
           if (eUpd) throw new Error(`آپدیت بچ: ${eUpd.message}`);
-          successes.push(`${it.drug_name}: بچ موجود، افزایش تعداد`);
+          if (!updData?.length) throw new Error('آپدیت بچ: دسترسی ندارید');
+          successes.push(`${it.drug_name}: بچ ${batchForDb} از ${existing.quantity} → ${newQty}`);
         } else {
-          // اگر نبود، بچ جدید میسازیم
-          const { error: eIns } = await sb.from('drugs_drugbatch')
+          const { error: eIns, data: insData } = await sb.from('drugs_drugbatch')
             .insert({
               drug_id: it.drug_id,
-              batch_number: it.batch,
+              batch_number: batchForDb,
               expiry_date: it.expiry,
               quantity: it.qty,
               supplier_id: state.supplierId,
               purchase_price: 0,
               is_active: true,
               is_temporary: false
-            });
+            }).select();
           if (eIns) throw new Error(`درج بچ: ${eIns.message}`);
-          successes.push(`${it.drug_name}: بچ جدید ایجاد شد`);
+          if (!insData?.length) throw new Error('درج بچ: دسترسی ندارید');
+          successes.push(`${it.drug_name}: بچ جدید ${batchForDb}`);
         }
 
-        // تخصیص به درخواست‌ها
-        await sb.rpc('allocate_to_requests', { p_drug_id: it.drug_id, p_quantity: it.qty, p_force_close: false });
-
-      } catch (err) {
-        errors.push(`${it.drug_name}: ${err.message}`);
+        // ⭐ پاس دادن closeOrder به RPC
+        try {
+          const { error: e3 } = await sb.rpc('allocate_to_requests', {
+            p_drug_id: it.drug_id,
+            p_quantity: it.qty,
+            p_force_close: !!it.closeOrder
+          });
+          if (e3) errors.push(`FIFO ${it.drug_name}: ${e3.message}`);
+        } catch (errRpc) {
+          errors.push(`FIFO ${it.drug_name}: ${errRpc.message || 'خطای شبکه'}`);
+        }
+      } catch (e) {
+        errors.push(`${it.drug_name}: ${e.message}`);
       }
     }
 
+    console.log('✅ موفق:', successes);
+    console.log('❌ خطاها:', errors);
+
+    // ذخیره شناسه رسید برای گزارش مغایرت بعدی
+    const finalizedReceiptId = receiptId;
+    const finalizedRow = {
+      id: finalizedReceiptId,
+      receipt_number: 'RCV-' + finalizedReceiptId,
+      supplier_name: state.supplierName,
+      status: 'final',
+      invoice_id: state.linkedInvoice?.id || null,
+      date_received: new Date().toISOString().slice(0, 10),
+    };
+
     if (errors.length) {
-      alert('⚠ برخی اقلام با خطا مواجه شدند:\n\n' + errors.join('\n'));
+      alert('⚠ برخی اقلام با خطا مواجه شدند:\n\n' + errors.join('\n\n') +
+        (successes.length ? '\n\n✅ موفق:\n' + successes.join('\n') : ''));
     } else {
       toast('✅ رسید با موفقیت ثبت نهایی شد', 'success');
     }
 
-    // پاکسازی فرم
+    // ⭐ پیشنهاد مشاهده گزارش مغایرت
+    setTimeout(() => {
+      if (confirm('گزارش مغایرت فاکتور و سفارش این رسید را ببینید؟')) {
+        openDiscrepancyReport(finalizedRow);
+      }
+    }, 400);
+
+    localStorage.removeItem(AUTOSAVE_KEY);
     state.items = [];
     state.supplierId = null;
     state.supplierName = '';
+    state.linkedInvoice = null;
     state.receiptId = null;
     state.isFinalizing = false;
-
     state.view = 'list';
     state.listPage = 1;
     await renderListView();
-    
+
   } catch (e) {
     alert('❌ ' + (e.message || e));
-    btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> ثبت نهایی';
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> ثبت نهایی'; }
     state.isFinalizing = false;
   }
 }
