@@ -1,11 +1,9 @@
+
 {
-  "name": "clinic-pwa",
+  "name": "clinic-pwa-root",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node build.mjs"
-  },
-  "devDependencies": {
-    "esbuild": "^0.25.0"
+    "build": "cd clinic-pwa && npm install --force && npm run build"
   }
 }
