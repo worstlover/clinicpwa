@@ -5,6 +5,7 @@ import {
   jalaliToGregorian, checkExpiry, toast, beep, makeBatchNumber
 } from '../utils.js';
 import { showScreen } from '../ui.js';
+import { isAdmin, currentUser } from '../auth.js'; // ⭐ ایمپورت isAdmin برای بررسی دسترسی
 
 import * as SCANNER_MOD from '../scanner.js';
 import * as MODALS_MOD  from '../modals.js';
@@ -32,7 +33,7 @@ console.log('[RECEIVE] imports:', {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// تزریق DOM های گم‌شده — scanner.js و modals.js انتظار دارند
+// تزریق DOM های گم‌شده
 // ═══════════════════════════════════════════════════════════════════
 const SCANNER_HTML = `
 <div id="scannerWrap" style="display:none; position:fixed; inset:0; background:#000; z-index:9999999; flex-direction:column; direction:rtl; color:#fff; font-family:inherit;">
@@ -74,7 +75,6 @@ function ensureScannerDOM() {
     if (wrap) wrap.remove();
     document.body.insertAdjacentHTML('beforeend', SCANNER_HTML);
     injected = true;
-    console.log('[RECEIVE] #scannerWrap injected');
   }
 
   if (!document.getElementById('scannerRecvStyle')) {
@@ -92,11 +92,8 @@ function ensureScannerDOM() {
   if ((injected || !wrap?.dataset?.initialized) && typeof initScannerButtons === 'function') {
     try {
       initScannerButtons();
-      console.log('[RECEIVE] initScannerButtons() re-run');
       document.getElementById('scannerWrap').dataset.initialized = '1';
-    } catch (e) {
-      console.warn('[RECEIVE] initScannerButtons failed:', e.message);
-    }
+    } catch (e) {}
   }
 }
 
@@ -105,20 +102,16 @@ function ensureModalsReady() {
   if (!document.getElementById('searchModal')) {
     document.body.insertAdjacentHTML('beforeend', SEARCH_MODAL_HTML);
     injected = true;
-    console.log('[RECEIVE] #searchModal injected');
   }
   if ((injected || !window._pickDrug) && typeof initSearchModal === 'function') {
     try {
       initSearchModal();
-      console.log('[RECEIVE] initSearchModal() re-run');
-    } catch (e) {
-      console.warn('[RECEIVE] initSearchModal failed:', e.message);
-    }
+    } catch (e) {}
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// مودال تعداد — با نمایش زنده وضعیت فاکتور/سفارش و روزهای انقضا
+// مودال تعداد
 // ═══════════════════════════════════════════════════════════════════
 async function askQtyForReceive(opts) {
   const {
@@ -320,7 +313,7 @@ async function askQtyForReceive(opts) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// مودال انتخاب فاکتور حرفه‌ای
+// مودال انتخاب فاکتور
 // ═══════════════════════════════════════════════════════════════════
 async function openInvoicePicker() {
   const overlay = document.createElement('div');
@@ -719,7 +712,12 @@ function updatePager() {
 }
 
 async function openReceiptDetail(row) {
-  const isDraft = row.status === 'draft';
+  const isDraft = !row.status || row.status === 'draft';
+  
+  // ⭐ بررسی دسترسی برای حذف نهایی
+  const role = currentUser?.user_metadata?.role || currentUser?.user_metadata?.user_role || '';
+  const canManageFinal = isAdmin || role === 'supervisor' || role === 'manager' || role === 'admin';
+
   const backdrop = document.createElement('div');
   backdrop.className = 'archive-backdrop';
   backdrop.innerHTML = `
@@ -744,8 +742,26 @@ async function openReceiptDetail(row) {
       </div>
       <div class="archive-sheet-actions" style="display:flex;flex-wrap:wrap;gap:8px;">
         <button class="btn btn-light flex-grow-1" id="recvDetailClose">بستن</button>
-        ${row.status === 'final' ? `<button class="btn btn-outline-danger flex-grow-1" id="recvDetailDiscrepancy"><i class="bi bi-exclamation-diamond"></i> گزارش مغایرت</button>` : ''}
-        ${isDraft ? `<button class="btn btn-primary flex-grow-1" id="recvEditDraft">ویرایش</button>` : ''}
+        
+        ${row.status === 'final' ? `
+          <button class="btn btn-outline-danger flex-grow-1" id="recvDetailDiscrepancy">
+            <i class="bi bi-exclamation-diamond"></i> گزارش مغایرت
+          </button>
+          ${canManageFinal ? `
+            <button class="btn btn-danger w-100 mt-2" id="recvDeleteFinal">
+              <i class="bi bi-trash"></i> حذف کامل (کسر از انبار)
+            </button>
+          ` : ''}
+        ` : ''}
+        
+        ${isDraft ? `
+          <button class="btn btn-danger w-100 mt-2" id="recvDeleteDraft">
+            <i class="bi bi-trash"></i> حذف پیش‌نویس
+          </button>
+          <button class="btn btn-primary w-100 mt-2" id="recvEditDraft">
+            <i class="bi bi-pencil"></i> ویرایش پیش‌نویس
+          </button>
+        ` : ''}
       </div>
     </div>`;
   document.body.appendChild(backdrop);
@@ -753,8 +769,77 @@ async function openReceiptDetail(row) {
   const close = () => { backdrop.classList.add('closing'); setTimeout(() => backdrop.remove(), 200); };
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
   backdrop.querySelector('#recvDetailClose').onclick = close;
-  if (isDraft) backdrop.querySelector('#recvEditDraft').onclick = () => { close(); openNewReceive(row); };
-  if (row.status === 'final') backdrop.querySelector('#recvDetailDiscrepancy').onclick = () => { close(); openDiscrepancyReport(row); };
+
+  // دکمه‌های عملیات
+  if (isDraft) {
+    backdrop.querySelector('#recvEditDraft').onclick = () => {
+      close();
+      openNewReceive(row);
+    };
+    
+    backdrop.querySelector('#recvDeleteDraft').onclick = async () => {
+      if (!confirm('آیا مطمئنید؟ این پیش‌نویس حذف خواهد شد.')) return;
+      const btn = backdrop.querySelector('#recvDeleteDraft');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال حذف...';
+      try {
+        await sb.from('drugs_receiptitem').delete().eq('receipt_id', row.id);
+        await sb.from('drugs_receipt').delete().eq('id', row.id);
+        toast('پیش‌نویس حذف شد', 'success');
+        close();
+        loadReceiptList();
+      } catch (e) {
+        toast('خطا در حذف: ' + e.message, 'danger');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-trash"></i> حذف پیش‌نویس';
+      }
+    };
+  }
+
+  if (row.status === 'final') {
+    backdrop.querySelector('#recvDetailDiscrepancy').onclick = () => {
+      close();
+      openDiscrepancyReport(row);
+    };
+    
+    if (canManageFinal) {
+      backdrop.querySelector('#recvDeleteFinal').onclick = async () => {
+        if (!confirm('⚠️ هشدار جدی: با حذف این سند نهایی، موجودی انبار کسر شده و سند برای همیشه پاک می‌شود. آیا مطمئنید؟')) return;
+        if (!confirm('آیا از حذف کامل و کسر موجودی ۱۰۰٪ مطمئن هستید؟')) return;
+        
+        const btn = backdrop.querySelector('#recvDeleteFinal');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال حذف...';
+
+        try {
+          // ۱. گرفتن اقلام برای کسر از موجودی
+          const { data: items } = await sb.from('drugs_receiptitem').select('*').eq('receipt_id', row.id);
+          
+          for (let it of items) {
+            const { data: batch } = await sb.from('drugs_drugbatch')
+              .select('id, quantity').eq('drug_id', it.drug_id).eq('batch_number', it.batch_number).maybeSingle();
+            if (batch) {
+              const newQty = Math.max(0, batch.quantity - it.received_quantity);
+              await sb.from('drugs_drugbatch').update({ quantity: newQty }).eq('id', batch.id);
+            }
+          }
+
+          // ۲. حذف کامل از دیتابیس
+          await sb.from('drugs_receiptitem').delete().eq('receipt_id', row.id);
+          await sb.from('drugs_receipt').delete().eq('id', row.id);
+          
+          toast('🗑️ سند نهایی حذف شد و موجودی کسر گردید', 'success');
+          close();
+          loadReceiptList();
+
+        } catch (err) {
+          alert('❌ خطا: ' + err.message);
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-trash"></i> حذف کامل (کسر از انبار)';
+        }
+      };
+    }
+  }
 
   try {
     const { data: items, error } = await sb.from('drugs_receiptitem')
@@ -1046,7 +1131,6 @@ async function renderFormView() {
 
   $('recvScan').onclick = async (ev) => {
     ev.preventDefault();
-    console.log('[RECEIVE] Scan clicked');
     ensureScannerDOM();
     if (typeof openScanner !== 'function') {
       toast('ماژول اسکنر در دسترس نیست', 'danger');
@@ -1054,7 +1138,6 @@ async function renderFormView() {
     }
     try {
       await openScanner(handleBarcode);
-      console.log('[RECEIVE] openScanner returned');
     } catch (e) {
       console.error('[RECEIVE] openScanner error:', e);
       toast('خطا در اسکنر: ' + (e.message || ''), 'danger');
@@ -1063,7 +1146,6 @@ async function renderFormView() {
 
   $('recvSearch').onclick = async (ev) => {
     ev.preventDefault();
-    console.log('[RECEIVE] Search clicked');
     await safeOpenDrugSearch('دارو را جستجو کنید', d => addDrug(d));
   };
 
@@ -1083,7 +1165,6 @@ async function renderFormView() {
     $('recvInvoiceBox').classList.remove('hidden');
     $('recvLinkInvoice').classList.add('hidden');
   }
-  console.log('[RECEIVE] handlers attached');
   renderList();
 }
 
@@ -1197,7 +1278,6 @@ async function saveDraft(silent = false) {
 }
 
 async function handleBarcode(raw) {
-  console.log('[RECEIVE] handleBarcode:', raw);
   try {
     const parsed = parseGS1(raw);
     if (parsed.exps && parsed.exps.length > 0) {
@@ -1231,7 +1311,6 @@ async function handleBarcode(raw) {
 }
 
 async function addDrug(drug, barcode = '', parsed = {}) {
-  console.log('[RECEIVE] addDrug:', drug.name);
   try {
     if (barcode) {
       try { await sb.from('drugs_drugbarcode').upsert({ drug_id: drug.id, gtin: barcode }, { onConflict: 'gtin' }); } catch (_) {}
@@ -1381,9 +1460,6 @@ async function finalize() {
       }
     }
 
-    console.log('✅ موفق:', successes);
-    console.log('❌ خطا:', errors);
-
     const finalizedRow = {
       id: receiptId,
       receipt_number: 'RCV-' + receiptId,
@@ -1413,4 +1489,4 @@ async function finalize() {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> ثبت نهایی'; }
     state.isFinalizing = false;
   }
-}
+  }
