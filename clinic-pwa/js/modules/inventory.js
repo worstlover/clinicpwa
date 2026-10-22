@@ -7,11 +7,14 @@ import {
 import { showScreen } from '../ui.js';
 import { isAdmin, currentUser } from '../auth.js';
 import { printA4 } from './list-print.js';
-import { getMyDjangoId } from './visit/helpers.js'; // ⭐ اضافه شد برای رفع باگ گام ۲
+import { getMyDjangoId } from './visit/helpers.js'; // ⭐ برای استفاده در گام ۲
 
 import * as SCANNER_MOD from '../scanner.js';
 import * as MODALS_MOD  from '../modals.js';
 
+// ═══════════════════════════════════════════════════════════
+// مدیریت ایمپورت‌ها و توابع امن
+// ═══════════════════════════════════════════════════════════
 function resolveExport(mod, name) {
   if (!mod) return null;
   if (typeof mod[name] === 'function') return mod[name];
@@ -162,12 +165,15 @@ async function safePromptExpirySelection(exps) {
   return null;
 }
 
+// ═══════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════
 const state = { 
   session: null, 
   currentStep: 1,
   items: [],
   reportData: null,
-  pendingDiscrepancies: null, // ⭐ تبدیل به null برای تشخیص وضعیت اولیه
+  pendingDiscrepancies: null, // ⭐ null برای تشخیص وضعیت اولیه
   recounted: new Set() // ⭐ برای جلوگیری از باگ شمارش مجدد
 };
 
@@ -184,12 +190,14 @@ const getUserName = () => {
 export function openInventory(sessionId = null) {
   ensureInventoryDOM();
   showScreen('Inventory');
+  
   if (sessionId) {
     localStorage.setItem('inv_session_id', sessionId);
     state.session = null;
     state.pendingDiscrepancies = null;
     state.recounted.clear();
   }
+  
   if (state.session) { renderStep(); return; }
   if (sessionId) { continueSession(); return; }
   initSession();
@@ -202,7 +210,7 @@ async function initSession() {
       const parsed = JSON.parse(savedData);
       if (Date.now() - parsed.timestamp < 24 * 3600 * 1000) {
         if (confirm('یک ذخیره موقت از انبارگردانی قبلی پیدا شد. بازیابی شود؟')) {
-          // ⭐ بررسی وجود جلسه در دیتابیس و باز بودن آن
+          // بررسی وجود جلسه در دیتابیس و باز بودن آن
           if (parsed.session && parsed.session.id) {
             const { data: liveSession } = await sb.from('inv_sessions').select('status').eq('id', parsed.session.id).maybeSingle();
             if (liveSession && !['completed', 'applied'].includes(liveSession.status)) {
@@ -224,7 +232,7 @@ async function initSession() {
     if (data && !['completed', 'applied'].includes(data.status)) {
       state.session = data;
       state.currentStep = data.step || 1;
-      loadSessionItems();
+      await loadSessionItems();
       return;
     }
   }
@@ -235,26 +243,62 @@ async function initSession() {
   renderStep();
 }
 
+// ⭐ اصلاح شد: جلوگیری از صفحه سیاه
 async function continueSession() {
   const id = localStorage.getItem('inv_session_id');
-  if (!id) { toast('جلسه‌ای وجود ندارد', 'warning'); return; }
-  const { data } = await sb.from('inv_sessions').select('*').eq('id', id).maybeSingle();
-  if (!data) { toast('یافت نشد', 'danger'); return; }
-  if (['completed', 'applied'].includes(data.status)) { toast('این سند بسته شده است', 'warning'); return; }
-  state.session = data;
-  state.currentStep = data.step || 1;
-  loadSessionItems();
+  if (!id) { 
+    toast('جلسه‌ای وجود ندارد', 'warning'); 
+    initSession();
+    return; 
+  }
+  
+  try {
+    const { data, error } = await sb.from('inv_sessions').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    
+    if (!data) { 
+      toast('جلسه یافت نشد', 'danger'); 
+      localStorage.removeItem('inv_session_id');
+      initSession();
+      return; 
+    }
+    
+    if (['completed', 'applied'].includes(data.status)) { 
+      toast('این سند بسته شده است', 'warning'); 
+      localStorage.removeItem('inv_session_id');
+      initSession();
+      return; 
+    }
+    
+    state.session = data;
+    state.currentStep = data.step || 1;
+    await loadSessionItems();
+    
+  } catch (err) {
+    console.error('[INV] continueSession error:', err);
+    toast('خطا در بارگذاری جلسه: ' + err.message, 'danger');
+    // در صورت خطا، یک جلسه جدید استارت می‌زنیم تا صفحه سیاه نشود
+    initSession();
+  }
 }
 
 async function loadSessionItems() {
-  const { data } = await sb.from('inv_count_items').select('*').eq('session_id', state.session.id);
-  state.items = (data || []).map(i => ({
-    drug_id: i.drug_id, drug_name: i.drug_name, drug_form: i.drug_form || '',
-    batch_number: i.batch_number, expiry_date: i.expiry_date,
-    counted_quantity: i.counted_quantity, barcode: i.barcode,
-    counted_by_email: i.counted_by_email, counted_by_name: i.counted_by_name || 'نامشخص'
-  }));
-  renderStep();
+  try {
+    const { data, error } = await sb.from('inv_count_items').select('*').eq('session_id', state.session.id);
+    if (error) throw error;
+    
+    state.items = (data || []).map(i => ({
+      drug_id: i.drug_id, drug_name: i.drug_name, drug_form: i.drug_form || '',
+      batch_number: i.batch_number, expiry_date: i.expiry_date,
+      counted_quantity: i.counted_quantity, barcode: i.barcode,
+      counted_by_email: i.counted_by_email, counted_by_name: i.counted_by_name || 'نامشخص'
+    }));
+    renderStep();
+  } catch (err) {
+    console.error('[INV] loadSessionItems error:', err);
+    toast('خطا در دریافت اقلام: ' + err.message, 'danger');
+    renderStep(); // در هر صورت صفحه را رندر کن تا خالی نماند
+  }
 }
 
 async function saveStep(step) {
@@ -290,7 +334,7 @@ setInterval(() => {
   }
 }, 5000);
 
-// ⭐ تابع مشترک محاسبه مغایرت‌ها برای جلوگیری از کوئری‌های تکراری
+// ⭐ تابع مشترک محاسبه مغایرت‌ها
 async function computeDiscrepancies() {
   const ids = [...new Set(state.items.map(i => i.drug_id))];
   if (!ids.length) return [];
@@ -332,7 +376,7 @@ function downloadCSV(data, filename) {
 
 function renderStep() {
   const c = $('invContent');
-  if (!c) { toast('صفحه انبارگردانی بارگذاری نشد', 'danger'); return; } // ⭐ رفع return بی‌صدا
+  if (!c) { toast('صفحه انبارگردانی بارگذاری نشد', 'danger'); return; }
   
   const steps = [
     { id: 1, title: 'دریافتی‌ها ۱', icon: 'bi-file-earmark-text' },
@@ -461,7 +505,6 @@ async function renderStep2_Visits() {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال پردازش...';
 
-    // ⭐ فراخوانی RPC امن به جای کد سمت کلاینت
     const { error } = await sb.rpc('complete_pending_visits_bulk');
     
     if (error) {
@@ -481,7 +524,6 @@ async function renderStep4_Expired() {
   c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
   
   const today = new Date().toISOString().slice(0, 10);
-  // ⭐ اضافه شدن drug_id به select
   const { data: expired } = await sb.from('drugs_drugbatch')
     .select('id, batch_number, expiry_date, quantity, drug_id, drug:drugs_drug(id, name)')
     .lt('expiry_date', today).gt('quantity', 0);
@@ -651,7 +693,6 @@ async function handleBarcode(raw) {
   const gtin = cleanGTIN(parsed.gtin);
   if (!gtin) { toast('بارکد نامعتبر', 'warning'); return; }
 
-  // ⭐ استفاده از limit(1) به جای maybeSingle برای جلوگیری از خطای دو ردیفی
   const { data: rows } = await sb.from('drugs_drugbarcode')
     .select('drug:drugs_drug(id, name, form)')
     .in('gtin', [gtin, gtin.padStart(14, '0')])
@@ -705,7 +746,7 @@ async function renderStep6_Discrepancies() {
   c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
   
   try {
-    state.pendingDiscrepancies = await computeDiscrepancies(); // ⭐ استفاده از تابع مشترک
+    state.pendingDiscrepancies = await computeDiscrepancies();
   } catch (e) {
     c.innerHTML = `<div class="alert alert-danger">خطا در بررسی مغایرت‌ها: ${escapeHtml(e.message)}</div>`;
     return;
@@ -731,7 +772,7 @@ async function renderStep7_Recount() {
   if (state.pendingDiscrepancies == null) {
     state.pendingDiscrepancies = await computeDiscrepancies();
   }
-  state.recounted.clear(); // ⭐ ریست کردن حافظه شمارش مجدد
+  state.recounted.clear();
 
   $('stepContent').innerHTML = `
     <div class="alert alert-warning small">
@@ -927,7 +968,7 @@ async function renderStep8_Report() {
       if (error) { 
         alert(error.message); 
         btn.disabled = false; 
-        btn.innerHTML = originalHtml; // ⭐ برگرداندن متن دکمه در صورت خطا
+        btn.innerHTML = originalHtml;
         return; 
       }
       
@@ -941,4 +982,4 @@ async function renderStep8_Report() {
       }, 1500);
     };
   }
-  }
+}
