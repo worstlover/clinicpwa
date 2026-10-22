@@ -1,6 +1,6 @@
 // js/modules/inventory-list.js
 import { sb } from '../sb.js';
-import { faNum, escapeHtml, gregorianToJalali, toast } from '../utils.js';
+import { faNum, escapeHtml, gregorianToJalali, jalaliToGregorian, faToEn, toast } from '../utils.js';
 import { printA4 } from './list-print.js';
 import { currentUser, isAdmin } from '../auth.js';
 
@@ -126,7 +126,17 @@ async function loadRows() {
       .order('id', { ascending: false });
 
     if (state.query) {
-      q = q.or(`code.ilike.%${state.query}%,title.ilike.%${state.query}%`);
+      const safeQuery = state.query.replace(/[,()%*]/g, ' ');
+      q = q.or(`code.ilike.%${safeQuery}%,title.ilike.%${safeQuery}%`);
+    }
+
+    if (state.dateFrom) {
+      const gFrom = jalaliToGregorian(faToEn(state.dateFrom));
+      if (gFrom) q = q.gte('created_at', gFrom + 'T00:00:00');
+    }
+    if (state.dateTo) {
+      const gTo = jalaliToGregorian(faToEn(state.dateTo));
+      if (gTo) q = q.lte('created_at', gTo + 'T23:59:59');
     }
 
     const from = (state.page - 1) * PAGE_SIZE;
@@ -162,14 +172,7 @@ async function loadRows() {
     renderRows();
   } catch (e) {
     console.error('[INV-LIST] load error:', e);
-    body.innerHTML = `
-      <div class="alert alert-danger m-3">
-        <i class="bi bi-exclamation-triangle"></i>
-        خواندن لیست ناموفق بود: ${escapeHtml(e.message || 'خطای نامشخص')}
-        <button class="btn btn-sm btn-outline-danger mt-2 d-block" id="invListRetry">تلاش مجدد</button>
-      </div>`;
-    const retry = body.querySelector('#invListRetry');
-    if (retry) retry.onclick = loadRows;
+    body.innerHTML = `<div class="alert alert-danger m-3">خطا: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -183,34 +186,24 @@ function renderRows() {
 
   body.innerHTML = state.rows.map(r => {
     const isClosed = ['completed', 'applied'].includes(r.status);
-    const st = r.status === 'applied' ? { cls: 'bg-success', label: 'بسته شده (اعمال شده)' }
-            : r.status === 'completed' ? { cls: 'bg-info text-white', label: 'بسته شده (ثبت شده)' }
-            : { cls: 'bg-warning text-dark', label: 'باز - در حال انجام' };
-            
-    const disc = r._disc > 0
-      ? `<span class="badge bg-warning text-dark">${faNum(r._disc)} مغایرت</span>`
-      : `<span class="badge bg-success">بدون مغایرت</span>`;
-
-    const lastEditTime = r.updated_at || r.created_at;
-    const timeStr = lastEditTime ? new Date(lastEditTime).toLocaleString('fa-IR') : 'نامشخص';
     
-    const editorName = r.updated_by_name || r.created_by_name || r.updated_by_email || r.created_by_email || 'نامشخص';
-    const createDateStr = r.created_at ? gregorianToJalali(r.created_at.slice(0, 10)) : 'نامشخص';
-
-    const itemsSummary = r._lastItems.length > 0 
-      ? r._lastItems.map(i => `
-          <div class="small text-muted d-flex justify-content-between align-items-center mb-1">
-            <span>• ${escapeHtml(i.drug_name)} (${faNum(i.counted_quantity)} عدد)</span>
-            ${i.counted_by_name ? `<span class="badge bg-secondary" style="font-size:0.65rem;">${escapeHtml(i.counted_by_name)}</span>` : ''}
-          </div>
-        `).join('')
-      : '<div class="small text-muted">قلمی ثبت نشده</div>';
-
-    const deleteBtn = canDelete() ? `
+    const deleteBtn = (canDelete() && r.status !== 'applied') ? `
       <button class="btn btn-sm btn-outline-danger mt-2 w-100" data-delete="${r.id}" onclick="event.stopPropagation();">
         <i class="bi bi-trash"></i> حذف این سند
       </button>
     ` : '';
+
+    const disc = r._disc > 0 ? `<span class="badge bg-warning text-dark">${faNum(r._disc)} مغایرت</span>` : `<span class="badge bg-success">بدون مغایرت</span>`;
+    const itemsSummary = r._lastItems.length > 0 
+      ? r._lastItems.map(i => `<div class="small text-muted d-flex justify-content-between align-items-center mb-1"><span>• ${escapeHtml(i.drug_name)} (${faNum(i.counted_quantity)})</span></div>`).join('')
+      : '<div class="small text-muted">قلمی ثبت نشده</div>';
+
+    const st = r.status === 'applied' ? { cls: 'bg-success', label: 'بسته شده (اعمال شده)' }
+            : r.status === 'completed' ? { cls: 'bg-info text-white', label: 'بسته شده (ثبت شده)' }
+            : { cls: 'bg-warning text-dark', label: 'باز - در حال انجام' };
+
+    const editorName = r.updated_by_name || r.created_by_name || r.updated_by_email || r.created_by_email || 'نامشخص';
+    const timeStr = r.updated_at || r.created_at ? new Date(r.updated_at || r.created_at).toLocaleString('fa-IR') : 'نامشخص';
 
     return `
       <div class="list-row" style="cursor: pointer;" data-id="${r.id}">
@@ -219,38 +212,17 @@ function renderRows() {
           <span class="badge ${st.cls}">${st.label}</span>
         </div>
         <div class="list-row-body">
-          <div class="small fw-bold"><i class="bi bi-card-text text-muted"></i>
-            <span class="ms-1">${escapeHtml(r.title || 'بدون عنوان')}</span>
-          </div>
-          
-          <div class="small text-muted mt-1">
-            <i class="bi bi-clock-history"></i> آخرین تغییر: <bdi dir="ltr">${timeStr}</bdi> توسط: ${escapeHtml(editorName)}
-          </div>
-          
-          <div class="small text-muted mt-1">
-            <i class="bi bi-calendar3"></i> ایجاد: <bdi dir="ltr">${createDateStr}</bdi>
-            <span class="mx-2">•</span>
-            <i class="bi bi-list-check"></i> ${faNum(r._items || 0)} قلم
-          </div>
-
-          <div class="mt-2 bg-light p-2 rounded border" style="font-size: 0.8rem;">
-            <div class="fw-bold mb-1 text-secondary">۳ قلم آخر:</div>
-            ${itemsSummary}
-          </div>
-
-          <div class="mt-2 d-flex justify-content-between align-items-center">
-            ${disc}
-            ${deleteBtn}
-          </div>
+          <div class="small fw-bold"><i class="bi bi-card-text text-muted"></i> <span class="ms-1">${escapeHtml(r.title || 'بدون عنوان')}</span></div>
+          <div class="small text-muted mt-1"><i class="bi bi-clock-history"></i> آخرین تغییر: <bdi dir="ltr">${timeStr}</bdi> توسط: ${escapeHtml(editorName)}</div>
+          <div class="mt-2 bg-light p-2 rounded border" style="font-size: 0.8rem;"><div class="fw-bold mb-1 text-secondary">۳ قلم آخر:</div>${itemsSummary}</div>
+          <div class="mt-2 d-flex justify-content-between align-items-center">${disc}${deleteBtn}</div>
         </div>
       </div>`;
   }).join('');
 
-  // ⬅️ باز کردن مدال جزئیات با کلیک روی ردیف
   body.querySelectorAll('.list-row').forEach(el => {
     el.onclick = () => {
-      const sessionId = el.dataset.id;
-      const row = state.rows.find(x => String(x.id) === sessionId);
+      const row = state.rows.find(x => String(x.id) === el.dataset.id);
       if (row) openDetailModal(row);
     };
   });
@@ -260,20 +232,33 @@ function renderRows() {
       e.stopPropagation();
       const id = btn.dataset.delete;
       if (!confirm('آیا مطمئنید؟ تمام اقلام و مغایرت‌های این سند نیز حذف خواهند شد.')) return;
+      btn.disabled = true;
       try {
-        await sb.from('inv_count_items').delete().eq('session_id', id);
-        await sb.from('inv_discrepancies').delete().eq('session_id', id);
-        await sb.from('inv_sessions').delete().eq('id', id);
+        const { error: e1 } = await sb.from('inv_count_items').delete().eq('session_id', id);
+        if (e1) throw e1;
+        const { error: e2 } = await sb.from('inv_discrepancies').delete().eq('session_id', id);
+        if (e2) throw e2;
+        const { error: e3 } = await sb.from('inv_sessions').delete().eq('id', id);
+        if (e3) throw e3;
+
+        if (localStorage.getItem('inv_session_id') === String(id)) {
+          localStorage.removeItem('inv_session_id');
+          localStorage.removeItem('inv_autosave_data');
+        }
+        
         toast('سند با موفقیت حذف شد', 'success');
         loadRows();
-      } catch (err) { toast('خطا در حذف: ' + err.message, 'danger'); }
+      } catch (err) { 
+        toast('خطا در حذف: ' + err.message, 'danger'); 
+        btn.disabled = false;
+      }
     };
   });
 
   updatePager();
 }
 
-// ⬅️ تابع جدید برای نمایش جزئیات و چاپ
+// ⭐ اصلاح کامل: z-index و هدایت به صفحه بعد
 async function openDetailModal(row) {
   const modalId = 'invDetailModal';
   document.getElementById(modalId)?.remove();
@@ -281,11 +266,11 @@ async function openDetailModal(row) {
   const isClosed = ['completed', 'applied'].includes(row.status);
 
   const html = `
-    <div class="modal fade" id="${modalId}" tabindex="-1" data-bs-backdrop="static">
-      <div class="modal-dialog modal-dialog-scrollable modal-lg">
+    <div class="modal fade" id="${modalId}" tabindex="-1" data-bs-backdrop="static" style="z-index: 10000;">
+      <div class="modal-dialog modal-dialog-scrollable modal-lg" style="z-index: 10001;">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title"><i class="bi bi-list-ul"></i> جزئیات سند ${row.code}</h5>
+            <h5 class="modal-title"><i class="bi bi-list-ul"></i> جزئیات سند ${escapeHtml(row.code)}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body" id="invDetailBody">
@@ -306,14 +291,65 @@ async function openDetailModal(row) {
   document.body.insertAdjacentHTML('beforeend', html);
   const modalEl = document.getElementById(modalId);
   const modal = new bootstrap.Modal(modalEl);
+  
+  modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove(), { once: true });
+  
+  const body = modalEl.querySelector('#invDetailBody');
+  const safeJalali = d => { try { return d ? gregorianToJalali(d) : '-'; } catch { return d || '-'; } };
+  let items = [];
+
+  // ⭐ اتصال دکمه‌ها قبل از await
+  modalEl.querySelector('#btnPrintDetail').onclick = () => {
+    if (!items.length) { toast('قلمی برای چاپ نیست', 'warning'); return; }
+    printA4({
+      title: `سند انبارگردانی ${row.code}`,
+      subtitle: row.title,
+      primaryColor: '#0d6efd',
+      headerMeta: { date: safeJalali(new Date().toISOString().slice(0, 10)), status: row.status },
+      columns: [
+        { label: '#', formatter: (r, i) => faNum(i + 1) },
+        { label: 'نام دارو', key: 'drug_name', align: 'right' },
+        { label: 'بچ', key: 'batch_number' },
+        { label: 'انقضا', formatter: r => safeJalali(r.expiry_date) },
+        { label: 'تعداد', formatter: r => faNum(r.counted_quantity) },
+        { label: 'شمارش‌کننده', formatter: r => r.counted_by_name || 'نامشخص' }
+      ],
+      rows: items,
+      signatures: ['شمارش‌کننده', 'مدیر انبار']
+    });
+  };
+
+  if (!isClosed) {
+    modalEl.querySelector('#btnContinueDetail').onclick = () => {
+      // ۱. بستن مودال
+      modal.hide();
+      
+      // ۲. حذف لیست از پس‌زمینه
+      const listWrap = document.getElementById('invListWrap');
+      if (listWrap) listWrap.classList.remove('active');
+      document.body.style.overflow = '';
+      
+      // ۳. صبر کردن تا انیمیشن‌ها تمام شوند و سپس باز کردن صفحه انبارگردانی
+      setTimeout(() => {
+        import('./inventory.js')
+          .then(m => m.openInventory(row.id))
+          .catch(e => {
+            console.error(e);
+            toast('خطا در باز کردن انبارگردانی: ' + e.message, 'danger');
+          });
+      }, 350);
+    };
+  }
+
   modal.show();
 
-  const body = modalEl.querySelector('#invDetailBody');
-  
   try {
-    const { data: items } = await sb.from('inv_count_items').select('*').eq('session_id', row.id).order('created_at', { ascending: true });
+    const { data, error } = await sb.from('inv_count_items').select('*').eq('session_id', row.id).order('created_at', { ascending: true });
+    if (error) throw error;
     
-    if (!items || !items.length) {
+    items = data || [];
+    
+    if (!items.length) {
       body.innerHTML = '<div class="alert alert-info text-center">هیچ دارویی در این جلسه شمارش نشده است.</div>';
     } else {
       body.innerHTML = `
@@ -334,7 +370,7 @@ async function openDetailModal(row) {
                 <td>${faNum(idx + 1)}</td>
                 <td class="text-end">${escapeHtml(it.drug_name)}</td>
                 <td><code dir="ltr">${escapeHtml(it.batch_number || '-')}</code></td>
-                <td>${escapeHtml(gregorianToJalali(it.expiry_date))}</td>
+                <td>${safeJalali(it.expiry_date)}</td>
                 <td class="fw-bold text-primary">${faNum(it.counted_quantity)}</td>
                 <td><span class="badge bg-secondary">${escapeHtml(it.counted_by_name || 'نامشخص')}</span></td>
               </tr>
@@ -343,38 +379,6 @@ async function openDetailModal(row) {
         </table>
       `;
     }
-
-    // دکمه چاپ
-    modalEl.querySelector('#btnPrintDetail').onclick = () => {
-      printA4({
-        title: `سند انبارگردانی ${row.code}`,
-        subtitle: row.title,
-        primaryColor: '#0d6efd',
-        headerMeta: { date: gregorianToJalali(new Date().toISOString().slice(0, 10)), status: row.status },
-        columns: [
-          { label: '#', formatter: (r, i) => faNum(i + 1) },
-          { label: 'نام دارو', key: 'drug_name', align: 'right' },
-          { label: 'بچ', key: 'batch_number' },
-          { label: 'انقضا', formatter: r => gregorianToJalali(r.expiry_date) },
-          { label: 'تعداد', formatter: r => faNum(r.counted_quantity) },
-          { label: 'شمارش‌کننده', formatter: r => r.counted_by_name || 'نامشخص' }
-        ],
-        rows: items || [],
-        signatures: ['شمارش‌کننده', 'مدیر انبار']
-      });
-    };
-
-    // دکمه ادامه
-    if (!isClosed) {
-      modalEl.querySelector('#btnContinueDetail').onclick = () => {
-        modal.hide();
-        setTimeout(() => modalEl.remove(), 300);
-        document.getElementById('invListWrap').classList.remove('active');
-        document.body.style.overflow = '';
-        import('./inventory.js').then(m => m.openInventory(row.id));
-      };
-    }
-
   } catch (err) {
     body.innerHTML = `<div class="alert alert-danger">خطا در دریافت اطلاعات: ${escapeHtml(err.message)}</div>`;
   }
@@ -388,17 +392,11 @@ function updatePager() {
 
 async function printList() {
   if (!state.rows.length) { toast('لیست خالی است', 'warning'); return; }
-
-  const dateStr = gregorianToJalali(new Date().toISOString().slice(0, 10));
-
   printA4({
     title: 'لیست سندهای انبارگردانی',
     subtitle: 'انبار دارو و ملزومات پزشکی',
     primaryColor: '#0d6efd',
-    headerMeta: {
-      date: dateStr,
-      status: `تعداد: ${faNum(state.rows.length)} سند`,
-    },
+    headerMeta: { date: gregorianToJalali(new Date().toISOString().slice(0, 10)), status: `تعداد: ${faNum(state.rows.length)} سند` },
     columns: [
       { label: '#', formatter: (r, i) => faNum(i + 1) },
       { label: 'کد سند', key: 'code', cls: 'fw-bold' },
@@ -406,12 +404,7 @@ async function printList() {
       { label: 'تاریخ', formatter: (r) => r.created_at ? escapeHtml(gregorianToJalali(r.created_at.slice(0, 10))) : 'نامشخص' },
       { label: 'اقلام', formatter: (r) => faNum(r._items || 0) },
       { label: 'مغایرت', formatter: (r) => r._disc ? `${faNum(r._disc)} قلم` : 'ندارد' },
-      {
-        label: 'وضعیت',
-        formatter: (r) => r.status === 'applied' ? 'اعمال شده'
-                       : r.status === 'completed' ? 'ثبت‌شده'
-                       : 'در جریان',
-      },
+      { label: 'وضعیت', formatter: (r) => r.status === 'applied' ? 'اعمال شده' : r.status === 'completed' ? 'ثبت‌شده' : 'در جریان' },
     ],
     rows: state.rows,
     signatures: ['ثبت‌کننده', 'تأییدکننده', 'مدیر انبار'],
