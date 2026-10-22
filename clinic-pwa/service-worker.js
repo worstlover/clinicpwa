@@ -1,7 +1,7 @@
-// js/service-worker.js
+// service-worker.js
 
 // ═══════════════════════════════════════════════════════
-// ۱. راه‌اندازی Firebase Messaging (برای نوتیفیکیشن‌های پس‌زمینه)
+// ۱. راه‌اندازی Firebase Messaging
 // ═══════════════════════════════════════════════════════
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
@@ -17,7 +17,7 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// جلوگیری از نمایش نوتیفیکیشن تکراری (اختیاری اما مفید)
+// جلوگیری از نمایش پیام تکراری
 const recentNotifications = new Set();
 function isDuplicate(payload) {
   const key = payload.messageId || (payload.notification && payload.notification.title + payload.notification.body);
@@ -28,8 +28,9 @@ function isDuplicate(payload) {
   return false;
 }
 
+// دریافت پیام در پس‌زمینه
 messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Received background message ', payload);
+  console.log('[service-worker.js] Received background message ', payload);
   if (isDuplicate(payload)) return;
 
   const notificationTitle = payload.notification?.title || 'پیام جدید';
@@ -45,17 +46,16 @@ messaging.onBackgroundMessage((payload) => {
   self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
+// کلیک روی نوتیفیکیشن
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // اگر اپ باز است، فوکوس کن
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
           return client.focus();
         }
       }
-      // اگر باز نیست، باز کن
       if (clients.openWindow) {
         return clients.openWindow('/');
       }
@@ -65,59 +65,93 @@ self.addEventListener('notificationclick', (event) => {
 
 
 // ═══════════════════════════════════════════════════════
-// ۲. کدهای PWA Caching (کدهای قبلی خودتان)
+// ۲. کدهای PWA Caching (دقیقاً مطابق نسخه قبلی شما)
+// ⚠️ این متغیرها توسط build.mjs پر می‌شوند.
 // ═══════════════════════════════════════════════════════
-const CACHE_NAME = 'clinic-pwa-v1'; // نسخه کش خود را اینجا تنظیم کنید
-const ASSETS = self.__ASSETS__ || []; // لیست فایل‌های شما (توسط build تولید می‌شود)
+const CACHE = 'clinic-drugs-__BUILD__';
+const ASSETS = __ASSETS__;
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS);
-    }).then(() => self.skipWaiting())
-  );
+// ═══════════════════════════════════════════════════════
+// نصب
+// ═══════════════════════════════════════════════════════
+self.addEventListener('install', e => {
+  self.skipWaiting();
+  e.waitUntil((async () => {
+    const c = await caches.open(CACHE);
+    for (const u of ASSETS) {
+      try {
+        const res = await fetch(u, { cache: 'no-cache' });
+        if (res && res.ok) await c.put(u, res);
+      } catch {}
+    }
+  })());
 });
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
-  );
+// ═══════════════════════════════════════════════════════
+// فعال‌سازی
+// ═══════════════════════════════════════════════════════
+self.addEventListener('activate', e => {
+  e.waitUntil((async () => {
+    // پاک کردن همه کش‌های قدیمی
+    const keys = await caches.keys();
+    await Promise.all(
+      keys.filter(k => k !== CACHE).map(k => caches.delete(k))
+    );
+    await self.clients.claim();
+  })());
 });
 
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+// ═══════════════════════════════════════════════════════
+// fetch
+// ═══════════════════════════════════════════════════════
+self.addEventListener('fetch', e => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
 
-  // ⭐ درخواست‌های خارجی (مثل Supabase یا گوگل) را کش نکن
-  if (url.origin !== location.origin) {
+  const url = new URL(req.url);
+  if (url.origin !== location.origin) return;
+
+  if (req.mode === 'navigate') {
+    e.respondWith((async () => {
+      try {
+        return await fetch(req);
+      } catch {
+        const cached = await caches.match('./')
+                    || await caches.match('./index.html')
+                    || await caches.match('./offline.html');
+        if (cached) return cached;
+        return new Response('<h1>آفلاین</h1>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      }
+    })());
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
+  e.respondWith((async () => {
+    try {
+      const res = await fetch(req);
+      if (res && res.ok) {
+        const clone = res.clone();
+        caches.open(CACHE).then(c => c.put(req, clone)).catch(() => {});
       }
-      return fetch(event.request).then((networkResponse) => {
-        // فایل‌های جدید را کش کن
-        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-        }
-        return networkResponse;
-      }).catch(() => {
-        // اگر آفلاین بودیم و فایل در کش نبود
-        // می‌توانید اینجا یک صفحه offline.html برگردانید
+      return res;
+    } catch {
+      const cached = await caches.match(req);
+      if (cached) return cached;
+      return new Response('/* offline: ' + url.pathname + ' */', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
       });
-    })
-  );
+    }
+  })());
+});
+
+// پیام از کلاینت
+self.addEventListener('message', e => {
+  if (e.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  if (e.data?.type === 'CLEAR_CACHE') {
+    caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+  }
 });
