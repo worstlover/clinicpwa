@@ -1078,24 +1078,25 @@ function openQuickPatientModal() {
 }
 
 // ═══════════════════════════════════════════════════════
-// مودال تکمیل کد ملی
+// مودال تکمیل کد ملی (اصلاح شده با اعتبارسنجی دقیق)
 // ═══════════════════════════════════════════════════════
 function openNationalCodeFixModal(patient) {
   const existing = $('fixNationalCodeModal');
   if (existing) existing.remove();
 
   const fullName = `${patient.first_name || ''} ${patient.last_name || ''}`.trim();
+  
+  // استفاده از data-bs-backdrop="static" برای جلوگیری از بسته شدن با کلیک بیرون
   const modalHtml = `
-    <div class="modal fade" id="fixNationalCodeModal" tabindex="-1">
+    <div class="modal fade" id="fixNationalCodeModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header" style="background:#fef3c7;">
-            <h5 class="modal-title" style="color:#92400e;">⚠️ تکمیل اطلاعات هویتی</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            <h5 class="modal-title" style="color:#92400e;">⚠️ تکمیل اطلاعات هویتی الزامی</h5>
           </div>
           <div class="modal-body">
             <p class="text-muted small mb-3">
-              این بیمار قبلاً بدون کد ملی ثبت شده است. برای ثبت ویزیت جدید، ابتدا کد ملی یا شماره پاسپورت را وارد کنید.
+              برای ثبت ویزیت، ابتدا باید کد ملی (۱۰ رقم) یا شماره پاسپورت بیمار را ثبت کنید.
             </p>
             <div class="mb-2">
               <label class="form-label small">نام بیمار</label>
@@ -1103,16 +1104,17 @@ function openNationalCodeFixModal(patient) {
             </div>
             <div class="mb-2">
               <label class="form-label small">کد ملی (۱۰ رقم) *</label>
-              <input type="text" id="fixNationalCode" class="form-control" inputmode="numeric" dir="ltr" placeholder="مثال: 1234567890">
+              <input type="text" id="fixNationalCode" class="form-control" inputmode="numeric" dir="ltr" placeholder="مثال: 1234567890" maxlength="10">
             </div>
+            <div class="mb-2 text-center text-muted small">— یا —</div>
             <div class="mb-2">
-              <label class="form-label small">یا شماره پاسپورت</label>
+              <label class="form-label small">شماره پاسپورت (برای اتباع خارجی)</label>
               <input type="text" id="fixPassportNumber" class="form-control" dir="ltr" placeholder="مثال: X1234567">
             </div>
             <div id="fixError" class="text-danger small mt-2" style="min-height:18px;"></div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">انصراف</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="btnCancelFix">انصراف</button>
             <button type="button" class="btn btn-primary" id="btnSaveFix">ذخیره و ادامه</button>
           </div>
         </div>
@@ -1123,7 +1125,14 @@ function openNationalCodeFixModal(patient) {
   const modalEl = $('fixNationalCodeModal');
   const modal = new bootstrap.Modal(modalEl);
   modal.show();
-  modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
+  
+  modalEl.addEventListener('hidden.bs.modal', () => {
+    modalEl.remove();
+    // اگر کاربر انصراف داد و بیمار انتخاب نشده، صفحه را رفرش کن تا در مرحله ۱ بماند
+    if (!state.patientId) {
+      renderWizard();
+    }
+  });
 
   $('btnSaveFix').onclick = async () => {
     const nc = faToEn($('fixNationalCode').value.trim());
@@ -1131,11 +1140,23 @@ function openNationalCodeFixModal(patient) {
     const errEl = $('fixError');
     errEl.textContent = '';
 
-    if (!nc && !pp) { errEl.textContent = '❌ کد ملی یا شماره پاسپورت الزامی است.'; return; }
-    if (nc && (nc.length !== 10 || !/^\d+$/.test(nc))) { errEl.textContent = '❌ کد ملی باید ۱۰ رقم عددی باشد.'; return; }
+    if (!nc && !pp) { errEl.textContent = '❌ وارد کردن کد ملی یا شماره پاسپورت الزامی است.'; return; }
+    
     if (nc) {
+      // اعتبارسنجی ۱۰ رقم برای کد ملی ایران
+      if (nc.length !== 10 || !/^\d+$/.test(nc)) { 
+        errEl.textContent = '❌ کد ملی باید دقیقاً ۱۰ رقم عددی باشد.'; 
+        return; 
+      }
+      
+      // چک تکراری نبودن کد ملی
       const { data: dup } = await sb.from('core_patient').select('id').eq('national_code', nc).neq('id', patient.id).limit(1);
       if (dup?.length) { errEl.textContent = '❌ این کد ملی قبلاً برای بیمار دیگری ثبت شده است.'; return; }
+    }
+
+    if (pp && pp.length < 5) {
+      errEl.textContent = '❌ شماره پاسپورت معتبر نیست (حداقل ۵ کاراکتر).'; 
+      return;
     }
 
     const btn = $('btnSaveFix');
@@ -1151,18 +1172,20 @@ function openNationalCodeFixModal(patient) {
       const { error } = await sb.from('core_patient').update(update).eq('id', patient.id);
       if (error) throw error;
 
-      toast('✅ اطلاعات هویتی به‌روز شد', 'success');
+      toast('✅ اطلاعات هویتی با موفقیت ذخیره شد', 'success');
       beep();
       modal.hide();
 
+      // هدایت به مرحله ۲
       state.patientId = patient.id;
-      state.patientName = `${patient.first_name || ''} ${patient.last_name || ''}`.trim();
+      state.patientName = fullName;
       
       await loadPatientHistory(patient.id);
       
       state.step = 2;
       if (state.step > state.maxStep) state.maxStep = state.step;
       renderWizard();
+      
     } catch (e) {
       console.error(e);
       errEl.textContent = '❌ ' + (e.message || 'خطا در ذخیره');
@@ -1233,15 +1256,17 @@ async function searchPatients(q) {
 
 async function pickPatient(id, name, nationalCode, passportNumber) {
   if (!id) return;
+  
   const hasNational = (nationalCode || '').trim();
   const hasPassport = (passportNumber || '').trim();
 
+  // ⛔ اگر بیمار کد ملی و پاسپورت ندارد، متوقف شو و مودال را باز کن
   if (!hasNational && !hasPassport) {
     sb.from('core_patient').select('*').eq('id', id).single().then(({ data }) => {
       if (data) openNationalCodeFixModal(data);
       else toast('بیمار یافت نشد', 'danger');
     });
-    return;
+    return; 
   }
 
   state.patientId = id;
