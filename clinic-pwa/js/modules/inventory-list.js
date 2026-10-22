@@ -149,7 +149,8 @@ async function loadRows() {
 
     if (state.rows.length) {
       const ids = state.rows.map(r => r.id);
-      const { data: items } = await sb.from('inv_count_items').select('session_id, drug_name, counted_quantity, counted_by_name, created_at').in('session_id', ids).order('created_at', { ascending: false });
+      // ⭐ حذف created_at از سلکت و استفاده از id برای مرتب‌سازی
+      const { data: items } = await sb.from('inv_count_items').select('session_id, drug_name, counted_quantity, counted_by_name').in('session_id', ids);
       const { data: disc }  = await sb.from('inv_discrepancies').select('session_id').in('session_id', ids);
 
       const itemCount = {}, discCount = {}, lastItems = {};
@@ -258,7 +259,6 @@ function renderRows() {
   updatePager();
 }
 
-// ⭐ اصلاح کامل: z-index و هدایت به صفحه بعد
 async function openDetailModal(row) {
   const modalId = 'invDetailModal';
   document.getElementById(modalId)?.remove();
@@ -298,7 +298,6 @@ async function openDetailModal(row) {
   const safeJalali = d => { try { return d ? gregorianToJalali(d) : '-'; } catch { return d || '-'; } };
   let items = [];
 
-  // ⭐ اتصال دکمه‌ها قبل از await
   modalEl.querySelector('#btnPrintDetail').onclick = () => {
     if (!items.length) { toast('قلمی برای چاپ نیست', 'warning'); return; }
     printA4({
@@ -321,15 +320,11 @@ async function openDetailModal(row) {
 
   if (!isClosed) {
     modalEl.querySelector('#btnContinueDetail').onclick = () => {
-      // ۱. بستن مودال
       modal.hide();
-      
-      // ۲. حذف لیست از پس‌زمینه
       const listWrap = document.getElementById('invListWrap');
       if (listWrap) listWrap.classList.remove('active');
       document.body.style.overflow = '';
       
-      // ۳. صبر کردن تا انیمیشن‌ها تمام شوند و سپس باز کردن صفحه انبارگردانی
       setTimeout(() => {
         import('./inventory.js')
           .then(m => m.openInventory(row.id))
@@ -344,7 +339,8 @@ async function openDetailModal(row) {
   modal.show();
 
   try {
-    const { data, error } = await sb.from('inv_count_items').select('*').eq('session_id', row.id).order('created_at', { ascending: true });
+    // ⭐ حذف created_at از کوئری و مرتب‌سازی بر اساس drug_name
+    const { data, error } = await sb.from('inv_count_items').select('*').eq('session_id', row.id).order('drug_name', { ascending: true });
     if (error) throw error;
     
     items = data || [];
