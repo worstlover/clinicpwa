@@ -1,15 +1,70 @@
 // js/modules/visit/list.js
 import { sb } from '../../sb.js';
-import { $, faNum, escapeHtml, gregorianToJalali, toast, beep } from '../../utils.js';
+import { $, faNum, escapeHtml, gregorianToJalali, jalaliToGregorian, toast, beep } from '../../utils.js';
 import { state, loadUserMapFromVisits } from './state.js';
 import { getMyDjangoId, isSuperuser, isSafetyOrSupervisor, getUserName, getTimeStr, getIncLabel } from './helpers.js';
 import { openCreate } from './create.js';
 import { openForm } from '../../forms/engine.js';
-import { logChange } from './changelog.js'; // ⭐ برای ثبت لاگ تکمیل
+import { logChange } from './changelog.js';
+
+// ═══════════════════════════════════════════════════════
+// متغیرهای نگهدارنده فیلترها (برای حفظ مقادیر بین رندرها)
+// ═══════════════════════════════════════════════════════
+let listFilters = {
+  search: '',
+  dateFrom: '',
+  dateTo: '',
+  incidentType: 'all',
+  creatorId: 'all'
+};
+let creatorsLoaded = false;
 
 export async function renderList() {
   const c = $('visitContent');
   c.innerHTML = `
+    <!-- فیلترها -->
+    <div class="card mb-3">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="small fw-bold text-muted"><i class="bi bi-funnel"></i> فیلتر و جستجو</span>
+          <button class="btn btn-sm btn-outline-secondary py-0" id="vToggleFilters" style="font-size:0.75rem;">نمایش/مخفی</button>
+        </div>
+        
+        <div id="vFilterBody" style="display: block;">
+          <div class="row g-2">
+            <div class="col-12">
+              <input type="text" id="vListSearch" class="form-control form-control-sm" placeholder="جستجوی نام، کد ملی یا پرسنلی..." value="${escapeHtml(listFilters.search)}">
+            </div>
+            <div class="col-6">
+              <input type="text" id="vListDateFrom" class="form-control form-control-sm text-center" placeholder="از تاریخ (شمسی)" dir="ltr" value="${escapeHtml(listFilters.dateFrom)}" autocomplete="off">
+            </div>
+            <div class="col-6">
+              <input type="text" id="vListDateTo" class="form-control form-control-sm text-center" placeholder="تا تاریخ (شمسی)" dir="ltr" value="${escapeHtml(listFilters.dateTo)}" autocomplete="off">
+            </div>
+            <div class="col-6">
+              <select id="vListIncident" class="form-select form-select-sm">
+                <option value="all">همه وضعیت‌ها</option>
+                <option value="none" ${listFilters.incidentType === 'none' ? 'selected' : ''}>بدون حادثه</option>
+                <option value="near_miss" ${listFilters.incidentType === 'near_miss' ? 'selected' : ''}>شبه حادثه</option>
+                <option value="minor" ${listFilters.incidentType === 'minor' ? 'selected' : ''}>حادثه جزئی</option>
+                <option value="major" ${listFilters.incidentType === 'major' ? 'selected' : ''}>حادثه ماژور</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <select id="vListCreator" class="form-select form-select-sm">
+                <option value="all">همه ثبت‌کنندگان</option>
+                <!-- گزینه‌ها توسط تابع پر می‌شوند -->
+              </select>
+            </div>
+            <div class="col-12 d-flex gap-2 mt-2">
+              <button class="btn btn-sm btn-primary flex-grow-1" id="vListApplyFilter"><i class="bi bi-search"></i> اعمال فیلتر</button>
+              <button class="btn btn-sm btn-outline-danger" id="vListClearFilter"><i class="bi bi-x-lg"></i> حذف فیلترها</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="filter-pills">
       <button class="filter-pill ${state.filter === 'pending' ? 'active' : ''}" data-filter="pending">
         <i class="bi bi-hourglass-split"></i> در انتظار
@@ -26,7 +81,7 @@ export async function renderList() {
       <i class="bi bi-plus-circle-fill"></i> ثبت ویزیت جدید
     </button>
 
-    <!-- ⭐ دکمه تکمیل گروهی -->
+    <!-- دکمه تکمیل گروهی -->
     <button class="btn btn-warning w-100 py-2 mb-3" id="btnBulkComplete" style="display: ${state.filter !== 'completed' ? 'block' : 'none'};">
       <i class="bi bi-check2-all"></i> تکمیل گروهی ویزیت‌های باز
     </button>
@@ -36,6 +91,36 @@ export async function renderList() {
     </div>
   `;
 
+  // راه‌اندازی تاریخ‌شمار (اگر jQuery موجود باشد)
+  if (typeof jQuery !== 'undefined' && jQuery.fn.persianDatepicker) {
+    try {
+      jQuery('#vListDateFrom, #vListDateTo').persianDatepicker({
+        theme: 'melon', formatDate: 'YYYY/MM/DD', cellWidth: 32, cellHeight: 25, fontSize: 13
+      });
+    } catch (e) {}
+  }
+
+  // رویداد دکمه‌های فیلتر
+  $('vToggleFilters').onclick = () => {
+    const b = $('vFilterBody');
+    b.style.display = b.style.display === 'none' ? 'block' : 'none';
+  };
+
+  $('vListApplyFilter').onclick = () => {
+    listFilters.search = $('vListSearch').value.trim();
+    listFilters.dateFrom = $('vListDateFrom').value.trim();
+    listFilters.dateTo = $('vListDateTo').value.trim();
+    listFilters.incidentType = $('vListIncident').value;
+    listFilters.creatorId = $('vListCreator').value;
+    renderList();
+  };
+
+  $('vListClearFilter').onclick = () => {
+    listFilters = { search: '', dateFrom: '', dateTo: '', incidentType: 'all', creatorId: 'all' };
+    renderList();
+  };
+
+  // رویداد تب‌ها
   c.querySelectorAll('[data-filter]').forEach(b => {
     b.onclick = () => { state.filter = b.dataset.filter; renderList(); };
   });
@@ -49,7 +134,6 @@ export async function renderList() {
     openForm('BR-FR-HS-34-00', { visitId: visitId });
   };
 
-  // 🌟 تابع تکمیل از داخل لیست (بدون هدایت به صفحه جزئیات)
   window._completeVisitFromList = async (visitId, btn, e) => {
     if (e) e.stopPropagation();
     if (!confirm('ویزیت تکمیل شود؟ موجودی انبار کسر می‌شود.')) return;
@@ -59,12 +143,10 @@ export async function renderList() {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> بررسی...';
 
     try {
-      // ۱. دریافت اقلام ویزیت
       const { data: items, error: e0 } = await sb.from('visits_visititem')
         .select('drug_id, quantity, drug:drugs_drug(name)').eq('visit_id', visitId);
       if (e0) throw e0;
 
-      // اگر دارویی ندارد، فقط تکمیل شود
       if (!items || items.length === 0) {
         const myId = getMyDjangoId();
         const { error: e2 } = await sb.from('visits_visit').update({
@@ -78,7 +160,6 @@ export async function renderList() {
         return;
       }
 
-      // ۲. بررسی موجودی
       const shortages = [];
       for (const it of items) {
         const { data: stock } = await sb.from('v_drug_stock')
@@ -102,7 +183,6 @@ export async function renderList() {
         return;
       }
 
-      // ۳. کسر موجودی
       btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> کسر...';
       const errors = [];
       for (const it of items) {
@@ -119,7 +199,6 @@ export async function renderList() {
         return;
       }
 
-      // ۴. تکمیل ویزیت
       const myId = getMyDjangoId();
       const { error: e2 } = await sb.from('visits_visit').update({
         status: 'completed', completed_at: new Date().toISOString(), completed_by_id: myId
@@ -130,7 +209,6 @@ export async function renderList() {
       toast('✅ ویزیت تکمیل شد', 'success');
       beep();
       
-      // رفرش لیست (تا ویزیت تکمیل شده از لیست در انتظار حذف شود)
       renderList();
 
     } catch (err) {
@@ -146,6 +224,7 @@ export async function renderList() {
     const superuser = isSuperuser();
     const safety = isSafetyOrSupervisor();
 
+    // ۱. ساخت کوئری پایه با فیلترها
     let q = sb.from('visits_visit').select(`
       id, visit_date, status, is_incident, incident_type,
       blood_pressure, heart_rate, doctor_id, assigned_to_id,
@@ -154,6 +233,7 @@ export async function renderList() {
       result:visits_treatmentresult(name)
     `).order('visit_date', { ascending: false }).limit(200);
 
+    // تب‌ها
     if (state.filter === 'completed') {
       q = q.eq('status', 'completed');
     } else if (state.filter === 'referred') {
@@ -168,18 +248,66 @@ export async function renderList() {
       }
     }
 
+    // فیلتر تاریخ
+    if (listFilters.dateFrom) {
+      const g = jalaliToGregorian(listFilters.dateFrom);
+      if (g) q = q.gte('visit_date', g + 'T00:00:00');
+    }
+    if (listFilters.dateTo) {
+      const g = jalaliToGregorian(listFilters.dateTo);
+      if (g) q = q.lte('visit_date', g + 'T23:59:59');
+    }
+
+    // فیلتر نوع حادثه
+    if (listFilters.incidentType !== 'all') {
+      if (listFilters.incidentType === 'none') {
+        q = q.eq('is_incident', false); // یا .eq('incident_type', 'none')
+      } else {
+        q = q.eq('incident_type', listFilters.incidentType);
+      }
+    }
+
+    // فیلتر ثبت‌کننده
+    if (listFilters.creatorId !== 'all') {
+      q = q.eq('doctor_id', listFilters.creatorId);
+    }
+
+    // فیلتر جستجو (نام/کد ملی)
+    if (listFilters.search) {
+      const s = listFilters.search;
+      const { data: pts } = await sb.from('core_patient')
+        .select('id')
+        .or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,national_code.ilike.%${s}%,personnel_number.ilike.%${s}%`)
+        .limit(100);
+
+      if (pts && pts.length > 0) {
+        q = q.in('patient_id', pts.map(p => p.id));
+      } else {
+        q = q.eq('patient_id', -1); // فورس کردن نتیجه خالی
+      }
+    }
+
     const { data, error } = await q;
     if (error) throw error;
     state.visits = data || [];
 
     await loadUserMapFromVisits();
 
+    // پر کردن لیست ثبت‌کنندگان (فقط یکبار)
+    if (!creatorsLoaded) {
+      populateCreatorsDropdown();
+      creatorsLoaded = true;
+    } else {
+      const sel = $('vListCreator');
+      if (sel) sel.value = listFilters.creatorId;
+    }
+
     const list = $('visitList');
     if (!state.visits.length) {
       list.innerHTML = `
         <div class="card text-center py-5 muted">
           <i class="bi bi-inbox" style="font-size:2.5rem;opacity:0.5;"></i>
-          <div class="mt-2">ویزیتی یافت نشد</div>
+          <div class="mt-2">ویزیتی با این مشخصات یافت نشد</div>
         </div>`;
       return;
     }
@@ -196,7 +324,6 @@ export async function renderList() {
       const assigneeName = getUserName(v.assigned_to_id);
       const isMine = v.assigned_to_id === getMyDjangoId();
 
-      // 🌟 اضافه شدن دکمه تکمیل در کنار فرم بستری
       const actionButtons = v.status !== 'completed' ? `
         <div class="d-flex gap-2 mt-2">
           <button class="btn btn-sm btn-success flex-grow-1" onclick="window._completeVisitFromList(${v.id}, this, event)">
@@ -253,14 +380,36 @@ export async function renderList() {
   }
 }
 
-// ⭐ تابع تکمیل گروهی (با چک موجودی و کسر FIFO دقیقاً مثل تکمیل تکی)
+// ═══════════════════════════════════════════════════════
+// پر کردن لیست کشویی ثبت‌کنندگان
+// ═══════════════════════════════════════════════════════
+async function populateCreatorsDropdown() {
+  try {
+    // دریافت کاربرانی که ویزیت ثبت کرده‌اند
+    const { data } = await sb.from('visits_visit').select('doctor_id').not('doctor_id', 'is', null);
+    if (!data?.length) return;
+    
+    const uniqueIds = [...new Set(data.map(d => d.doctor_id))];
+    const sel = $('vListCreator');
+    if (!sel) return;
+
+    sel.innerHTML = '<option value="all">همه ثبت‌کنندگان</option>' + 
+      uniqueIds.map(id => {
+        const name = getUserName(id);
+        return `<option value="${id}" ${listFilters.creatorId == id ? 'selected' : ''}>${escapeHtml(name)}</option>`;
+      }).join('');
+  } catch(e) {
+    console.log('Error populating creators:', e);
+  }
+}
+
+// ⭐ تابع تکمیل گروهی (بدون تغییر)
 async function bulkCompleteVisits() {
   const btn = $('btnBulkComplete');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال بررسی موجودی...';
 
   try {
-    // ۱. دریافت تمام ویزیت‌های باز
     const { data: visits, error: e0 } = await sb.from('visits_visit')
       .select('id')
       .in('status', ['pending', 'referred']);
@@ -271,7 +420,6 @@ async function bulkCompleteVisits() {
       return;
     }
 
-    // ۲. بررسی داروها و موجودی برای هر ویزیت
     const readyToComplete = [];
     const shortagesInfo = [];
 
@@ -309,7 +457,6 @@ async function bulkCompleteVisits() {
       }
     }
 
-    // ۳. اگر کسری موجودی وجود داشت، به کاربر هشدار بده
     if (shortagesInfo.length > 0) {
       let msg = `⚠️ برخی ویزیت‌ها دارای کسری موجودی دارو هستند و از لیست تکمیل گروهی حذف شدند:\n\n`;
       shortagesInfo.forEach(info => {
@@ -331,7 +478,6 @@ async function bulkCompleteVisits() {
       if (!confirm(`آیا مطمئن هستید که ${faNum(readyToComplete.length)} ویزیت تکمیل و موجودی داروهایشان کسر شود؟`)) return;
     }
 
-    // ۴. اجرای کسر FIFO و تکمیل ویزیت‌ها
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال تکمیل...';
     const myId = getMyDjangoId();
     let successCount = 0;
@@ -339,7 +485,6 @@ async function bulkCompleteVisits() {
 
     for (const v of readyToComplete) {
       try {
-        // الف) کسر موجودی داروها (FIFO)
         for (const it of v.items) {
           const { error: eRpc } = await sb.rpc('deduct_stock_fifo', {
             p_drug_id: it.drug_id, p_quantity: it.quantity
@@ -347,7 +492,6 @@ async function bulkCompleteVisits() {
           if (eRpc) throw new Error(`داروی ${it.drug?.name}: ${eRpc.message}`);
         }
 
-        // ب) تغییر وضعیت ویزیت به completed
         const { error: e2 } = await sb.from('visits_visit').update({
           status: 'completed',
           completed_at: new Date().toISOString(),
@@ -356,7 +500,6 @@ async function bulkCompleteVisits() {
 
         if (e2) throw e2;
 
-        // ج) ثبت لاگ
         await logChange(v.id, 'complete', [], `تکمیل گروهی (${v.items.length} دارو کسر شد)`);
         successCount++;
 
@@ -366,7 +509,6 @@ async function bulkCompleteVisits() {
       }
     }
 
-    // ۵. نمایش نتیجه
     if (errorCount > 0) {
       toast(`⚠️ ${faNum(successCount)} ویزیت تکمیل شد، ${faNum(errorCount)} ویزیت با خطا مواجه شد.`, 'warning');
     } else {
@@ -374,7 +516,6 @@ async function bulkCompleteVisits() {
       beep();
     }
 
-    // ۶. رفرش لیست
     await renderList();
 
   } catch (e) {
@@ -384,4 +525,4 @@ async function bulkCompleteVisits() {
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-check2-all"></i> تکمیل گروهی ویزیت‌های باز';
   }
-}
+                                        }
