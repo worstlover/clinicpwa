@@ -7,7 +7,7 @@ import { initIncidentAlertListener } from './incident-alert.js';
 import { initReferralAlertListener } from './referral-alert.js';
 import { initAlertCenter } from './alert-center.js';
 import { initQuickIncidentButton } from './quick-incident.js';
-import { initFCM } from './fcm.js';
+import { initFCM, removeFCMToken } from './fcm.js'; // ⭐ اضافه شدن removeFCMToken
 import { openSettings } from './modules/settings.js';
 
 export let currentUser = null;
@@ -105,7 +105,7 @@ export async function checkAuth() {
 }
 
 // ═══════════════════════════════════════════════════════
-// لاگین (با اضافه کردن خودکار پسوند)
+// لاگین
 // ═══════════════════════════════════════════════════════
 export async function doLogin() {
   console.log('[AUTH] doLogin called');
@@ -136,11 +136,11 @@ export async function doLogin() {
     currentUser = data.user;
     $('userEmail').textContent = currentUser.email;
     
-    // ⭐ ۱. نمایش فوری صفحه اصلی بدون منتظر ماندن برای سرورهای دیگر
+    // ⭐ ۱. نمایش فوری صفحه اصلی
     showScreen('Home');
     bindSettingsButton();
     
-    // ⭐ ۲. کارهای پس‌زمینه (بدون await)
+    // ⭐ ۲. اجرای پس‌زمینه
     loadAdminStatus().catch(e => console.error(e));
     initAllListeners().catch(e => console.error(e));
     
@@ -184,8 +184,19 @@ export async function loadAdminStatus() {
   isAdmin = !!data;
 }
 
+// ═══════════════════════════════════════════════════════
+// خروج از حساب (با پاک کردن توکن)
+// ═══════════════════════════════════════════════════════
 export async function doLogout() {
   if (!confirm('از حساب خارج می‌شوید؟')) return;
+  
+  // ⭐ توکن را قبل از خروج پاک کن
+  try { 
+    await removeFCMToken(); 
+  } catch (e) { 
+    console.error('[AUTH] Error removing token:', e); 
+  }
+
   try { await endSession(); } catch (e) {}
   await sb.auth.signOut();
   location.reload();
