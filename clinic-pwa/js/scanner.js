@@ -101,7 +101,6 @@ const PRESETS = {
     }
   },
 
-  // فقط روی اندروید کروم نشان داده می‌شود
   smart: {
     name: 'هوشمند (کراپ + آپ‌اسکیل)',
     desc: 'مثل QR Detector گوشی • فقط اندروید کروم',
@@ -149,14 +148,14 @@ function ensurePresetButton() {
   btn.className = 'scan-btn';
   btn.title = 'تغییر حالت اسکن';
   btn.innerHTML = `<i class="bi bi-sliders"></i>`;
+  btn.style.cssText = `background: rgba(255,255,255,0.2); border: none; color: #fff; width: 54px; height: 54px; border-radius: 50%; cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center;`;
+  
   btn.onclick = (e) => {
     e.stopPropagation();
     showPresetPicker();
   };
 
-  const closeBtn = $('btnScanClose');
-  if (closeBtn) controls.insertBefore(btn, closeBtn);
-  else controls.appendChild(btn);
+  controls.appendChild(btn);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -171,7 +170,7 @@ export async function startScanner(callback) {
   wrap.classList.add('active');
   if (statusEl) statusEl.textContent = 'در حال راه‌اندازی...';
 
-  // اگر پریست هوشمند انتخاب شده ولی دستگاه مناسب نیست → برگرد به کلاسیک
+  // بررسی پشتیبانی از حالت هوشمند
   if (currentPreset === 'smart' && !isAndroidChromeNative()) {
     currentPreset = 'classic';
     localStorage.setItem('scannerPreset', 'classic');
@@ -212,10 +211,12 @@ async function startHtml5Scanner(preset, statusEl) {
     useBarCodeDetectorIfSupported: true,
   };
 
-  // تبدیل نام فرمت‌ها به enum اگر موجود باشد
-  if (preset.formats && window.Html5QrcodeSupportedFormats) {
+  // ⭐ اصلاح: دسترسی ایمن به Enum فرمت‌های پشتیبانی شده
+  const html5Formats = window.Html5QrcodeSupportedFormats || (typeof Html5QrcodeSupportedFormats !== 'undefined' ? Html5QrcodeSupportedFormats : null);
+  
+  if (preset.formats && html5Formats) {
     constructorConfig.formatsToSupport = preset.formats
-      .map(f => Html5QrcodeSupportedFormats[f])
+      .map(f => html5Formats[f])
       .filter(Boolean);
   }
 
@@ -266,7 +267,6 @@ async function startSmartScanner(statusEl) {
   if (!reader) throw new Error('reader not found');
   reader.innerHTML = '';
 
-  // ویدیو مخفی
   smartVideo = document.createElement('video');
   smartVideo.setAttribute('playsinline', '');
   smartVideo.setAttribute('muted', '');
@@ -276,25 +276,21 @@ async function startSmartScanner(statusEl) {
   smartVideo.style.objectFit = 'cover';
   reader.appendChild(smartVideo);
 
-  // کانوس برای کراپ
   smartCanvas = document.createElement('canvas');
   smartCtx = smartCanvas.getContext('2d', { willReadFrequently: true });
 
-  // نیتیو دیتکتور با اولویت Data Matrix
   const formats = [
     'data_matrix', 'qr_code', 'code_128', 'code_39',
     'ean_13', 'ean_8', 'upc_a', 'upc_e', 'aztec', 'pdf417'
   ];
   smartDetector = new BarcodeDetector({ formats });
 
-  // استریم با رزولوشن بالا
   smartStream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
       facingMode: { ideal: 'environment' },
       width:  { ideal: 1920, min: 1280 },
       height: { ideal: 1080, min: 720 },
-      // بعضی گوشی‌ها فوکوس پیوسته دارن
       advanced: [{ focusMode: 'continuous' }]
     }
   });
@@ -302,7 +298,6 @@ async function startSmartScanner(statusEl) {
   smartVideo.srcObject = smartStream;
   await smartVideo.play();
 
-  // صبر کن تا ویدیو آماده بشه
   await new Promise(r => {
     if (smartVideo.readyState >= 2) r();
     else smartVideo.onloadeddata = r;
@@ -312,7 +307,6 @@ async function startSmartScanner(statusEl) {
   smartRunning = true;
   if (statusEl) statusEl.textContent = 'هوشمند • دنبال کد می‌گردم...';
 
-  // حلقه تشخیص
   const loop = async () => {
     if (!smartRunning || !smartVideo || smartVideo.readyState < 2) {
       smartRafId = requestAnimationFrame(loop);
@@ -323,21 +317,16 @@ async function startSmartScanner(statusEl) {
       const barcodes = await smartDetector.detect(smartVideo);
 
       if (barcodes && barcodes.length > 0) {
-        const best = barcodes[0]; // اولین (معمولاً بهترین)
+        const best = barcodes[0];
         const rawValue = best.rawValue;
 
         if (rawValue && rawValue.trim()) {
-          // فریز + کراپ + آپ‌اسکیل (برای نمایش و اطمینان بیشتر)
           await freezeAndEnhance(best);
-
-          // موفقیت
           onSuccess(rawValue, statusEl);
-          return; // حلقه رو قطع کن
+          return;
         }
       }
-    } catch (e) {
-      // بعضی فریم‌ها خطا می‌دن، نادیده بگیر
-    }
+    } catch (e) {}
 
     smartRafId = requestAnimationFrame(loop);
   };
@@ -345,39 +334,24 @@ async function startSmartScanner(statusEl) {
   smartRafId = requestAnimationFrame(loop);
 }
 
-// فریز کردن فریم + کراپ + آپ‌اسکیل
 async function freezeAndEnhance(barcode) {
   if (!smartVideo || !smartCanvas || !smartCtx) return;
-
   const vw = smartVideo.videoWidth;
   const vh = smartVideo.videoHeight;
   if (!vw || !vh) return;
-
-  // کل فریم رو بکش
   smartCanvas.width = vw;
   smartCanvas.height = vh;
   smartCtx.drawImage(smartVideo, 0, 0, vw, vh);
-
-  // باکس کد
   const box = barcode.boundingBox;
   if (!box) return;
-
-  // padding حدود ۱۵٪
   const padX = box.width * 0.18;
   const padY = box.height * 0.18;
-
   let x = Math.max(0, box.x - padX);
   let y = Math.max(0, box.y - padY);
   let w = Math.min(vw - x, box.width + padX * 2);
   let h = Math.min(vh - y, box.height + padY * 2);
-
-  // حداقل اندازه
   if (w < 80 || h < 80) return;
-
-  // کراپ
   const cropped = smartCtx.getImageData(x, y, w, h);
-
-  // آپ‌اسکیل ۲ برابر
   const scale = 2;
   const upCanvas = document.createElement('canvas');
   upCanvas.width = Math.floor(w * scale);
@@ -385,17 +359,11 @@ async function freezeAndEnhance(barcode) {
   const upCtx = upCanvas.getContext('2d');
   upCtx.imageSmoothingEnabled = true;
   upCtx.imageSmoothingQuality = 'high';
-
-  // تصویر کراپ‌شده رو بزرگ کن
   const tmp = document.createElement('canvas');
   tmp.width = w;
   tmp.height = h;
   tmp.getContext('2d').putImageData(cropped, 0, 0);
   upCtx.drawImage(tmp, 0, 0, upCanvas.width, upCanvas.height);
-
-  // اینجا می‌تونستیم دوباره دیکود کنیم، ولی چون نیتیو قبلاً rawValue داده
-  // نیازی نیست. فقط برای آینده نگه داشتیم.
-  console.log('[SMART] cropped & upscaled', upCanvas.width, 'x', upCanvas.height);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -411,29 +379,19 @@ function onSuccess(text, statusEl) {
 }
 
 // ═══════════════════════════════════════════════════════
-// انتخاب پریست
+// ⭐ انتخاب پریست (کاملاً بازنویسی شد)
 // ═══════════════════════════════════════════════════════
 function showPresetPicker() {
   const old = document.getElementById('presetPopup');
-  if (old) {
-    old.remove();
-    return;
-  }
+  if (old) { old.remove(); return; }
 
   const popup = document.createElement('div');
   popup.id = 'presetPopup';
+  // استایل به صورت لایه تمام صفحه تا مطمئن باشیم دیده می‌شود
   popup.style.cssText = `
-    position: absolute;
-    bottom: 80px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0,0,0,0.95);
-    padding: 12px;
-    border-radius: 14px;
-    min-width: 270px;
-    max-width: 92vw;
-    z-index: 120;
-    color: #fff;
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 9999999; display: flex; align-items: center; justify-content: center;
+    direction: rtl; padding: 16px; font-family: inherit;
   `;
 
   const available = Object.entries(PRESETS).filter(([key, p]) => {
@@ -442,40 +400,49 @@ function showPresetPicker() {
   });
 
   popup.innerHTML = `
-    <div style="font-size:0.85rem;margin-bottom:10px;opacity:0.8;text-align:center;">
-      حالت اسکن را انتخاب کنید
-    </div>
-    ${available.map(([key, p]) => `
-      <div class="preset-option" data-preset="${key}" style="
-        padding: 11px 14px;
-        border-radius: 10px;
-        margin-bottom: 6px;
-        cursor: pointer;
-        background: ${key === currentPreset ? '#0d6efd' : 'rgba(255,255,255,0.1)'};
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      ">
-        <div style="font-weight:600;font-size:0.9rem;">${p.name}</div>
-        <div style="font-size:0.75rem;opacity:0.75;">${p.desc}</div>
+    <div style="background: #1e293b; border-radius: 16px; padding: 16px; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); color: #fff;">
+      <div style="font-weight: 700; font-size: 16px; margin-bottom: 16px; text-align: center; color: #fbbf24;">
+        حالت اسکن را انتخاب کنید
       </div>
-    `).join('')}
+      
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        ${available.map(([key, p]) => `
+          <div class="preset-option" data-preset="${key}" style="
+            padding: 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            background: ${key === currentPreset ? '#0d6efd' : 'rgba(255,255,255,0.1)'};
+            border: 2px solid ${key === currentPreset ? '#60a5fa' : 'transparent'};
+            transition: background 0.15s;
+          ">
+            <div style="font-weight: 700; font-size: 14px;">${p.name} ${key === currentPreset ? '✓' : ''}</div>
+            <div style="font-size: 12px; opacity: 0.75; margin-top: 4px;">${p.desc}</div>
+          </div>
+        `).join('')}
+      </div>
+
+      <button id="presetCancelBtn" style="width: 100%; margin-top: 16px; padding: 12px; background: rgba(255,255,255,0.15); color: #fff; border: none; border-radius: 10px; cursor: pointer; font-family: inherit; font-weight: 600;">
+        انصراف
+      </button>
+    </div>
   `;
 
-  document.querySelector('.scanner-controls')?.appendChild(popup);
+  document.body.appendChild(popup);
+
+  const close = () => popup.remove();
+  popup.querySelector('#presetCancelBtn').onclick = close;
+  popup.addEventListener('click', e => { if (e.target === popup) close(); });
 
   popup.querySelectorAll('.preset-option').forEach(el => {
     el.onclick = async (e) => {
       e.stopPropagation();
       const key = el.dataset.preset;
-      if (key === currentPreset) {
-        popup.remove();
-        return;
-      }
+      if (key === currentPreset) { close(); return; }
+      
       currentPreset = key;
       localStorage.setItem('scannerPreset', key);
-      popup.remove();
-      toast(`حالت «${PRESETS[key].name}» فعال شد`, 'info');
+      close();
+      toast(`حالت «${PRESETS[key].name}» فعال شد`, 'success');
 
       if (isScanning) {
         const cb = onScanCallback;
@@ -484,16 +451,6 @@ function showPresetPicker() {
       }
     };
   });
-
-  setTimeout(() => {
-    const closeHandler = (e) => {
-      if (!popup.contains(e.target) && e.target.id !== 'btnScannerPreset') {
-        popup.remove();
-        document.removeEventListener('click', closeHandler);
-      }
-    };
-    document.addEventListener('click', closeHandler);
-  }, 40);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -523,35 +480,23 @@ export async function closeScanner() {
 
 async function stopInternal() {
   if (html5QrCode && isScanning) {
-    try {
-      await html5QrCode.stop();
-      await html5QrCode.clear();
-    } catch (e) {}
+    try { await html5QrCode.stop(); await html5QrCode.clear(); } catch (e) {}
   }
   html5QrCode = null;
 }
 
 async function stopSmart() {
   smartRunning = false;
-  if (smartRafId) {
-    cancelAnimationFrame(smartRafId);
-    smartRafId = null;
-  }
-  if (smartStream) {
-    smartStream.getTracks().forEach(t => t.stop());
-    smartStream = null;
-  }
-  if (smartVideo) {
-    smartVideo.srcObject = null;
-    smartVideo = null;
-  }
+  if (smartRafId) { cancelAnimationFrame(smartRafId); smartRafId = null; }
+  if (smartStream) { smartStream.getTracks().forEach(t => t.stop()); smartStream = null; }
+  if (smartVideo) { smartVideo.srcObject = null; smartVideo = null; }
   smartCanvas = null;
   smartCtx = null;
   smartDetector = null;
 }
 
 // ═══════════════════════════════════════════════════════
-// تغییر دوربین (فقط برای حالت‌های html5)
+// تغییر دوربین
 // ═══════════════════════════════════════════════════════
 async function switchCamera(deviceId) {
   if (currentPreset === 'smart') {
@@ -631,10 +576,7 @@ async function showCameraPicker() {
 async function pasteFromClipboard() {
   try {
     const text = await navigator.clipboard.readText();
-    if (!text?.trim()) {
-      toast('کلیپ‌بورد خالیه', 'warning');
-      return;
-    }
+    if (!text?.trim()) { toast('کلیپ‌بورد خالیه', 'warning'); return; }
     if (onScanCallback) onScanCallback(text.trim());
     closeScanner();
   } catch (e) {
