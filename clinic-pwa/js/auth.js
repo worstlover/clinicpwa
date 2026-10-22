@@ -17,15 +17,25 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 
 // ═══════════════════════════════════════════════════════
-// راه‌اندازی listener ها
+// راه‌اندازی listener ها (بدون بلاک کردن برنامه)
 // ═══════════════════════════════════════════════════════
 async function initAllListeners() {
-  try { await startSession(); } catch (e) { console.error('[AUTH] session:', e); }
-  try { await initIncidentAlertListener(); } catch (e) { console.error('[AUTH] incident:', e); }
-  try { await initReferralAlertListener(); } catch (e) { console.error('[AUTH] referral:', e); }
-  try { await initAlertCenter(); } catch (e) { console.error('[AUTH] alertCenter:', e); }
-  try { initQuickIncidentButton(); } catch (e) { console.error('[AUTH] quickIncident:', e); }
-  try { await initFCM(); } catch (e) { console.error('[AUTH] fcm:', e); }
+  console.log('[AUTH] Starting background listeners...');
+  
+  // اجرای همه به صورت موازی تا اگر یکی گیر کرد، بقیه ادامه دهند
+  const tasks = [
+    startSession().catch(e => console.error('[AUTH] session:', e)),
+    initIncidentAlertListener().catch(e => console.error('[AUTH] incident:', e)),
+    initReferralAlertListener().catch(e => console.error('[AUTH] referral:', e)),
+    initAlertCenter().catch(e => console.error('[AUTH] alertCenter:', e)),
+    Promise.resolve().then(() => { 
+      try { initQuickIncidentButton(); } catch (e) { console.error('[AUTH] quickIncident:', e); } 
+    }),
+    initFCM().catch(e => console.error('[AUTH] fcm:', e))
+  ];
+
+  await Promise.allSettled(tasks);
+  console.log('[AUTH] Background listeners initialized.');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -41,7 +51,7 @@ function isDefinitiveAuthError(err) {
 }
 
 // ═══════════════════════════════════════════════════════
-// checkAuth
+// checkAuth (بررسی وضعیت ورود)
 // ═══════════════════════════════════════════════════════
 export async function checkAuth() {
   console.log('[AUTH] checkAuth called');
@@ -66,10 +76,15 @@ export async function checkAuth() {
   if (session?.user) {
     currentUser = session.user;
     $('userEmail').textContent = currentUser.email;
-    await loadAdminStatus();
-    await initAllListeners();
-    bindSettingsButton();
+    
+    // ⭐ ۱. نمایش فوری صفحه اصلی
     showScreen('Home');
+    bindSettingsButton();
+
+    // ⭐ ۲. اجرای لیسنرها در پس‌زمینه
+    loadAdminStatus().catch(e => console.error(e));
+    initAllListeners().catch(e => console.error(e));
+    
     return;
   }
 
@@ -106,26 +121,36 @@ export async function doLogin() {
     email = email + '@clinic.local';
   }
 
-  $('loginMsg').innerHTML = '<div class="alert alert-info py-2 small">در حال ورود...</div>';
-  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+  const msgEl = $('loginMsg');
+  if (msgEl) msgEl.innerHTML = '<div class="alert alert-info py-2 small">در حال ورود...</div>';
   
-  if (error) {
-    $('loginMsg').innerHTML = `<div class="alert alert-danger py-2 small">${escapeHtml(error.message)}</div>`;
-    return;
+  try {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+    
+    if (error) {
+      if (msgEl) msgEl.innerHTML = `<div class="alert alert-danger py-2 small">${escapeHtml(error.message)}</div>`;
+      return;
+    }
+    
+    if (msgEl) msgEl.innerHTML = '';
+    currentUser = data.user;
+    $('userEmail').textContent = currentUser.email;
+    
+    // ⭐ ۱. نمایش فوری صفحه اصلی بدون منتظر ماندن برای سرورهای دیگر
+    showScreen('Home');
+    bindSettingsButton();
+    
+    // ⭐ ۲. کارهای پس‌زمینه (بدون await)
+    loadAdminStatus().catch(e => console.error(e));
+    initAllListeners().catch(e => console.error(e));
+    
+  } catch (err) {
+    if (msgEl) msgEl.innerHTML = `<div class="alert alert-danger py-2 small">خطای ارتباط: ${escapeHtml(err.message)}</div>`;
   }
-  
-  $('loginMsg').innerHTML = '';
-  currentUser = data.user;
-  $('userEmail').textContent = currentUser.email;
-  await loadAdminStatus();
-
-  await initAllListeners();
-  bindSettingsButton();
-  showScreen('Home');
 }
 
 // ═══════════════════════════════════════════════════════
-// اتصال دکمه تنظیمات (زنگ تنظیمات در هدر)
+// اتصال دکمه تنظیمات
 // ═══════════════════════════════════════════════════════
 function bindSettingsButton() {
   const btn = $('btnSettings');
