@@ -5,17 +5,232 @@ import {
   toast, beep, makeBatchNumber
 } from '../utils.js';
 import { showScreen } from '../ui.js';
-import { openScanner } from '../scanner.js';
-import { askQty, openDrugSearch, promptExpirySelection } from '../modals.js';
 import { isAdmin, currentUser } from '../auth.js';
 import { printA4 } from './list-print.js';
 
+// ⭐ Import ماژول‌ها به صورت آبجکت برای مدیریت خطای احتمالی
+import * as SCANNER_MOD from '../scanner.js';
+import * as MODALS_MOD  from '../modals.js';
+
+function resolveExport(mod, name) {
+  if (!mod) return null;
+  if (typeof mod[name] === 'function') return mod[name];
+  if (mod.default && typeof mod.default[name] === 'function') return mod.default[name];
+  return null;
+}
+
+const openScanner           = resolveExport(SCANNER_MOD, 'openScanner');
+const initScannerButtons    = resolveExport(SCANNER_MOD, 'initScannerButtons');
+const openDrugSearch        = resolveExport(MODALS_MOD,  'openDrugSearch');
+const promptExpirySelection = resolveExport(MODALS_MOD,  'promptExpirySelection');
+const initSearchModal       = resolveExport(MODALS_MOD,  'initSearchModal');
+const askQty                = resolveExport(MODALS_MOD,  'askQty');
+const initQtyModal          = resolveExport(MODALS_MOD,  'initQtyModal');
+
+console.log('[INVENTORY] imports:', {
+  openScanner: typeof openScanner,
+  openDrugSearch: typeof openDrugSearch,
+  askQty: typeof askQty
+});
+
+// ═══════════════════════════════════════════════════════════
+// ⭐ تزریق DOM های گم‌شده و توابع امن (کپی شده از receive.js)
+// ═══════════════════════════════════════════════════════════
+const SCANNER_HTML = `
+<div id="scannerWrap" style="display:none; position:fixed; inset:0; background:#000; z-index:9999999; flex-direction:column; direction:rtl; color:#fff; font-family:inherit;">
+  <div style="padding:12px 16px; background:rgba(0,0,0,0.85); display:flex; justify-content:space-between; align-items:center; gap:8px;">
+    <button id="btnScanClose" style="background:rgba(255,255,255,0.15); border:none; color:#fff; width:44px; height:44px; border-radius:50%; cursor:pointer; font-size:18px;"><i class="bi bi-x-lg"></i></button>
+    <div id="scannerStatus" style="flex:1; text-align:center; font-size:14px;">آماده اسکن...</div>
+    <button id="btnCameraSelect" style="background:rgba(255,255,255,0.15); border:none; color:#fff; width:44px; height:44px; border-radius:50%; cursor:pointer; font-size:18px;"><i class="bi bi-camera-video"></i></button>
+  </div>
+  <div id="reader" style="flex:1; position:relative; background:#000; overflow:hidden;"></div>
+  <div class="scanner-controls" style="position:absolute; bottom:24px; left:50%; transform:translateX(-50%); display:flex; gap:12px; z-index:10;">
+    <button id="btnScanPaste" style="background:rgba(255,255,255,0.2); border:none; color:#fff; width:54px; height:54px; border-radius:50%; cursor:pointer; font-size:20px;"><i class="bi bi-clipboard"></i></button>
+  </div>
+  <div id="cameraPopup" style="position:absolute; bottom:90px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.95); border-radius:12px; padding:8px; min-width:240px; max-width:90vw; display:none; z-index:20;"></div>
+</div>`;
+
+const SEARCH_MODAL_HTML = `
+<div class="modal fade" id="searchModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title"><i class="bi bi-search"></i> جستجوی دارو</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+      </div>
+      <div class="modal-body">
+        <div id="smInfo" class="mb-2 small text-muted"></div>
+        <input type="text" id="smQuery" class="form-control" placeholder="نام دارو را تایپ کنید..." autocomplete="off" dir="rtl">
+        <div id="smResults" class="mt-2"></div>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+const QTY_MODAL_HTML = `
+<div class="modal fade" id="qtyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white" id="qmHeader">
+        <h5 class="modal-title" id="qmTitle">ثبت تعداد</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="بستن"></button>
+      </div>
+      <div class="modal-body">
+        <div id="qmDrugName" class="fw-bold mb-2" style="font-size:1rem;"></div>
+        <div id="qmExtraInfo" class="mb-2"></div>
+        <div id="qmWarnings"></div>
+
+        <div class="mb-3">
+          <label class="form-label fw-bold">تعداد دریافتی</label>
+          <div class="d-flex gap-2 align-items-center">
+            <button type="button" class="btn btn-outline-secondary" id="qmMinus" style="width:44px;">−</button>
+            <input type="number" id="qmQty" class="form-control text-center fw-bold"
+              value="1" min="0" style="font-size:1.3rem;color:#d97706;">
+            <button type="button" class="btn btn-outline-secondary" id="qmPlus" style="width:44px;">+</button>
+          </div>
+          <div class="d-flex gap-1 mt-2 flex-wrap">
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="1">1</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="2">2</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="5">5</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="10">10</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="20">20</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="50">50</button>
+          </div>
+        </div>
+
+        <div id="qmExtraFields">
+          <div class="mb-3 qm-field">
+            <label class="form-label" for="qmExpiry">تاریخ انقضا (میلادی یا شمسی)</label>
+            <input type="text" id="qmExpiry" class="form-control" placeholder="2027-03-15 یا 1405/12/24" dir="ltr" autocomplete="off">
+            <div id="qmShamsi" class="small mt-1"></div>
+            <div id="qmExpiryBadge" class="mt-1"></div>
+          </div>
+          <div class="mb-3 qm-field">
+            <label class="form-label" for="qmBatch">شماره بچ (اختیاری)</label>
+            <input type="text" id="qmBatch" class="form-control" dir="ltr" autocomplete="off">
+            <div id="qmBatchInfo" class="mt-1"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+        <button type="button" class="btn btn-primary" id="qmSave"><i class="bi bi-check2"></i> تایید</button>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+function ensureInventoryDOM() {
+  let injected = false;
+
+  if (!document.getElementById('scannerWrap')) {
+    document.body.insertAdjacentHTML('beforeend', SCANNER_HTML);
+    injected = true;
+  }
+  if (!document.getElementById('searchModal')) {
+    document.body.insertAdjacentHTML('beforeend', SEARCH_MODAL_HTML);
+    injected = true;
+  }
+  if (!document.getElementById('qtyModal')) {
+    document.body.insertAdjacentHTML('beforeend', QTY_MODAL_HTML);
+    injected = true;
+  }
+
+  if (!document.getElementById('invScannerStyle')) {
+    const s = document.createElement('style');
+    s.id = 'invScannerStyle';
+    s.textContent = `
+      #scannerWrap { display: none !important; }
+      #scannerWrap.active { display: flex !important; }
+      #scannerWrap #reader video { width:100%; height:100%; object-fit:cover; }
+      #scannerWrap #reader > div { width:100% !important; }
+    `;
+    document.head.appendChild(s);
+  }
+
+  if ((injected || !document.getElementById('scannerWrap').dataset.initialized) && typeof initScannerButtons === 'function') {
+    try {
+      initScannerButtons();
+      document.getElementById('scannerWrap').dataset.initialized = '1';
+    } catch (e) {}
+  }
+  if ((injected || !window._pickDrug) && typeof initSearchModal === 'function') {
+    try {
+      initSearchModal();
+    } catch (e) {}
+  }
+  const qmSave = document.getElementById('qmSave');
+  if (qmSave && !qmSave.onclick && typeof initQtyModal === 'function') {
+    try {
+      initQtyModal();
+    } catch (e) {}
+  }
+}
+
+// ═══ Safe Wrappers ═══
+async function safeOpenScanner(callback) {
+  ensureInventoryDOM();
+  if (typeof openScanner !== 'function') {
+    toast('ماژول اسکنر در دسترس نیست', 'danger');
+    return;
+  }
+  try {
+    await openScanner(callback);
+  } catch (e) {
+    console.error('[INV] openScanner error:', e);
+    toast('خطا در اسکنر: ' + (e.message || ''), 'danger');
+  }
+}
+
+async function safeOpenDrugSearch(title, cb) {
+  ensureInventoryDOM();
+  if (typeof openDrugSearch === 'function') {
+    try {
+      const r = openDrugSearch(title, cb);
+      if (r && typeof r.then === 'function') await r;
+      return;
+    } catch (e) {
+      console.warn('[INV] openDrugSearch failed:', e.message);
+    }
+  }
+  toast('مودال جستجو در دسترس نیست', 'danger');
+}
+
+async function safeAskQty(opts) {
+  ensureInventoryDOM();
+  if (typeof askQty === 'function') {
+    try {
+      const r = askQty(opts);
+      return (r && typeof r.then === 'function') ? await r : r;
+    } catch (e) {
+      console.warn('[INV] askQty failed:', e.message);
+    }
+  }
+  return { qty: 0 };
+}
+
+async function safePromptExpirySelection(exps) {
+  ensureInventoryDOM();
+  if (typeof promptExpirySelection === 'function') {
+    try {
+      const r = promptExpirySelection(exps);
+      return (r && typeof r.then === 'function') ? await r : r;
+    } catch (e) {
+      console.warn('[INV] promptExpirySelection failed:', e.message);
+    }
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════
 const state = { 
   session: null, 
   currentStep: 1,
   items: [],
   reportData: null,
-  pendingDiscrepancies: [] // برای گام ۷
+  pendingDiscrepancies: []
 };
 
 const AUTOSAVE_KEY = 'inv_autosave_data';
@@ -29,6 +244,7 @@ const getUserName = () => {
 };
 
 export function openInventory(sessionId = null) {
+  ensureInventoryDOM();
   showScreen('Inventory');
   if (sessionId) {
     localStorage.setItem('inv_session_id', sessionId);
@@ -39,12 +255,14 @@ export function openInventory(sessionId = null) {
   initSession();
 }
 
+// ... (بقیه توابع بدون تغییر تا خط ۲۸۰)
+
 async function initSession() {
   const savedData = localStorage.getItem(AUTOSAVE_KEY);
   if (savedData) {
     try {
       const parsed = JSON.parse(savedData);
-      if (Date.now() - parsed.timestamp < 24 * 3600 * 1000) { // کمتر از ۲۴ ساعت
+      if (Date.now() - parsed.timestamp < 24 * 3600 * 1000) {
         if (confirm('یک ذخیره موقت از انبارگردانی قبلی پیدا شد. بازیابی شود؟')) {
           state.items = parsed.items || [];
           state.currentStep = parsed.step || 5;
@@ -116,9 +334,6 @@ async function saveStep(step) {
   return true;
 }
 
-// ═══════════════════════════════════════════════════════════
-// ذخیره خودکار هر ۵ ثانیه
-// ═══════════════════════════════════════════════════════════
 setInterval(() => {
   if (state.currentStep >= 5 && state.currentStep <= 7 && state.items.length > 0) {
     localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
@@ -130,13 +345,10 @@ setInterval(() => {
   }
 }, 5000);
 
-// ═══════════════════════════════════════════════════════════
-// توابع کمکی (CSV و غیره)
-// ═══════════════════════════════════════════════════════════
 function downloadCSV(data, filename) {
   if (!data || !data.length) return;
   const headers = Object.keys(data[0]);
-  let csvContent = "\uFEFF"; // BOM برای نمایش صحیح فارسی در اکسل
+  let csvContent = "\uFEFF"; 
   
   csvContent += headers.join(",") + "\n";
   data.forEach(row => {
@@ -157,9 +369,6 @@ function downloadCSV(data, filename) {
   document.body.removeChild(link);
 }
 
-// ═══════════════════════════════════════════════════════════
-// راهنمای گام‌ها (Router)
-// ═══════════════════════════════════════════════════════════
 function renderStep() {
   const c = $('invContent');
   if (!c) return;
@@ -202,9 +411,6 @@ function renderStep() {
   else if (state.currentStep === 8) renderStep8_Report();
 }
 
-// ═══════════════════════════════════════════════════════════
-// گام ۱ و ۳: سندهای دریافتی
-// ═══════════════════════════════════════════════════════════
 async function renderStep1_Receipts() {
   const c = $('stepContent');
   c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
@@ -253,9 +459,6 @@ async function renderStep3_ReceiptsAgain() {
   $('btnNext').onclick = () => renderStep3_ReceiptsAgain();
 }
 
-// ═══════════════════════════════════════════════════════════
-// گام ۲: تکمیل گروهی ویزیت‌ها
-// ═══════════════════════════════════════════════════════════
 async function renderStep2_Visits() {
   const c = $('stepContent');
   c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
@@ -310,9 +513,7 @@ async function renderStep2_Visits() {
       const { data: items } = await sb.from('visits_visititem').select('drug_id, quantity').eq('visit_id', v.id);
       if (items) {
         for (let it of items) {
-          // تلاش برای کسر عادی
           const { error } = await sb.rpc('deduct_stock_fifo', { p_drug_id: it.drug_id, p_quantity: it.quantity });
-          // اگر خطا داد (موجودی کافی نبود)، از داروهای منقضی کسر میکنیم
           if (error) {
             const { data: expiredBatches } = await sb.from('drugs_drugbatch').select('id, quantity').eq('drug_id', it.drug_id).lt('expiry_date', new Date().toISOString().slice(0, 10)).gt('quantity', 0);
             let remQty = it.quantity;
@@ -334,9 +535,6 @@ async function renderStep2_Visits() {
   $('btnNext').onclick = () => saveStep(3);
 }
 
-// ═══════════════════════════════════════════════════════════
-// گام ۴: خروج گروهی داروهای منقضی
-// ═══════════════════════════════════════════════════════════
 async function renderStep4_Expired() {
   const c = $('stepContent');
   c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
@@ -405,9 +603,6 @@ async function renderStep4_Expired() {
   $('btnNext').onclick = () => saveStep(5);
 }
 
-// ═══════════════════════════════════════════════════════════
-// گام ۵: شمارش فیزیکی
-// ═══════════════════════════════════════════════════════════
 function renderStep5_Scan() {
   $('stepContent').innerHTML = `
     <div class="alert alert-info small"><i class="bi bi-info-circle"></i> با اسکن بارکد، اقلام را بشمارید. (ذخیره خودکار هر ۵ ثانیه)</div>
@@ -422,8 +617,9 @@ function renderStep5_Scan() {
     <div id="invList" style="max-height:350px; overflow-y:auto;"></div>
     <button class="btn btn-warning btn-lg w-100 py-3 mt-3" id="btnInvFinish">پایان شمارش و بررسی مغایرت</button>
   `;
-  $('btnInvScan').onclick = () => openScanner(handleBarcode);
-  $('btnInvSearch').onclick = () => openDrugSearch('دارو را جستجو کنید', d => addDrug(d));
+  // ⭐ تغییر: استفاده از Safe Wrappers
+  $('btnInvScan').onclick = () => safeOpenScanner(handleBarcode);
+  $('btnInvSearch').onclick = () => safeOpenDrugSearch('دارو را جستجو کنید', d => addDrug(d));
   $('btnInvFinish').onclick = () => {
     if (!state.items.length) { toast('قلمی ثبت نشده', 'warning'); return; }
     if (confirm('پایان شمارش؟')) saveStep(6);
@@ -477,10 +673,11 @@ async function removeItem(idx, containerId = 'invList') {
 async function editItem(idx, containerId = 'invList') {
   const it = state.items[idx];
   if (!it) return;
-  const res = await askQty({
+  // ⭐ تغییر: استفاده از Safe Wrapper
+  const res = await safeAskQty({
     title: 'ویرایش تعداد', drugName: it.drug_name, defaultQty: it.counted_quantity, defaultExpiry: it.expiry_date, hideBatchInput: true,
   });
-  if (res.qty === it.counted_quantity) return;
+  if (!res || res.qty === it.counted_quantity) return;
   if (res.qty === 0) { if (confirm('تعداد صفر شد. حذف شود؟')) await removeItem(idx, containerId); return; }
   it.counted_quantity = res.qty;
   it.counted_by_name = getUserName();
@@ -492,14 +689,15 @@ async function editItem(idx, containerId = 'invList') {
   renderList(containerId); beep();
 }
 
-async function buildBatchAndWarnings(drug, expiryGreg) { return ''; } // ساده شده
+async function buildBatchAndWarnings(drug, expiryGreg) { return ''; } 
 
 async function handleBarcode(raw) {
   const parsed = parseGS1(raw);
   if (parsed.exps && parsed.exps.length > 0) {
     const isInvalid = !parsed.exp.includes('-');
     if (parsed.exps.length > 1 || isInvalid) {
-      const selectedDate = await promptExpirySelection(parsed.exps);
+      // ⭐ تغییر: استفاده از Safe Wrapper
+      const selectedDate = await safePromptExpirySelection(parsed.exps);
       if (!selectedDate) return; 
       if (selectedDate.includes('-')) parsed.exp = selectedDate;
       else { toast('تاریخ نامعتبر', 'warning'); parsed.exp = ''; }
@@ -513,17 +711,18 @@ async function handleBarcode(raw) {
 }
 
 function reopenScannerAuto() {
-  setTimeout(() => { if (!$('scannerWrap')?.classList.contains('active')) openScanner(handleBarcode); }, 350);
+  // ⭐ تغییر: استفاده از Safe Wrapper
+  setTimeout(() => { if (!$('scannerWrap')?.classList.contains('active')) safeOpenScanner(handleBarcode); }, 350);
 }
 
 async function addDrug(drug, barcode = '', parsed = {}) {
-  const res = await askQty({ title: 'شمارش دارو', drugName: drug.name, defaultQty: 1, defaultExpiry: parsed?.exp || '', requireExpiry: true });
-  if (res.qty < 0) return false;
+  // ⭐ تغییر: استفاده از Safe Wrapper
+  const res = await safeAskQty({ title: 'شمارش دارو', drugName: drug.name, defaultQty: 1, defaultExpiry: parsed?.exp || '', requireExpiry: true });
+  if (!res || res.qty < 0) return false;
   if (!res.expiry_gregorian) { toast('تاریخ الزامی است', 'danger'); return false; }
 
   const existing = state.items.find(it => it.drug_id === drug.id && (it.expiry_date || '') === res.expiry_gregorian);
   
-  // ⬅️ هشدار داروی تکراری (دو بار شمرده نشه)
   if (existing) {
     const prevUser = existing.counted_by_name || 'نامشخص';
     if (!confirm(`⚠️ این دارو با تاریخ ${gregorianToJalali(res.expiry_gregorian)} قبلا توسط "${prevUser}" شمرده شده است.\nآیا تعداد جدید (${res.qty}) به آن اضافه شود؟`)) return false;
@@ -549,9 +748,6 @@ async function addDrug(drug, barcode = '', parsed = {}) {
   beep(); return true;
 }
 
-// ═══════════════════════════════════════════════════════════
-// گام ۶: مغایرت‌گیری اولیه
-// ═══════════════════════════════════════════════════════════
 async function renderStep6_Discrepancies() {
   const c = $('stepContent');
   c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
@@ -585,9 +781,6 @@ async function renderStep6_Discrepancies() {
   $('btnNext').onclick = () => saveStep(8);
 }
 
-// ═══════════════════════════════════════════════════════════
-// گام ۷: شمارش مجدد موارد مغایر (با کانتر و حذف از لیست)
-// ═══════════════════════════════════════════════════════════
 function renderStep7_Recount() {
   $('stepContent').innerHTML = `
     <div class="alert alert-warning small">
@@ -604,8 +797,9 @@ function renderStep7_Recount() {
     <button class="btn btn-success btn-lg w-100 py-3 mt-3" id="btnFinishRecount">پایان شمارش مجدد</button>
   `;
 
-  $('btnRecountScan').onclick = () => openScanner(handleRecountBarcode);
-  $('btnRecountSearch').onclick = () => openDrugSearch('دارو را جستجو کنید', d => addRecountDrug(d));
+  // ⭐ تغییر: استفاده از Safe Wrappers
+  $('btnRecountScan').onclick = () => safeOpenScanner(handleRecountBarcode);
+  $('btnRecountSearch').onclick = () => safeOpenDrugSearch('دارو را جستجو کنید', d => addRecountDrug(d));
   
   $('btnFinishRecount').onclick = () => {
     if (state.pendingDiscrepancies.length > 0) {
@@ -644,7 +838,8 @@ async function handleRecountBarcode(raw) {
   if (parsed.exps && parsed.exps.length > 0) {
     const isInvalid = !parsed.exp.includes('-');
     if (parsed.exps.length > 1 || isInvalid) {
-      const selectedDate = await promptExpirySelection(parsed.exps);
+      // ⭐ تغییر: استفاده از Safe Wrapper
+      const selectedDate = await safePromptExpirySelection(parsed.exps);
       if (!selectedDate) return; 
       if (selectedDate.includes('-')) parsed.exp = selectedDate;
       else { toast('تاریخ نامعتبر', 'warning'); parsed.exp = ''; }
@@ -658,12 +853,12 @@ async function handleRecountBarcode(raw) {
 }
 
 async function addRecountDrug(drug, barcode = '', parsed = {}) {
-  const res = await askQty({ title: 'شمارش مجدد', drugName: drug.name, defaultQty: 1, defaultExpiry: parsed?.exp || '', requireExpiry: true });
-  if (res.qty < 0 || !res.expiry_gregorian) return false;
+  // ⭐ تغییر: استفاده از Safe Wrapper
+  const res = await safeAskQty({ title: 'شمارش مجدد', drugName: drug.name, defaultQty: 1, defaultExpiry: parsed?.exp || '', requireExpiry: true });
+  if (!res || res.qty < 0 || !res.expiry_gregorian) return false;
 
   const computedBatch = makeBatchNumber(drug.name, drug.form, res.expiry_gregorian);
   
-  // آپدیت در لیست اصلی
   const existing = state.items.find(it => it.drug_id === drug.id && (it.expiry_date || '') === res.expiry_gregorian);
   if (existing) {
     existing.counted_quantity += res.qty;
@@ -682,7 +877,6 @@ async function addRecountDrug(drug, barcode = '', parsed = {}) {
     counted_quantity: row.counted_quantity, counted_by_name: row.counted_by_name
   }, { onConflict: 'session_id,drug_id,batch_number,expiry_date' });
 
-  // حذف از لیست مغایرت‌ها (کانتر آپدیت میشه)
   const dIdx = state.pendingDiscrepancies.findIndex(d => d.drug_id === drug.id && d.expiry_date === res.expiry_gregorian);
   if (dIdx !== -1) {
     state.pendingDiscrepancies.splice(dIdx, 1);
@@ -694,16 +888,12 @@ async function addRecountDrug(drug, barcode = '', parsed = {}) {
   return true;
 }
 
-// ═══════════════════════════════════════════════════════════
-// گام ۸: گزارش نهایی و تصویب
-// ═══════════════════════════════════════════════════════════
 async function renderStep8_Report() {
   const c = $('stepContent');
   c.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
   
   const admin = isAdmin;
   
-  // محاسبه مغایرت‌ها برای گزارش نهایی
   const discrepancies = [];
   for (const item of state.items) {
     let sysQty = 0;
