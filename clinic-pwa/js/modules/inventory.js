@@ -7,14 +7,11 @@ import {
 import { showScreen } from '../ui.js';
 import { isAdmin, currentUser } from '../auth.js';
 import { printA4 } from './list-print.js';
-import { getMyDjangoId } from './visit/helpers.js'; // ⭐ برای استفاده در گام ۲
+import { getMyDjangoId } from './visit/helpers.js';
 
 import * as SCANNER_MOD from '../scanner.js';
 import * as MODALS_MOD  from '../modals.js';
 
-// ═══════════════════════════════════════════════════════════
-// مدیریت ایمپورت‌ها و توابع امن
-// ═══════════════════════════════════════════════════════════
 function resolveExport(mod, name) {
   if (!mod) return null;
   if (typeof mod[name] === 'function') return mod[name];
@@ -165,16 +162,13 @@ async function safePromptExpirySelection(exps) {
   return null;
 }
 
-// ═══════════════════════════════════════════════════════════
-// State
-// ═══════════════════════════════════════════════════════════
 const state = { 
   session: null, 
   currentStep: 1,
   items: [],
   reportData: null,
-  pendingDiscrepancies: null, // ⭐ null برای تشخیص وضعیت اولیه
-  recounted: new Set() // ⭐ برای جلوگیری از باگ شمارش مجدد
+  pendingDiscrepancies: null,
+  recounted: new Set()
 };
 
 const AUTOSAVE_KEY = 'inv_autosave_data';
@@ -210,7 +204,6 @@ async function initSession() {
       const parsed = JSON.parse(savedData);
       if (Date.now() - parsed.timestamp < 24 * 3600 * 1000) {
         if (confirm('یک ذخیره موقت از انبارگردانی قبلی پیدا شد. بازیابی شود؟')) {
-          // بررسی وجود جلسه در دیتابیس و باز بودن آن
           if (parsed.session && parsed.session.id) {
             const { data: liveSession } = await sb.from('inv_sessions').select('status').eq('id', parsed.session.id).maybeSingle();
             if (liveSession && !['completed', 'applied'].includes(liveSession.status)) {
@@ -243,7 +236,6 @@ async function initSession() {
   renderStep();
 }
 
-// ⭐ اصلاح شد: جلوگیری از صفحه سیاه
 async function continueSession() {
   const id = localStorage.getItem('inv_session_id');
   if (!id) { 
@@ -277,7 +269,6 @@ async function continueSession() {
   } catch (err) {
     console.error('[INV] continueSession error:', err);
     toast('خطا در بارگذاری جلسه: ' + err.message, 'danger');
-    // در صورت خطا، یک جلسه جدید استارت می‌زنیم تا صفحه سیاه نشود
     initSession();
   }
 }
@@ -297,7 +288,7 @@ async function loadSessionItems() {
   } catch (err) {
     console.error('[INV] loadSessionItems error:', err);
     toast('خطا در دریافت اقلام: ' + err.message, 'danger');
-    renderStep(); // در هر صورت صفحه را رندر کن تا خالی نماند
+    renderStep();
   }
 }
 
@@ -334,7 +325,6 @@ setInterval(() => {
   }
 }, 5000);
 
-// ⭐ تابع مشترک محاسبه مغایرت‌ها
 async function computeDiscrepancies() {
   const ids = [...new Set(state.items.map(i => i.drug_id))];
   if (!ids.length) return [];
@@ -389,21 +379,24 @@ function renderStep() {
     { id: 8, title: 'تصویب نهایی', icon: 'bi-file-earmark-check' },
   ];
 
+  // ⭐ اضافه شدن padding-top برای جلوگیری از زیر هدر رفتن
   c.innerHTML = `
-    <div class="card mb-3">
-      <div class="card-body py-2 d-flex justify-content-between align-items-center" style="overflow-x:auto;">
-        ${steps.map(s => `
-          <div class="text-center mx-2" style="opacity:${state.currentStep === s.id ? '1' : '0.5'}; min-width:60px;">
-            <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-1" 
-                 style="width:36px;height:36px;background:${state.currentStep === s.id ? 'var(--primary)' : '#e2e8f0'}; color:${state.currentStep === s.id ? '#fff' : '#64748b'};">
-              <i class="bi ${s.icon}"></i>
+    <div style="padding-top: 10px; padding-bottom: 20px;">
+      <div class="card mb-3 shadow-sm" style="border-radius: 12px;">
+        <div class="card-body py-2 d-flex justify-content-between align-items-center" style="overflow-x:auto;">
+          ${steps.map(s => `
+            <div class="text-center mx-2" style="opacity:${state.currentStep === s.id ? '1' : '0.5'}; min-width:60px;">
+              <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-1" 
+                   style="width:36px;height:36px;background:${state.currentStep === s.id ? 'var(--primary)' : '#e2e8f0'}; color:${state.currentStep === s.id ? '#fff' : '#64748b'};">
+                <i class="bi ${s.icon}"></i>
+              </div>
+              <div style="font-size:0.65rem; font-weight:${state.currentStep === s.id ? 'bold' : 'normal'};">${s.title}</div>
             </div>
-            <div style="font-size:0.65rem; font-weight:${state.currentStep === s.id ? 'bold' : 'normal'};">${s.title}</div>
-          </div>
-        `).join('')}
+          `).join('')}
+        </div>
       </div>
+      <div id="stepContent"></div>
     </div>
-    <div id="stepContent"></div>
   `;
 
   if (state.currentStep === 1) renderStep1_Receipts();
@@ -859,7 +852,6 @@ async function addRecountDrug(drug, barcode = '', parsed = {}) {
   const existing = state.items.find(it => it.drug_id === drug.id && (it.expiry_date || '') === res.expiry_gregorian);
   
   if (existing) {
-    // ⭐ اگر اولین بار است که این آیتم در گام ۷ شمرده می‌شود، جایگزین کن. در غیر این صورت جمع بزن.
     if (state.recounted.has(key)) {
       existing.counted_quantity += res.qty;
     } else {
@@ -982,4 +974,4 @@ async function renderStep8_Report() {
       }, 1500);
     };
   }
-}
+                                  }
