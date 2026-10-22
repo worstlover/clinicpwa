@@ -11,6 +11,19 @@ let currentToken = null;
 let isListenerAttached = false; 
 
 /**
+ * دریافت رجیستری Service Worker فعلی اپلیکیشن
+ * این کار از تداخل و ساخت SW جدید توسط Firebase جلوگیری می‌کند.
+ */
+async function getSWRegistration() {
+  let reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) {
+    reg = await navigator.serviceWorker.register('./service-worker.js');
+  }
+  await navigator.serviceWorker.ready;
+  return reg;
+}
+
+/**
  * وضعیت دسترسی به نوتیفیکیشن مرورگر
  */
 export function getPermissionStatus() {
@@ -21,7 +34,7 @@ export function getPermissionStatus() {
 }
 
 /**
- * وضعیت توکن FCM در دیتابیس (اصلاح شده)
+ * وضعیت توکن FCM در دیتابیس
  */
 export async function getTokenStatus() {
   try {
@@ -32,25 +45,23 @@ export async function getTokenStatus() {
       .select('token, updated_at')
       .eq('user_id', user.id);
 
-    if (error) {
-      console.error('[FCM] خطای دیتابیس در دریافت توکن‌ها:', error);
-      return { saved: false, count: 0, lastSeen: null };
-    }
-
-    if (!tokens || tokens.length === 0) {
+    if (error || !tokens || tokens.length === 0) {
       return { saved: false, count: 0, lastSeen: null };
     }
 
     const count = tokens.length;
     const lastSeen = tokens.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0]?.updated_at;
     
-    // ⭐ اگر توکن در حافظه نبود، با تایم‌اوت ۸ ثانیه‌ای از مرورگر می‌گیریم
     let actualToken = currentToken;
     if (!actualToken) {
       try {
         const messaging = await getMessagingInstance();
         if (messaging) {
-          const tokenPromise = messaging.getToken({ vapidKey: VAPID_KEY });
+          const swReg = await getSWRegistration();
+          const tokenPromise = messaging.getToken({ 
+            vapidKey: VAPID_KEY,
+            serviceWorkerRegistration: swReg 
+          });
           const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000));
           
           actualToken = await Promise.race([tokenPromise, timeoutPromise]).catch(err => {
@@ -73,7 +84,7 @@ export async function getTokenStatus() {
       saved: currentSaved,
       count: count,
       lastSeen: lastSeen,
-      actualTokenLoaded: !!actualToken // ⭐ مشخص می‌کند آیا توکن با موفقیت از مرورگر گرفته شد یا نه
+      actualTokenLoaded: !!actualToken
     };
   } catch (err) {
     console.error('[FCM] خطای کلی در getTokenStatus:', err);
@@ -82,7 +93,7 @@ export async function getTokenStatus() {
 }
 
 /**
- * اتصال لیسنر پیام‌ها (فقط یکبار اجرا می‌شود)
+ * اتصال لیسنر پیام‌ها
  */
 async function setupMessageListener(messaging) {
   if (isListenerAttached) return;
@@ -131,12 +142,18 @@ export async function requestPermissionAndInit() {
     const messaging = await getMessagingInstance();
     if (!messaging) return null;
 
-    const token = await messaging.getToken({ vapidKey: VAPID_KEY });
+    // ⭐ پاس دادن Service Worker Registration
+    const swReg = await getSWRegistration();
+    const token = await messaging.getToken({ 
+      vapidKey: VAPID_KEY,
+      serviceWorkerRegistration: swReg
+    });
+    
     console.log('[FCM] Token دریافت شد:', token);
 
     if (token) {
       currentToken = token;
-      await saveTokenToDB(token); // ⭐ اینجا خطای RLS هندل می‌شود
+      await saveTokenToDB(token); 
       await setupMessageListener(messaging);
       return token;
     }
@@ -161,8 +178,14 @@ export async function initFCM() {
       const messaging = await getMessagingInstance();
       if (!messaging) return;
 
-      // ۱۰ ثانیه فرصت برای دریافت توکن
-      const tokenPromise = messaging.getToken({ vapidKey: VAPID_KEY });
+      // ⭐ پاس دادن Service Worker Registration
+      const swReg = await getSWRegistration();
+      
+      const tokenPromise = messaging.getToken({ 
+        vapidKey: VAPID_KEY,
+        serviceWorkerRegistration: swReg
+      });
+      
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('FCM Timeout')), 10000)
       );
@@ -174,7 +197,7 @@ export async function initFCM() {
 
       if (token) {
         currentToken = token;
-        await saveTokenToDB(token); // ⭐ خطاها لاگ می‌شوند
+        await saveTokenToDB(token); 
         await setupMessageListener(messaging);
         console.log('[FCM] ✅ توکن در پس‌زمینه به‌روزرسانی شد.');
       }
@@ -185,14 +208,13 @@ export async function initFCM() {
 }
 
 /**
- * ذخیره توکن در دیتابیس (با چک کردن دقیق خطاهای Supabase)
+ * ذخیره توکن در دیتابیس
  */
 async function saveTokenToDB(token) {
   try {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
 
-    // ۱. پاک کردن توکن از کاربر قبلی (امنیت)
     const { error: delError } = await sb.from('user_tokens')
       .delete()
       .eq('token', token)
@@ -202,7 +224,6 @@ async function saveTokenToDB(token) {
       console.error('[FCM] خطا در حذف توکن‌های قبلی:', delError.message);
     }
 
-    // ۲. چک کردن وجود توکن
     const { data: existing, error: selError } = await sb.from('user_tokens')
       .select('id')
       .eq('user_id', user.id)
@@ -214,7 +235,6 @@ async function saveTokenToDB(token) {
       return;
     }
 
-    // ۳. درج یا آپدیت
     if (existing) {
       const { error: updError } = await sb.from('user_tokens').update({
         updated_at: new Date().toISOString()
@@ -234,9 +254,8 @@ async function saveTokenToDB(token) {
       });
       
       if (insError) {
-        // ⭐ اینجا خطای RLS را صریحاً لاگ می‌کنیم
         console.error('[FCM] ❌ خطای RLS یا دیتابیس در درج توکن:', insError);
-        toast('خطا در ذخیره توکن در سرور (دسترسی دیتابیس)', 'danger');
+        toast('خطا در ذخیره توکن در سرور', 'danger');
       } else {
         console.log('[FCM] ✅ توکن جدید برای دستگاه ذخیره شد.');
       }
@@ -254,7 +273,8 @@ export async function removeFCMToken() {
     if (!currentToken) {
         const messaging = await getMessagingInstance();
         if (messaging) {
-            currentToken = await messaging.getToken({ vapidKey: VAPID_KEY }).catch(() => null);
+            const swReg = await getSWRegistration();
+            currentToken = await messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg }).catch(() => null);
         }
     }
     
@@ -276,4 +296,4 @@ export async function removeFCMToken() {
   } catch (err) {
     console.error('[FCM] خطا در حذف توکن:', err);
   }
-      }
+  }
