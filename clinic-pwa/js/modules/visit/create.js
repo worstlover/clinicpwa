@@ -10,9 +10,6 @@ import { broadcastIncidentAlert } from '../../incident-alert.js';
 import { saveVisitExtra, loadPatientExtra, savePatientExtra, timeToIso } from '../extra-data.js';
 import { mountProcessBanner } from '../../process/banner.js';
 
-// ═══════════════════════════════════════════════════════
-// توابع کمکی (روز هفته و تشخیص دارو)
-// ═══════════════════════════════════════════════════════
 const isConsumableDrug = (drug) => {
   const f = (drug?.form || '').toString().toLowerCase();
   return f === 'other' || f.includes('سایر');
@@ -26,17 +23,12 @@ function getDayOfWeek(gregorianDate) {
   return days[d.getDay()];
 }
 
-// ═══════════════════════════════════════════════════════
-// بارگذاری سوابق بیمار
-// ═══════════════════════════════════════════════════════
 async function loadPatientHistory(patientId) {
   try {
-    // ۱. اطلاعات پایه بیمار (حساسیت و سابقه بیماری)
     const { data: pInfo } = await sb.from('core_patient')
       .select('allergies, medical_history')
       .eq('id', patientId).maybeSingle();
 
-    // ۲. سوابق ویزیت
     const { data: visits } = await sb.from('visits_visit')
       .select('visit_date, reason:visits_reasonforvisit(name)')
       .eq('patient_id', patientId)
@@ -45,7 +37,6 @@ async function loadPatientHistory(patientId) {
     const visitCount = visits?.length || 0;
     const lastReason = visits && visits.length > 0 ? (visits[0].reason?.name || 'نامشخص') : 'ندارد';
     
-    // ۳. محاسبه تاریخ آخرین مراجعه با روز هفته
     let lastVisitStr = 'ندارد';
     if (visits && visits.length > 0) {
       const lastDate = visits[0].visit_date;
@@ -54,7 +45,6 @@ async function loadPatientHistory(patientId) {
       lastVisitStr = `${dayName} ${jDate}`;
     }
 
-    // ۴. وضعیت طب کار (از جدول lab_results_periodicexamination)
     let occStatus = 'ثبت نشده';
     try {
       const { data: occ } = await sb.from('lab_results_periodicexamination')
@@ -124,7 +114,6 @@ function renderWizard() {
     { n: 7, label: 'تشخیص' }
   ];
 
-  // ساخت بنر سوابق بیمار با تاریخ و روز هفته
   let historyBanner = '';
   if (state.patientId && state.patientHistory) {
     const h = state.patientHistory;
@@ -1078,7 +1067,7 @@ function openQuickPatientModal() {
 }
 
 // ═══════════════════════════════════════════════════════
-// مودال تکمیل کد ملی (اصلاح شده با اعتبارسنجی دقیق)
+// مودال تکمیل کد ملی
 // ═══════════════════════════════════════════════════════
 function openNationalCodeFixModal(patient) {
   const existing = $('fixNationalCodeModal');
@@ -1086,7 +1075,6 @@ function openNationalCodeFixModal(patient) {
 
   const fullName = `${patient.first_name || ''} ${patient.last_name || ''}`.trim();
   
-  // استفاده از data-bs-backdrop="static" برای جلوگیری از بسته شدن با کلیک بیرون
   const modalHtml = `
     <div class="modal fade" id="fixNationalCodeModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
       <div class="modal-dialog modal-dialog-centered">
@@ -1256,17 +1244,26 @@ async function searchPatients(q) {
 
 async function pickPatient(id, name, nationalCode, passportNumber) {
   if (!id) return;
-  
-  const hasNational = (nationalCode || '').trim();
-  const hasPassport = (passportNumber || '').trim();
 
-  // ⛔ اگر بیمار کد ملی و پاسپورت ندارد، متوقف شو و مودال را باز کن
-  if (!hasNational && !hasPassport) {
+  // ⛔ پاک کردن انتخاب قبلی برای جلوگیری از باگ
+  state.patientId = null;
+  state.patientName = '';
+  state.patientHistory = null;
+
+  const ncStr = (nationalCode || '').trim();
+  const ppStr = (passportNumber || '').trim();
+
+  // ⭐ اعتبارسنجی فوق‌سختگیرانه: کد ملی باید دقیقاً ۱۰ رقم باشد، پاسپورت حداقل ۵ کاراکتر
+  const isNationalValid = /^\d{10}$/.test(ncStr) && ncStr !== '0000000000';
+  const isPassportValid = ppStr.length >= 5;
+
+  // اگر هیچکدام معتبر نبودند، اجازه نده به مرحله بعد برود
+  if (!isNationalValid && !isPassportValid) {
     sb.from('core_patient').select('*').eq('id', id).single().then(({ data }) => {
       if (data) openNationalCodeFixModal(data);
       else toast('بیمار یافت نشد', 'danger');
     });
-    return; 
+    return; // ⛔ خروج از تابع تا به مرحله ۲ نرود
   }
 
   state.patientId = id;
@@ -1661,4 +1658,4 @@ async function saveVisit() {
     alert('❌ ' + e.message);
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> ثبت نهایی ویزیت'; }
   }
-}
+      }
