@@ -10,6 +10,21 @@ import { broadcastIncidentAlert } from '../../incident-alert.js';
 import { saveVisitExtra, loadPatientExtra, savePatientExtra, timeToIso } from '../extra-data.js';
 import { mountProcessBanner } from '../../process/banner.js';
 
+// ═══════════════════════════════════════════════════════
+// ⭐ ۱) توابع کمکی برای اعتبارسنجی هویت
+// ═══════════════════════════════════════════════════════
+function hasValidIdentity(nc, pp) {
+  const n = (nc || '').trim(), p = (pp || '').trim();
+  return (/^\d{10}$/.test(n) && n !== '0000000000') || p.length >= 5;
+}
+
+async function patientHasIdentity(patientId) {
+  if (!patientId) return false;
+  const { data } = await sb.from('core_patient')
+    .select('national_code, passport_number').eq('id', patientId).maybeSingle();
+  return hasValidIdentity(data?.national_code, data?.passport_number);
+}
+
 const isConsumableDrug = (drug) => {
   const f = (drug?.form || '').toString().toLowerCase();
   return f === 'other' || f.includes('سایر');
@@ -84,6 +99,7 @@ export async function openCreate() {
   state.step = 1; state.maxStep = 1;
   state.patientId = null; state.patientName = '';
   state.patientHistory = null;
+  state.patientIdentityOk = false; // ⭐ ۲) مقداردهی اولیه فلگ
   state.isIncident = false; state.incidentType = 'none';
   state.selectedInjuries = []; state.items = [];
   state.alertBroadcasted = false;
@@ -101,6 +117,12 @@ export async function openCreate() {
 }
 
 function renderWizard() {
+  // ⭐ ۶) آخرین سد در renderWizard
+  if (state.step > 1 && (!state.patientId || !state.patientIdentityOk)) {
+    state.step = 1;
+    state.maxStep = 1;
+  }
+
   saveFormState();
   const c = $('visitContent');
   const fd = state.formData;
@@ -492,10 +514,15 @@ function isReferral(treatmentId) {
 }
 
 function bindWizard() {
+  // ⭐ ۴) دایره‌های مراحل
   document.querySelectorAll('.wizard-step').forEach(el => {
     el.onclick = () => {
       const n = parseInt(el.dataset.step);
       if (n > state.maxStep) return;
+      if (n > 1 && (!state.patientId || !state.patientIdentityOk)) {
+        toast('ابتدا بیمار دارای کد ملی را انتخاب کنید', 'warning');
+        return;
+      }
       if (n === 3 && !state.isIncident) return;
       saveFormState();
       state.step = n;
@@ -531,8 +558,13 @@ function bindWizard() {
     });
   }
 
+  // ⭐ ۳) پاک کردن بیمار
   const pClear = $('vPatientClear');
-  if (pClear) pClear.onclick = () => { state.patientId = null; state.patientName = ''; state.patientHistory = null; renderWizard(); };
+  if (pClear) pClear.onclick = () => {
+    state.patientId = null; state.patientName = ''; state.patientHistory = null;
+    state.patientIdentityOk = false; state.step = 1; state.maxStep = 1;
+    renderWizard();
+  };
 
   const pWorkUnit = $('vPatientWorkUnit');
   if (pWorkUnit) {
@@ -865,9 +897,6 @@ function bindWizard() {
   };
 }
 
-// ═══════════════════════════════════════════════════════
-// مودال ثبت سریع بیمار
-// ═══════════════════════════════════════════════════════
 function openQuickPatientModal() {
   const existing = $('quickPatientModal');
   if (existing) existing.remove();
@@ -988,6 +1017,10 @@ function openQuickPatientModal() {
       const { data: dup } = await sb.from('core_patient').select('id').eq('national_code', nationalCode).limit(1);
       if (dup?.length) { errEl.textContent = '❌ این کد ملی قبلاً ثبت شده است.'; return; }
     }
+    // ⭐ ۸) حداقل طول پاسپورت
+    if (passportNo && passportNo.length < 5) {
+      errEl.textContent = '❌ شماره پاسپورت معتبر نیست (حداقل ۵ کاراکتر).'; return;
+    }
     if (personnelNo) {
       const { data: dupP } = await sb.from('core_patient').select('id').eq('personnel_number', personnelNo).limit(1);
       if (dupP?.length) { errEl.textContent = '❌ این کد پرسنلی قبلاً ثبت شده است.'; return; }
@@ -1051,6 +1084,7 @@ function openQuickPatientModal() {
       
       state.patientId = newPatient.id;
       state.patientName = fullName;
+      state.patientIdentityOk = true; // ⭐ ۲) ثبت سریع
       
       await loadPatientHistory(newPatient.id);
       
@@ -1066,9 +1100,6 @@ function openQuickPatientModal() {
   };
 }
 
-// ═══════════════════════════════════════════════════════
-// مودال تکمیل کد ملی
-// ═══════════════════════════════════════════════════════
 function openNationalCodeFixModal(patient) {
   const existing = $('fixNationalCodeModal');
   if (existing) existing.remove();
@@ -1116,7 +1147,6 @@ function openNationalCodeFixModal(patient) {
   
   modalEl.addEventListener('hidden.bs.modal', () => {
     modalEl.remove();
-    // اگر کاربر انصراف داد و بیمار انتخاب نشده، صفحه را رفرش کن تا در مرحله ۱ بماند
     if (!state.patientId) {
       renderWizard();
     }
@@ -1131,13 +1161,10 @@ function openNationalCodeFixModal(patient) {
     if (!nc && !pp) { errEl.textContent = '❌ وارد کردن کد ملی یا شماره پاسپورت الزامی است.'; return; }
     
     if (nc) {
-      // اعتبارسنجی ۱۰ رقم برای کد ملی ایران
       if (nc.length !== 10 || !/^\d+$/.test(nc)) { 
         errEl.textContent = '❌ کد ملی باید دقیقاً ۱۰ رقم عددی باشد.'; 
         return; 
       }
-      
-      // چک تکراری نبودن کد ملی
       const { data: dup } = await sb.from('core_patient').select('id').eq('national_code', nc).neq('id', patient.id).limit(1);
       if (dup?.length) { errEl.textContent = '❌ این کد ملی قبلاً برای بیمار دیگری ثبت شده است.'; return; }
     }
@@ -1164,9 +1191,9 @@ function openNationalCodeFixModal(patient) {
       beep();
       modal.hide();
 
-      // هدایت به مرحله ۲
       state.patientId = patient.id;
       state.patientName = fullName;
+      state.patientIdentityOk = true; // ⭐ ۲) مودال تکمیل
       
       await loadPatientHistory(patient.id);
       
@@ -1183,9 +1210,6 @@ function openNationalCodeFixModal(patient) {
   };
 }
 
-// ═══════════════════════════════════════════════════════
-// جستجوها
-// ═══════════════════════════════════════════════════════
 function filterReasons(q) {
   const box = $('vReasonResults');
   if (!box) return;
@@ -1245,30 +1269,26 @@ async function searchPatients(q) {
 async function pickPatient(id, name, nationalCode, passportNumber) {
   if (!id) return;
 
-  // ⛔ پاک کردن انتخاب قبلی برای جلوگیری از باگ
   state.patientId = null;
   state.patientName = '';
   state.patientHistory = null;
+  state.patientIdentityOk = false; // ⭐ ۲) ریست فلگ
 
   const ncStr = (nationalCode || '').trim();
   const ppStr = (passportNumber || '').trim();
 
-  // ⭐ اعتبارسنجی فوق‌سختگیرانه: کد ملی باید دقیقاً ۱۰ رقم باشد، پاسپورت حداقل ۵ کاراکتر
-  const isNationalValid = /^\d{10}$/.test(ncStr) && ncStr !== '0000000000';
-  const isPassportValid = ppStr.length >= 5;
-
-  // اگر هیچکدام معتبر نبودند، اجازه نده به مرحله بعد برود
-  if (!isNationalValid && !isPassportValid) {
+  if (!hasValidIdentity(ncStr, ppStr)) {
     sb.from('core_patient').select('*').eq('id', id).single().then(({ data }) => {
       if (data) openNationalCodeFixModal(data);
       else toast('بیمار یافت نشد', 'danger');
     });
-    return; // ⛔ خروج از تابع تا به مرحله ۲ نرود
+    return;
   }
 
   state.patientId = id;
   state.patientName = name;
-  
+  state.patientIdentityOk = true; // ⭐ ۲) انتخاب موفق
+
   await loadPatientHistory(id);
   
   state.step = 2;
@@ -1296,9 +1316,6 @@ async function pickPatient(id, name, nationalCode, passportNumber) {
   }).catch(() => {});
 }
 
-// ═══════════════════════════════════════════════════════
-// Quick Lists
-// ═══════════════════════════════════════════════════════
 function renderQuickList(boxId, filterFn, type) {
   const box = $(boxId);
   if (!box) return;
@@ -1440,9 +1457,6 @@ async function openItemSearchModal(isConsumable) {
   setTimeout(() => input.focus(), 300);
 }
 
-// ═══════════════════════════════════════════════════════
-// Render Items
-// ═══════════════════════════════════════════════════════
 function renderItems() {
   const list = $('vItemsList');
   if (!list) return;
@@ -1499,11 +1513,15 @@ function renderConsumables() {
   `).join('');
 }
 
-// ═══════════════════════════════════════════════════════
-// اعتبارسنجی + ذخیره
-// ═══════════════════════════════════════════════════════
 function validateStep(step) {
-  if (step === 1) { if (!state.patientId) { toast('بیمار را انتخاب کنید', 'warning'); return false; } return true; }
+  // ⭐ ۵) اعتبارسنجی مرحله ۱
+  if (step === 1) {
+    if (!state.patientId || !state.patientIdentityOk) {
+      toast('بیمار دارای کد ملی را انتخاب کنید', 'warning');
+      return false;
+    }
+    return true;
+  }
   if (step === 2) {
     if (!state.formData.reasonId) { toast('علت مراجعه را انتخاب کنید', 'warning'); return false; }
     if (state.isIncident && state.incidentType === 'none') { toast('نوع حادثه را انتخاب کنید', 'warning'); return false; }
@@ -1516,6 +1534,17 @@ function validateStep(step) {
 
 async function saveVisit() {
   saveFormState();
+
+  // ⭐ ۷) آخرین سد اعتبارسنجی قبل از ثبت نهایی
+  if (!(await patientHasIdentity(state.patientId))) {
+    toast('بیمار فاقد کد ملی/پاسپورت است', 'danger');
+    state.step = 1;
+    state.maxStep = 1;
+    state.patientIdentityOk = false;
+    renderWizard();
+    return;
+  }
+
   if (!validateStep(4)) { state.step = 4; renderWizard(); return; }
   if (!state.formData.treatmentId) { toast('نتیجه درمان را انتخاب کنید', 'warning'); state.step = 7; renderWizard(); return; }
 
