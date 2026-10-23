@@ -37,12 +37,19 @@ document.addEventListener('pointerdown', unlockAllAudio, { once: true });
 document.addEventListener('touchstart', unlockAllAudio, { once: true });
 document.addEventListener('click', unlockAllAudio, { once: true });
 
-// ⭐️ جستجوی هوشمند بیمار
+// ⭐️ جستجوی هوشمند بیمار و کارمند
 async function fetchSupplementalInfo(user, patientId = null) {
   console.log('[SUPPLEMENTAL-VISIT] Started fetching extra info for visit incident...');
   let phone = user.phone || user.user_metadata?.phone || null;
   let patientPhone = null;
   let anyFailed = false;
+
+  if (!phone) {
+    try {
+      const { data } = await sb.from('users').select('phone').eq('id', user.id).maybeSingle();
+      if (data && data.phone) phone = data.phone;
+    } catch (e) {}
+  }
 
   if (!phone) {
     console.warn('[SUPPLEMENTAL-VISIT] Could not find employee phone number.');
@@ -52,14 +59,9 @@ async function fetchSupplementalInfo(user, patientId = null) {
   }
 
   if (patientId) {
-    console.log('[SUPPLEMENTAL-VISIT] Searching patient phone in core_patient table for ID:', patientId);
+    console.log('[SUPPLEMENTAL-VISIT] Searching patient phone for ID:', patientId);
     try {
-      // ⭐️ استفاده از نام دقیق ستون phone_number در جدول core_patient
-      const { data, error } = await sb.from('core_patient')
-        .select('phone_number')
-        .eq('id', patientId)
-        .maybeSingle();
-      
+      const { data, error } = await sb.from('core_patient').select('phone_number').eq('id', patientId).maybeSingle();
       if (!error && data) {
         patientPhone = data.phone_number || null;
         console.log('[SUPPLEMENTAL-VISIT] Patient phone found:', patientPhone);
@@ -96,7 +98,6 @@ export async function initIncidentAlertListener() {
 
     if (alertChannel) await sb.removeChannel(alertChannel);
 
-    // گوش دادن به INSERT (هشدار جدید) و UPDATE (آپدیت لوکیشن/شماره)
     alertChannel = sb.channel('incident_alerts_live')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'incident_alerts' }, (payload) => handleNewAlert(payload.new))
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'incident_alerts' }, (payload) => handleUpdateAlert(payload.new))
@@ -113,7 +114,6 @@ async function checkMp3Availability() {
   } catch (e) { mp3Available = false; }
 }
 
-// ⭐️ هشدار ویزیت: فوراً ارسال، بعداً آپدیت
 export async function broadcastIncidentAlert({ patientName, patientId, visitId, location }) {
   try {
     const { data: { user } } = await sb.auth.getUser();
@@ -135,7 +135,6 @@ export async function broadcastIncidentAlert({ patientName, patientId, visitId, 
     if (error) return;
     showSenderToast(userName);
 
-    // جستجوی پس‌زمینه
     if (alertData?.id) {
       fetchSupplementalInfo(user, patientId).then(async (info) => {
         console.log('[IncidentAlert] Background info result:', info);
@@ -168,15 +167,12 @@ function handleNewAlert(alert) {
   playIncidentAlert(alert);
 }
 
-// ⭐️ آپدیت بنر در لحظه‌ای که اطلاعات در پس‌زمینه اضافه می‌شود
 function handleUpdateAlert(alert) {
   const banner = document.querySelector('.incident-alert-banner');
   if (!banner) return;
-
   const actionBtns = banner.querySelector('.action-btns');
   if (!actionBtns) return;
 
-  // دکمه تماس کارمند
   if (alert.triggered_phone && !actionBtns.querySelector('.call-employee-btn')) {
     actionBtns.insertAdjacentHTML('beforeend', `
       <a href="tel:${alert.triggered_phone}" class="call-employee-btn" style="background:#10b981; color:#fff; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; gap:6px;">
@@ -185,7 +181,6 @@ function handleUpdateAlert(alert) {
     `);
   }
 
-  // دکمه تماس بیمار
   if (alert.patient_phone && !actionBtns.querySelector('.call-patient-btn')) {
     actionBtns.insertAdjacentHTML('beforeend', `
       <a href="tel:${alert.patient_phone}" class="call-patient-btn" style="background:#3b82f6; color:#fff; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; gap:6px;">
@@ -194,7 +189,7 @@ function handleUpdateAlert(alert) {
     `);
   }
 
-  // دکمه نقشه
+  // ⭐️ لینک نقشه با فرمت استاندارد نشان
   if (alert.latitude && alert.longitude && !actionBtns.querySelector('.map-btn')) {
     const mapUrl = `https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}`;
     actionBtns.insertAdjacentHTML('beforeend', `
@@ -293,6 +288,7 @@ function showIncidentBanner(alert) {
     actionBtnsHtml += `<a href="tel:${alert.patient_phone}" class="call-patient-btn" style="background:#3b82f6; color:#fff; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem;">📞 تماس با بیمار</a>`;
   }
 
+  // ⭐️ لینک نقشه با فرمت استاندارد نشان
   if (alert.latitude && alert.longitude) {
     actionBtnsHtml += `<a href="https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}" target="_blank" class="map-btn" style="background:#fff; color:#dc2626; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem;">📍 مشاهده موقعیت</a>`;
   }
