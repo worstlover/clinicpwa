@@ -25,41 +25,68 @@
   #screenLoading { display: none; }
   #screenLoading.active { display: flex !important; }
   
-  /* ⭐️ استایل‌های اختصاصی لوگوها و پس‌زمینه لاگین */
-  .custom-logo { border-radius: 16px; object-fit: contain; }
-  
-  .login-bg-wrapper {
-    /* تصویر کارخانه (login.png) به عنوان پس‌زمینه */
-    background-image: url('icons/login.png'); 
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
+  /* ⭐️ پس‌زمینه صفحه لاگین */
+  #screenLogin {
+    /* استفاده از !important برای اینکه روی پس‌زمینه‌های فایل‌های CSS دیگر را بپوشاند */
+    background-image: url('icons/login.png') !important; 
+    background-size: cover !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+    background-color: #1a202c !important;
     position: relative;
-    background-color: #1a202c; /* رنگ جایگزین در صورت لود نشدن عکس */
   }
   
-  /* لایه تاریک برای خوانایی متن روی عکس */
+  /* ⭐️ لایه سایه برای خوانایی فرم */
   .login-bg-overlay {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.45); /* سایه مشکی ملایم */
-    backdrop-filter: blur(3px); /* محو کردن ملایم پس‌زمینه */
     z-index: 1;
+    /* در موبایل کل صفحه را ملایم تاریک می‌کند */
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(3px);
+  }
+
+  /* در دسکتاپ، سمت راست را شفاف و سمت چپ را تیره می‌کند تا عکس کارخانه دیده شود */
+  @media (min-width: 768px) {
+    .login-bg-overlay {
+      background: linear-gradient(to left, rgba(0, 0, 0, 0.1) 10%, rgba(0, 0, 0, 0.85) 90%) !important;
+      backdrop-filter: blur(0px);
+    }
   }
 
   /* کارت شیشه‌ای (Glassmorphism) */
   .login-card-glass {
     position: relative;
     z-index: 2;
-    background: rgba(255, 255, 255, 0.9); /* سفید با شفافیت */
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+    background: rgba(255, 255, 255, 0.92); /* سفید با شفافیت بالا */
+    backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
   }
 
   body.dark-mode .login-card-glass {
-    background: rgba(30, 41, 59, 0.9); /* تیره با شفافیت برای حالت دارک */
+    background: rgba(30, 41, 59, 0.92); /* تیره با شفافیت برای حالت دارک */
     border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* ⭐️ تنظیم چیدمان فرم: موبایل وسط، دسکتاپ سمت چپ */
+  .login-wrapper {
+    position: relative;
+    z-index: 2;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    /* در موبایل در مرکز قرار می‌گیرد */
+    justify-content: center;
+    padding: 1.5rem;
+  }
+  
+  @media (min-width: 768px) {
+    .login-wrapper {
+      /* در دسکتاپ (RTL) به سمت چپ (end) هل داده می‌شود */
+      justify-content: flex-end;
+      padding-left: 8vw; /* فاصله از لبه چپ صفحه */
+    }
   }
 </style>
 </head>
@@ -78,7 +105,7 @@
 <div id="screenLoading" class="screen active" style="align-items: center; justify-content: center; min-height: 100vh; background: var(--bg);">
   <div class="loading-wrapper text-center">
     
-    <img src="icons/logo-transparent.png" class="custom-logo mx-auto mb-4" style="width: 100px; height: 100px;" alt="Logo">
+    <img src="icons/logo-transparent.png" class="mx-auto mb-4" style="width: 100px; height: 100px; object-fit: contain;" alt="Logo">
     
     <h2 class="loading-title fw-bold mb-4" style="font-size: 1.5rem;">کلینیک گندله سازی بهاباد</h2>
     
@@ -90,10 +117,10 @@
 </div>
 
 <!-- ═════════════ صفحه لاگین ═════════════ -->
-<div id="screenLogin" class="screen login-bg-wrapper">
+<div id="screenLogin" class="screen">
   <div class="login-bg-overlay"></div>
   
-  <div class="login-wrapper p-4 d-flex align-items-center justify-content-center position-relative" style="min-height: 100vh; z-index: 2;">
+  <div class="login-wrapper">
     <div class="login-card-glass p-4 rounded-4 w-100" style="max-width: 400px;">
       <div class="text-center mb-3">
         <img src="icons/logo-transparent.png" class="mx-auto d-block" style="width: 110px; height: 110px; object-fit: contain;" alt="Logo">
@@ -122,7 +149,7 @@
   <div class="d-flex align-items-center gap-2">
     <button id="btnToggleTheme" title="تغییر تم" class="btn btn-light" aria-label="تغییر تم"><i class="bi bi-moon-stars-fill"></i></button>
     
-    <!-- ⭐️ زنگ هشدار با آیکون زنگوله استاندارد -->
+    <!-- ⭐️ زنگ هشدار -->
     <button id="btnAlertBell" class="btn btn-light position-relative d-flex align-items-center justify-content-center p-1" aria-label="هشدارها" style="width: 40px; height: 40px;">
       <i class="bi bi-bell-fill text-danger" style="font-size: 1.2rem;"></i>
       <span id="alertBellBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display:none;">!</span>
@@ -136,7 +163,7 @@
 <!-- ═════════════ سایدبار دسکتاپ ═════════════ -->
 <aside class="side-nav" id="sideNav">
   <div class="side-brand">
-    <img src="icons/logo-transparent.png" class="custom-logo" style="width: 45px; height: 45px;" alt="Logo">
+    <img src="icons/logo-transparent.png" style="width: 45px; height: 45px; object-fit: contain;" alt="Logo">
     <div>
       <div class="brand-name">گندله سازی بهاباد</div>
       <div class="brand-sub">سامانه جامع کلینیک صنعتی</div>
@@ -178,7 +205,7 @@
       <div class="home-greeting-art"><i class="bi bi-flower1"></i></div>
     </div>
 
-    <!-- ⭐️ دکمه اعلام حادثه با آیکون زنگوله -->
+    <!-- ⭐️ دکمه اعلام حادثه -->
     <button id="btnQuickIncident" class="home-incident-btn" type="button">
       <svg class="home-incident-ecg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,32 46,32 56,32 64,8 74,54 84,18 92,32 200,32" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       
