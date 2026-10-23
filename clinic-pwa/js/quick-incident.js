@@ -7,20 +7,32 @@ export function initQuickIncidentButton() {
   if (btn) btn.onclick = openQuickIncidentModal;
 }
 
-// ⭐️ تابع جستجوی اطلاعات تکمیلی در پس‌زمینه
+// ⭐️ تابع جدید: جستجوی اطلاعات تکمیلی در پس‌زمینه
 async function fetchSupplementalInfo(user) {
   console.log('[SUPPLEMENTAL] Started fetching extra info for quick incident...');
-  let phone = user.phone || user.user_metadata?.phone || null; // استفاده از ستون phone در auth.users
+  let phone = user.phone || user.user_metadata?.phone || user.user_metadata?.mobile || null;
   let lat = null;
   let lng = null;
   let anyFailed = false;
 
-  // ۱. بررسی شماره تلفن
+  // ۱. جستجوی هوشمند شماره تلفن کارمند
   if (!phone) {
-    console.warn('[SUPPLEMENTAL] Could not find employee phone number in auth.users.');
-    anyFailed = true;
-  } else {
+    console.log('[SUPPLEMENTAL] Phone not in user object, checking auth.users table...');
+    try {
+      const { data, error } = await sb.from('users').select('phone').eq('id', user.id).maybeSingle();
+      if (!error && data && data.phone) {
+        phone = data.phone;
+      }
+    } catch (e) {
+      console.warn('[SUPPLEMENTAL] Could not query users table:', e);
+    }
+  }
+  
+  if (phone) {
     console.log('[SUPPLEMENTAL] Employee phone found:', phone);
+  } else {
+    console.warn('[SUPPLEMENTAL] Could not find employee phone number anywhere.');
+    anyFailed = true;
   }
 
   // ۲. گرفتن لوکیشن (GPS)
