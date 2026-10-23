@@ -7,6 +7,18 @@ import { toast } from './utils.js';
 let currentToken = null;
 let isListenerAttached = false;
 
+// ابزار تبدیل VAPID Key
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 async function getSWRegistration() {
   let reg = await navigator.serviceWorker.getRegistration();
   if (!reg) {
@@ -22,50 +34,66 @@ export function getPermissionStatus() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ⭐ NEW: درخواست مجوز + ذخیره توکن — از روی کلیک کاربر
+// ⭐️ اصلاح اصلی: مجبور کردن مرورگر به ساخت Subscription
+// ═══════════════════════════════════════════════════════════════
+async function forceSubscribePush(swReg) {
+  try {
+    let sub = await swReg.pushManager.getSubscription();
+    if (sub) return sub;
+
+    console.log('[FCM] No existing subscription, trying to create one...');
+    
+    // بررسی معتبر بودن VAPID Key
+    if (!VAPID_KEY || VAPID_KEY.length < 50) {
+      throw new Error('VAPID_KEY نامعتبر است یا تنظیم نشده است.');
+    }
+
+    sub = await swReg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_KEY)
+    });
+    console.log('[FCM] ✅ Push subscription created:', sub.endpoint);
+    return sub;
+  } catch (e) {
+    console.error('[FCM] forceSubscribePush error:', e);
+    throw e;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// درخواست مجوز و ساخت توکن (از روی کلیک کاربر)
 // ═══════════════════════════════════════════════════════════════
 export async function requestPermissionAndInit() {
   try {
-    if (!VAPID_KEY) {
-      console.error('[FCM] VAPID_KEY missing');
-      return { ok: false, reason: 'no-vapid' };
-    }
-    if (!('Notification' in window)) {
-      return { ok: false, reason: 'unsupported' };
-    }
-    if (Notification.permission === 'denied') {
-      toast('نوتیفیکیشن در مرورگر مسدود شده. از تنظیمات مرورگر اجازه دهید.', 'warning');
-      return { ok: false, reason: 'denied' };
-    }
-
+    if (!VAPID_KEY) return { ok: false, reason: 'no-vapid' };
+    if (!('Notification' in window)) return { ok: false, reason: 'unsupported' };
+    
     let perm = Notification.permission;
     if (perm === 'default') {
       perm = await Notification.requestPermission();
     }
     if (perm !== 'granted') {
-      console.warn('[FCM] permission not granted:', perm);
       return { ok: false, reason: 'not-granted', permission: perm };
     }
 
     const messaging = await getMessagingInstance();
-    if (!messaging) {
-      console.warn('[FCM] no messaging instance');
-      return { ok: false, reason: 'no-messaging' };
-    }
+    if (!messaging) return { ok: false, reason: 'no-messaging' };
 
     const swReg = await getSWRegistration();
+    
+    // ۱. اول دستی سابسکرایب می‌کنیم
+    await forceSubscribePush(swReg);
+
+    // ۲. حالا توکن را می‌گیریم
     const token = await messaging.getToken({
       vapidKey: VAPID_KEY,
       serviceWorkerRegistration: swReg
     }).catch(err => {
-      console.error('[FCM] getToken failed:', err);
+      console.error('[FCM] getToken after subscribe failed:', err);
       return null;
     });
 
-    if (!token) {
-      console.error('[FCM] no token returned');
-      return { ok: false, reason: 'no-token' };
-    }
+    if (!token) return { ok: false, reason: 'no-token' };
 
     currentToken = token;
     const saved = await saveTokenToDB(token);
@@ -75,40 +103,40 @@ export async function requestPermissionAndInit() {
     return { ok: true, token, saved };
   } catch (error) {
     console.error('[FCM] requestPermissionAndInit error:', error);
-    toast('خطا در فعال‌سازی نوتیفیکیشن', 'danger');
     return { ok: false, reason: 'exception', error: error.message };
   }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ⭐ FIXED: initFCM — با لاگ، retry، و return وضعیت
+// Init در پس‌زمینه
 // ═══════════════════════════════════════════════════════════════
 export async function initFCM() {
   try {
     const permission = getPermissionStatus();
     console.log('[FCM] initFCM — permission:', permission);
 
-    if (permission === 'unsupported') {
-      return { ok: false, reason: 'unsupported' };
-    }
-    if (permission === 'default') {
-      console.log('[FCM] permission default → needs user gesture to enable');
-      return { ok: false, reason: 'needs-permission' };
-    }
-    if (permission === 'denied') {
-      console.warn('[FCM] permission denied — user must unblock in browser settings');
-      return { ok: false, reason: 'denied' };
+    if (permission !== 'granted') {
+      return { ok: false, reason: permission };
     }
 
-    // granted
     const messaging = await getMessagingInstance();
-    if (!messaging) {
-      return { ok: false, reason: 'no-messaging' };
-    }
+    if (!messaging) return { ok: false, reason: 'no-messaging' };
 
-    const token = await refreshTokenWithRetry(messaging, 2);
+    const swReg = await getSWRegistration();
+    
+    // ⭐️ در پس‌زمینه هم دستی سابسکرایب می‌کنیم تا خطای Error retrieving push subscription رفع شود
+    await forceSubscribePush(swReg);
+
+    const token = await messaging.getToken({
+      vapidKey: VAPID_KEY,
+      serviceWorkerRegistration: swReg
+    }).catch(err => {
+      console.warn('[FCM] getToken failed in background:', err.message);
+      return null;
+    });
+
     if (!token) {
-      console.error('[FCM] failed to get token after retries');
+      console.error('[FCM] failed to get token');
       return { ok: false, reason: 'no-token' };
     }
 
@@ -124,30 +152,6 @@ export async function initFCM() {
   }
 }
 
-async function refreshTokenWithRetry(messaging, attempts = 2) {
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const swReg = await getSWRegistration();
-      const tokenPromise = messaging.getToken({
-        vapidKey: VAPID_KEY,
-        serviceWorkerRegistration: swReg
-      });
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('timeout')), 12000)
-      );
-      const token = await Promise.race([tokenPromise, timeoutPromise]);
-      if (token) return token;
-    } catch (e) {
-      console.warn(`[FCM] token attempt ${i + 1}/${attempts} failed:`, e.message);
-      if (i < attempts - 1) await new Promise(r => setTimeout(r, 1500));
-    }
-  }
-  return null;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Message listener
-// ═══════════════════════════════════════════════════════════════
 async function setupMessageListener(messaging) {
   if (isListenerAttached) return;
   try {
@@ -163,65 +167,40 @@ async function setupMessageListener(messaging) {
       }
     });
     isListenerAttached = true;
-    console.log('[FCM] ✅ message listener attached');
   } catch (e) {
     console.error('[FCM] listener error:', e);
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// saveTokenToDB (بدون تغییر ساختاری — فقط لاگ بهتر)
-// ═══════════════════════════════════════════════════════════════
 async function saveTokenToDB(token) {
   try {
     const { data: { user } } = await sb.auth.getUser();
-    if (!user) {
-      console.warn('[FCM] no user — cannot save token');
-      return false;
-    }
+    if (!user) return false;
 
-    // حذف توکن مشابه از کاربران دیگر
-    const { error: delError } = await sb.from('user_tokens')
-      .delete()
-      .eq('token', token)
-      .neq('user_id', user.id);
-    if (delError) console.warn('[FCM] delete other-user token:', delError.message);
+    // پاک کردن توکن‌های تکراری از کاربران دیگر
+    await sb.from('user_tokens').delete().eq('token', token).neq('user_id', user.id);
 
-    // آیا این توکن قبلاً برای این کاربر هست؟
     const { data: existing, error: selError } = await sb.from('user_tokens')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('token', token)
-      .maybeSingle();
-    if (selError) {
-      console.error('[FCM] select token:', selError.message);
-      return false;
-    }
+      .select('id').eq('user_id', user.id).eq('token', token).maybeSingle();
+
+    if (selError) return false;
 
     if (existing) {
-      const { error: updError } = await sb.from('user_tokens').update({
-        updated_at: new Date().toISOString()
-      }).eq('id', existing.id);
-      if (updError) {
-        console.error('[FCM] update token:', updError);
+      await sb.from('user_tokens').update({ updated_at: new Date().toISOString() }).eq('id', existing.id);
+      console.log('[FCM] ✅ existing token updated');
+    } else {
+      const { error: insError } = await sb.from('user_tokens').insert({
+        user_id: user.id,
+        token,
+        updated_at: new Date().toISOString(),
+        platform: 'web'
+      });
+      if (insError) {
+        console.error('[FCM] insert token error (RLS?):', insError);
         return false;
       }
-      console.log('[FCM] ✅ existing token updated');
-      return true;
+      console.log('[FCM] ✅ new token inserted');
     }
-
-    const { error: insError } = await sb.from('user_tokens').insert({
-      user_id: user.id,
-      token,
-      updated_at: new Date().toISOString(),
-      platform: 'web'
-    });
-    if (insError) {
-      console.error('[FCM] insert token:', insError);
-      toast('خطا در ذخیره توکن در سرور', 'danger');
-      return false;
-    }
-    console.log('[FCM] ✅ new token inserted');
     return true;
   } catch (err) {
     console.error('[FCM] saveTokenToDB unexpected:', err);
@@ -229,85 +208,38 @@ async function saveTokenToDB(token) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// getTokenStatus و removeFCMToken — بدون تغییر
-// ═══════════════════════════════════════════════════════════════
 export async function getTokenStatus() {
   try {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return { saved: false, count: 0, lastSeen: null };
 
-    const { data: tokens, error } = await sb.from('user_tokens')
-      .select('token, updated_at').eq('user_id', user.id);
-    if (error || !tokens || tokens.length === 0) {
-      return { saved: false, count: 0, lastSeen: null };
-    }
+    const { data: tokens, error } = await sb.from('user_tokens').select('token, updated_at').eq('user_id', user.id);
+    if (error || !tokens || tokens.length === 0) return { saved: false, count: 0, lastSeen: null };
 
-    const count = tokens.length;
     const lastSeen = tokens.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0]?.updated_at;
 
-    let actualToken = currentToken;
-    if (!actualToken) {
-      try {
-        const messaging = await getMessagingInstance();
-        if (messaging) {
-          const swReg = await getSWRegistration();
-          const tokenPromise = messaging.getToken({
-            vapidKey: VAPID_KEY,
-            serviceWorkerRegistration: swReg
-          });
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Timeout')), 8000)
-          );
-          actualToken = await Promise.race([tokenPromise, timeoutPromise]).catch(err => {
-            console.warn('[FCM] getTokenStatus timeout:', err.message);
-            return null;
-          });
-          if (actualToken) currentToken = actualToken;
-        }
-      } catch (e) {
-        console.warn('[FCM] getTokenStatus messaging:', e);
-      }
-    }
-
     return {
-      saved: actualToken ? tokens.some(t => t.token === actualToken) : false,
-      count,
-      lastSeen,
-      actualTokenLoaded: !!actualToken
+      saved: currentToken ? tokens.some(t => t.token === currentToken) : tokens.length > 0,
+      count: tokens.length,
+      lastSeen
     };
   } catch (err) {
-    console.error('[FCM] getTokenStatus error:', err);
     return { saved: false, count: 0, lastSeen: null };
   }
 }
 
 export async function removeFCMToken() {
   try {
-    if (!currentToken) {
-      const messaging = await getMessagingInstance();
-      if (messaging) {
-        const swReg = await getSWRegistration();
-        currentToken = await messaging.getToken({
-          vapidKey: VAPID_KEY,
-          serviceWorkerRegistration: swReg
-        }).catch(() => null);
+    const messaging = await getMessagingInstance();
+    if (messaging) {
+      const swReg = await getSWRegistration();
+      const current = await messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg }).catch(() => null);
+      if (current) {
+        await messaging.deleteToken();
+        const { data: { user } } = await sb.auth.getUser();
+        if (user) await sb.from('user_tokens').delete().eq('user_id', user.id).eq('token', current);
       }
     }
-    if (!currentToken) return;
-
-    const messaging = await getMessagingInstance();
-    if (messaging) await messaging.deleteToken();
-
-    const { data: { user } } = await sb.auth.getUser();
-    if (user && currentToken) {
-      const { error } = await sb.from('user_tokens')
-        .delete().eq('user_id', user.id).eq('token', currentToken);
-      if (error) console.error('[FCM] remove token:', error);
-      else console.log('[FCM] token removed from DB');
-    }
     currentToken = null;
-  } catch (err) {
-    console.error('[FCM] removeFCMToken error:', err);
-  }
+  } catch (err) {}
 }
