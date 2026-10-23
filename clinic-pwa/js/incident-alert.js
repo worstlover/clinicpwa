@@ -117,7 +117,7 @@ export async function broadcastIncidentAlert({ patientName, patientId, visitId, 
     if (!user) return;
 
     const userName = user.user_metadata?.full_name || user.email || 'کاربر';
-    const userPhone = user.user_metadata?.phone || user.phone || null; // استخراج شماره برای حادثه ویزیت
+    const userPhone = user.user_metadata?.phone || user.phone || null; 
 
     const { error } = await sb.from('incident_alerts').insert({
       triggered_by:   user.id,
@@ -233,14 +233,14 @@ function playTtsAlert(alert) {
 }
 
 // ═══════════════════════════════════════════════════════
-// بنر قرمز (تغییر یافته برای نمایش دکمه تماس و نقشه)
+// بنر قرمز (اصلاح لینک نقشه نشان)
 // ═══════════════════════════════════════════════════════
 function showIncidentBanner(alert) {
   document.querySelectorAll('.incident-alert-banner').forEach(el => el.remove());
 
   let actionBtnsHtml = '<div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:8px;">';
 
-  // ⭐️ دکمه تماس تلفنی
+  // دکمه تماس تلفنی
   if (alert.triggered_phone) {
     actionBtnsHtml += `
       <a href="tel:${alert.triggered_phone}" style="background:#10b981; color:#fff; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
@@ -249,9 +249,12 @@ function showIncidentBanner(alert) {
     `;
   }
 
-  // ⭐️ دکمه نقشه
+  // ⭐️ دکمه نقشه (فرمت لینک نشان اصلاح شد)
   if (alert.latitude && alert.longitude) {
-    const mapUrl = `https://neshan.org/maps/@${alert.latitude},${alert.longitude},15z`;
+    const lat = alert.latitude;
+    const lng = alert.longitude;
+    const mapUrl = `https://neshan.org/maps#c${lat}-${lng}-15z-0p`;
+    
     actionBtnsHtml += `
       <a href="${mapUrl}" target="_blank" style="background:#fff; color:#dc2626; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
         📍 مشاهده موقعیت
