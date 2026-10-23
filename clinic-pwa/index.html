@@ -35,6 +35,7 @@
     background-position: center;
     background-repeat: no-repeat;
     position: relative;
+    background-color: #1a202c; /* رنگ جایگزین در صورت لود نشدن عکس */
   }
   
   /* لایه تاریک برای خوانایی متن روی عکس */
@@ -42,7 +43,7 @@
     position: absolute;
     inset: 0;
     background: rgba(0, 0, 0, 0.45); /* سایه مشکی ملایم */
-    backdrop-filter: blur(4px); /* محو کردن پس‌زمینه */
+    backdrop-filter: blur(3px); /* محو کردن ملایم پس‌زمینه */
     z-index: 1;
   }
 
@@ -50,14 +51,14 @@
   .login-card-glass {
     position: relative;
     z-index: 2;
-    background: rgba(255, 255, 255, 0.85); /* سفید با شفافیت */
+    background: rgba(255, 255, 255, 0.9); /* سفید با شفافیت */
     backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.5);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
   }
 
   body.dark-mode .login-card-glass {
-    background: rgba(30, 41, 59, 0.85); /* تیره با شفافیت برای حالت دارک */
+    background: rgba(30, 41, 59, 0.9); /* تیره با شفافیت برای حالت دارک */
     border: 1px solid rgba(255, 255, 255, 0.1);
   }
 </style>
@@ -77,7 +78,6 @@
 <div id="screenLoading" class="screen active" style="align-items: center; justify-content: center; min-height: 100vh; background: var(--bg);">
   <div class="loading-wrapper text-center">
     
-    <!-- لوگوی شفاف جدید -->
     <img src="icons/logo-transparent.png" class="custom-logo mx-auto mb-4" style="width: 100px; height: 100px;" alt="Logo">
     
     <h2 class="loading-title fw-bold mb-4" style="font-size: 1.5rem;">کلینیک گندله سازی بهاباد</h2>
@@ -89,14 +89,13 @@
   </div>
 </div>
 
-<!-- ═════════════ صفحه لاگین (با پس‌زمینه کارخانه و افکت شیشه‌ای) ═════════════ -->
+<!-- ═════════════ صفحه لاگین ═════════════ -->
 <div id="screenLogin" class="screen login-bg-wrapper">
   <div class="login-bg-overlay"></div>
   
   <div class="login-wrapper p-4 d-flex align-items-center justify-content-center position-relative" style="min-height: 100vh; z-index: 2;">
     <div class="login-card-glass p-4 rounded-4 w-100" style="max-width: 400px;">
       <div class="text-center mb-3">
-        <!-- لوگوی شفاف جدید -->
         <img src="icons/logo-transparent.png" class="mx-auto d-block" style="width: 110px; height: 110px; object-fit: contain;" alt="Logo">
       </div>
       <h3 class="text-center fw-bold mb-4" style="color: var(--text);">ورود به سامانه کلینیک</h3>
@@ -123,9 +122,9 @@
   <div class="d-flex align-items-center gap-2">
     <button id="btnToggleTheme" title="تغییر تم" class="btn btn-light" aria-label="تغییر تم"><i class="bi bi-moon-stars-fill"></i></button>
     
-    <!-- ⭐️ زنگ هشدار با آیکون badge-96 -->
+    <!-- ⭐️ زنگ هشدار با آیکون زنگوله استاندارد -->
     <button id="btnAlertBell" class="btn btn-light position-relative d-flex align-items-center justify-content-center p-1" aria-label="هشدارها" style="width: 40px; height: 40px;">
-      <img src="icons/badge-96.png" style="width: 24px; height: 24px; object-fit: contain;">
+      <i class="bi bi-bell-fill text-danger" style="font-size: 1.2rem;"></i>
       <span id="alertBellBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display:none;">!</span>
     </button>
 
@@ -137,7 +136,6 @@
 <!-- ═════════════ سایدبار دسکتاپ ═════════════ -->
 <aside class="side-nav" id="sideNav">
   <div class="side-brand">
-    <!-- ⭐️ لوگوی شفاف در سایدبار -->
     <img src="icons/logo-transparent.png" class="custom-logo" style="width: 45px; height: 45px;" alt="Logo">
     <div>
       <div class="brand-name">گندله سازی بهاباد</div>
@@ -180,12 +178,14 @@
       <div class="home-greeting-art"><i class="bi bi-flower1"></i></div>
     </div>
 
-    <!-- ⭐️ دکمه اعلام حادثه با آیکون badge-96 -->
+    <!-- ⭐️ دکمه اعلام حادثه با آیکون زنگوله -->
     <button id="btnQuickIncident" class="home-incident-btn" type="button">
       <svg class="home-incident-ecg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,32 46,32 56,32 64,8 74,54 84,18 92,32 200,32" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div class="home-incident-icon d-flex align-items-center justify-content-center" style="background: #fff; border-radius: 50%; width: 46px; height: 46px;">
-        <img src="icons/badge-96.png" style="width: 32px; height: 32px; object-fit: contain;">
+      
+      <div class="home-incident-icon d-flex align-items-center justify-content-center" style="background: rgba(255,255,255,0.2); border-radius: 50%; width: 46px; height: 46px;">
+        <i class="bi bi-bell-fill" style="font-size: 1.8rem; color: #fff;"></i>
       </div>
+      
       <div class="home-incident-body">
         <div class="home-incident-title">اعلام حادثه سریع</div>
         <div class="home-incident-sub">گزارش سریع حادثه و درخواست کمک فوری</div>
