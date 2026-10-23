@@ -1,16 +1,10 @@
 // js/alert-center.js
-// ═══════════════════════════════════════════════════════
-// مرکز هشدارها (زنگوله + تاریخچه)
-// ═══════════════════════════════════════════════════════
 import { sb } from './sb.js';
 import { $, escapeHtml, gregorianToJalali } from './utils.js';
 
 let currentUserUuid = null;
 let alertCenterChannel = null;
 
-// ═══════════════════════════════════════════════════════
-// راه‌اندازی
-// ═══════════════════════════════════════════════════════
 export async function initAlertCenter() {
   try {
     const { data: { user } } = await sb.auth.getUser();
@@ -42,9 +36,6 @@ export async function initAlertCenter() {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// شمارش و آپدیت بج
-// ═══════════════════════════════════════════════════════
 export async function refreshBellBadge() {
   try {
     const { count: incidentCount } = await sb
@@ -75,9 +66,6 @@ export async function refreshBellBadge() {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// باز کردن پنل
-// ═══════════════════════════════════════════════════════
 async function openAlertCenter() {
   const existing = $('alertCenterModal');
   if (existing) existing.remove();
@@ -119,84 +107,20 @@ async function openAlertCenter() {
     const style = document.createElement('style');
     style.id = 'alertCenterStyle';
     style.textContent = `
-      .alert-tabs {
-        display: flex;
-        border-bottom: 2px solid #e2e8f0;
-        background: #f8fafc;
-      }
-      .alert-tab {
-        flex: 1;
-        padding: 14px 8px;
-        background: transparent;
-        border: none;
-        font-weight: 700;
-        font-size: 0.9rem;
-        color: #64748b;
-        cursor: pointer;
-        border-bottom: 3px solid transparent;
-        transition: all 0.2s;
-        font-family: inherit;
-      }
-      .alert-tab.active {
-        color: #0d6efd;
-        border-bottom-color: #0d6efd;
-        background: #fff;
-      }
-      .tab-badge {
-        background: #dc2626;
-        color: #fff;
-        font-size: 0.65rem;
-        padding: 1px 7px;
-        border-radius: 10px;
-        margin-right: 4px;
-        font-weight: 700;
-        display: none;
-      }
+      .alert-tabs { display: flex; border-bottom: 2px solid #e2e8f0; background: #f8fafc; }
+      .alert-tab { flex: 1; padding: 14px 8px; background: transparent; border: none; font-weight: 700; font-size: 0.9rem; color: #64748b; cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.2s; font-family: inherit; }
+      .alert-tab.active { color: #0d6efd; border-bottom-color: #0d6efd; background: #fff; }
+      .tab-badge { background: #dc2626; color: #fff; font-size: 0.65rem; padding: 1px 7px; border-radius: 10px; margin-right: 4px; font-weight: 700; display: none; }
       .tab-badge.show { display: inline-block; }
-      .alert-item {
-        background: #fff;
-        border-radius: 12px;
-        padding: 12px 14px;
-        margin-bottom: 8px;
-        border-right: 4px solid #cbd5e1;
-        cursor: pointer;
-        transition: all 0.15s;
-      }
+      .alert-item { background: #fff; border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; border-right: 4px solid #cbd5e1; cursor: pointer; transition: all 0.15s; }
       .alert-item:hover { background: #f8fafc; }
-      .alert-item.unread {
-        border-right-color: #dc2626;
-        background: #fef2f2;
-      }
-      .alert-item.unread.referral {
-        border-right-color: #0d6efd;
-        background: #eff6ff;
-      }
-      .alert-item-title {
-        font-weight: 700;
-        font-size: 0.9rem;
-      }
-      .alert-item-meta {
-        font-size: 0.72rem;
-        color: #64748b;
-        margin-top: 3px;
-      }
-      .alert-item-time {
-        font-size: 0.68rem;
-        color: #94a3b8;
-        margin-top: 5px;
-      }
-      .unread-dot {
-        width: 8px; height: 8px;
-        background: #dc2626;
-        border-radius: 50%;
-        display: inline-block;
-        margin-right: 6px;
-        animation: pulseDot 1.5s infinite;
-      }
-      @keyframes pulseDot {
-        0%,100% { opacity: 1; }
-        50% { opacity: 0.4; }
-      }
+      .alert-item.unread { border-right-color: #dc2626; background: #fef2f2; }
+      .alert-item.unread.referral { border-right-color: #0d6efd; background: #eff6ff; }
+      .alert-item-title { font-weight: 700; font-size: 0.9rem; }
+      .alert-item-meta { font-size: 0.72rem; color: #64748b; margin-top: 3px; }
+      .alert-item-time { font-size: 0.68rem; color: #94a3b8; margin-top: 5px; }
+      .unread-dot { width: 8px; height: 8px; background: #dc2626; border-radius: 50%; display: inline-block; margin-right: 6px; animation: pulseDot 1.5s infinite; }
+      @keyframes pulseDot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
     `;
     document.head.appendChild(style);
   }
@@ -286,7 +210,7 @@ async function loadTab(tab) {
       content.innerHTML = data.map(a => `
         <div class="alert-item ${!a.is_read ? 'unread' : ''}" data-alert-id="${a.id}" data-alert-type="incident">
           <div class="alert-item-title">
-            🚨 اعلام حادثه ${!a.is_read ? '<span class="unread-dot"></span>' : ''}
+            🚨 اعلام حادثه ${a.alert_type === 'visit' ? '(ویزیت)' : '(سریع)'} ${!a.is_read ? '<span class="unread-dot"></span>' : ''}
           </div>
           <div class="alert-item-meta">
             توسط: <strong>${escapeHtml(a.triggered_name || 'کاربر')}</strong>
@@ -350,23 +274,39 @@ async function loadTab(tab) {
         const visitId = el.dataset.visitId;
 
         if (type === 'incident') {
+          // ⭐️ پیدا کردن اطلاعات کامل حادثه از دیتای لود شده
+          let alertData;
+          if (tab === 'incident') {
+             // برای دسترسی به دیتای ردیف کلیک شده، دوباره از دیتابیس می‌خوانیم یا از متغیر گلوبال استفاده می‌کنیم. 
+             // بهترین راه خواندن از دیتابیس است تا همیشه آپدیت باشد (مثلا اگر شماره یا لوکیشن بعدا اضافه شده باشد)
+             const { data: freshAlert } = await sb.from('incident_alerts').select('*').eq('id', id).maybeSingle();
+             alertData = freshAlert;
+          }
+
           await sb.from('incident_alerts').update({ is_read: true }).eq('id', id);
+          el.classList.remove('unread');
+          await refreshBellBadge();
+          await refreshTabBadges();
+
+          // ⭐️ باز کردن مودال جزئیات
+          if (alertData) showIncidentDetailModal(alertData);
+
         } else {
           await sb.from('visit_referral_alerts').update({ is_read: true }).eq('id', id);
-        }
-        el.classList.remove('unread');
-        await refreshBellBadge();
-        await refreshTabBadges();
+          el.classList.remove('unread');
+          await refreshBellBadge();
+          await refreshTabBadges();
 
-        if (type === 'referral' && visitId) {
-          bootstrap.Modal.getInstance($('alertCenterModal'))?.hide();
-          setTimeout(async () => {
-            $('alertCenterModal')?.remove();
-            const { openVisits } = await import('./modules/visit/index.js');
-            const { openDetail } = await import('./modules/visit/detail.js');
-            await openVisits();
-            setTimeout(() => openDetail(parseInt(visitId)), 150);
-          }, 300);
+          if (visitId) {
+            bootstrap.Modal.getInstance($('alertCenterModal'))?.hide();
+            setTimeout(async () => {
+              $('alertCenterModal')?.remove();
+              const { openVisits } = await import('./modules/visit/index.js');
+              const { openDetail } = await import('./modules/visit/detail.js');
+              await openVisits();
+              setTimeout(() => openDetail(parseInt(visitId)), 150);
+            }, 300);
+          }
         }
       };
     });
@@ -375,4 +315,86 @@ async function loadTab(tab) {
     console.error('[AlertCenter] load tab failed:', e);
     content.innerHTML = '<div class="text-center text-danger py-5">خطا در بارگذاری</div>';
   }
+}
+
+// ⭐️ مودال نمایش جزئیات کامل حادثه
+function showIncidentDetailModal(alert) {
+  const oldModal = document.getElementById('incidentDetailModal');
+  if (oldModal) oldModal.remove();
+
+  let actionBtnsHtml = '<div style="margin-top:15px; display:flex; flex-wrap:wrap; gap:8px;">';
+  
+  if (alert.triggered_phone) {
+    actionBtnsHtml += `<a href="tel:${alert.triggered_phone}" style="background:#10b981; color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📞 تماس با گزارش‌دهنده</a>`;
+  }
+  
+  if (alert.patient_phone) {
+    actionBtnsHtml += `<a href="tel:${alert.patient_phone}" style="background:#3b82f6; color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📞 تماس با بیمار</a>`;
+  }
+
+  if (alert.latitude && alert.longitude) {
+    actionBtnsHtml += `<a href="https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}" target="_blank" style="background:#fff; color:#dc2626; border: 1px solid #dc2626; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📍 مشاهده موقعیت</a>`;
+  }
+  
+  actionBtnsHtml += '</div>';
+
+  const modalHtml = `
+    <div class="modal fade" id="incidentDetailModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border: none; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+          <div class="modal-header text-white" style="background:linear-gradient(135deg, #dc2626, #991b1b); border-bottom: none; padding: 20px;">
+            <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-diamond-fill"></i> جزئیات حادثه</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body" style="padding: 20px; background: #f8fafc;">
+            <div class="mb-3">
+              <span class="text-muted small d-block mb-1">نوع حادثه</span>
+              <span class="badge bg-danger" style="font-size: 0.85rem;">${alert.alert_type === 'visit' ? 'حادثه در ویزیت' : 'اعلام حادثه سریع'}</span>
+            </div>
+            
+            <div class="row g-3 mb-3">
+              <div class="col-6">
+                <div class="bg-white p-3 rounded-3 shadow-sm h-100 border">
+                  <span class="text-muted small d-block mb-1">گزارش‌دهنده</span>
+                  <strong style="font-size: 0.95rem;">${escapeHtml(alert.triggered_name || 'کاربر')}</strong>
+                </div>
+              </div>
+              <div class="col-6">
+                <div class="bg-white p-3 rounded-3 shadow-sm h-100 border">
+                  <span class="text-muted small d-block mb-1">زمان ثبت</span>
+                  <strong style="font-size: 0.85rem; direction: ltr; display: block;">${new Date(alert.created_at).toLocaleTimeString('fa-IR')}</strong>
+                  <span class="text-muted" style="font-size: 0.75rem;">${gregorianToJalali(alert.created_at)}</span>
+                </div>
+              </div>
+            </div>
+
+            ${alert.patient_name ? `
+            <div class="bg-white p-3 rounded-3 shadow-sm border mb-3">
+              <span class="text-muted small d-block mb-1">بیمار</span>
+              <strong style="font-size: 0.95rem;">${escapeHtml(alert.patient_name)}</strong>
+            </div>
+            ` : ''}
+
+            ${alert.location ? `
+            <div class="bg-white p-3 rounded-3 shadow-sm border">
+              <span class="text-muted small d-block mb-1">📍 محل حادثه</span>
+              <strong style="font-size: 0.95rem; color: #dc2626;">${escapeHtml(alert.location)}</strong>
+            </div>
+            ` : '<div class="text-muted small">محل حادثه ثبت نشده است.</div>'}
+
+            ${actionBtnsHtml}
+          </div>
+          <div class="modal-footer" style="border-top: none; background: #f8fafc; padding: 15px 20px;">
+            <button type="button" class="btn btn-secondary w-100" data-bs-dismiss="modal">بستن</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  const el = document.getElementById('incidentDetailModal');
+  const m = new bootstrap.Modal(el);
+  m.show();
+  el.addEventListener('hidden.bs.modal', () => el.remove());
 }
