@@ -7,6 +7,43 @@ export function initQuickIncidentButton() {
   if (btn) btn.onclick = openQuickIncidentModal;
 }
 
+// ⭐️ تابع جستجوی اطلاعات تکمیلی در پس‌زمینه
+async function fetchSupplementalInfo(user) {
+  console.log('[SUPPLEMENTAL] Started fetching extra info for quick incident...');
+  let phone = user.phone || user.user_metadata?.phone || null; // استفاده از ستون phone در auth.users
+  let lat = null;
+  let lng = null;
+  let anyFailed = false;
+
+  // ۱. بررسی شماره تلفن
+  if (!phone) {
+    console.warn('[SUPPLEMENTAL] Could not find employee phone number in auth.users.');
+    anyFailed = true;
+  } else {
+    console.log('[SUPPLEMENTAL] Employee phone found:', phone);
+  }
+
+  // ۲. گرفتن لوکیشن (GPS)
+  if (navigator.geolocation) {
+    console.log('[SUPPLEMENTAL] Requesting GPS location...');
+    try {
+      const pos = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000, enableHighAccuracy: true });
+      });
+      lat = pos.coords.latitude;
+      lng = pos.coords.longitude;
+      console.log('[SUPPLEMENTAL] Location found:', lat, lng);
+    } catch (e) {
+      console.warn('[SUPPLEMENTAL] Geolocation failed or timed out.', e);
+      anyFailed = true;
+    }
+  } else {
+    anyFailed = true;
+  }
+
+  return { phone, lat, lng, anyFailed };
+}
+
 function openQuickIncidentModal() {
   const existing = $('quickIncidentModal');
   if (existing) existing.remove();
@@ -22,7 +59,7 @@ function openQuickIncidentModal() {
           <div class="modal-body">
             <div class="alert alert-danger small mb-3">
               <i class="bi bi-info-circle"></i>
-              با تایید، هشدار صوتی + تصویری به همه کادر درمان، ایمنی و سوپروایزرها ارسال می‌شود.
+              با تایید، هشدار فوراً ارسال می‌شود. اطلاعات تکمیلی (موقعیت و شماره تماس) در پس‌زمینه ضمیمه خواهند شد.
             </div>
             <div class="mb-3">
               <label class="form-label small">محل حادثه (اختیاری)</label>
@@ -31,12 +68,6 @@ function openQuickIncidentModal() {
             <div class="mb-3">
               <label class="form-label small">توضیح کوتاه (اختیاری)</label>
               <input type="text" class="form-control" id="qiNote" placeholder="مثال: سقوط از ارتفاع..." autocomplete="off">
-            </div>
-            <div class="form-check form-switch mt-3">
-              <input class="form-check-input" type="checkbox" id="qiSendLocation" checked>
-              <label class="form-check-label small" for="qiSendLocation">
-                ارسال موقعیت مکانی دقیق (GPS) برای ردیابی
-              </label>
             </div>
           </div>
           <div class="modal-footer">
@@ -56,60 +87,59 @@ function openQuickIncidentModal() {
   modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
 
   $('qiConfirm').onclick = async () => {
-    const location = $('qiLocation').value.trim();
+    const locationText = $('qiLocation').value.trim();
     const note = $('qiNote').value.trim();
-    const wantsLocation = $('qiSendLocation').checked;
 
     const btn = $('qiConfirm');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ارسال...';
-
-    let lat = null;
-    let lng = null;
-
-    if (wantsLocation && navigator.geolocation) {
-      try {
-        const pos = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 7000, enableHighAccuracy: true });
-        });
-        lat = pos.coords.latitude;
-        lng = pos.coords.longitude;
-      } catch (err) {
-        console.warn('Geolocation failed:', err);
-        toast('دریافت موقعیت مکانی ناموفق بود، بدون موقعیت ارسال می‌شود', 'warning');
-      }
-    }
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ارسال...';
 
     try {
       const { data: { user } } = await sb.auth.getUser();
       if (!user) throw new Error('کاربر یافت نشد');
 
       const userName = user.user_metadata?.full_name || user.email || 'کاربر';
-      
-      // ⭐️ استخراج شماره تلفن کاربر
-      // (بسته به ساختار دیتابیس شما، ممکن است user.user_metadata.phone یا user.phone باشد)
-      const userPhone = user.user_metadata?.phone || user.phone || null;
+      const fullLocation = [locationText, note].filter(Boolean).join(' | ');
 
-      const fullLocation = [location, note].filter(Boolean).join(' | ');
-
-      const { error } = await sb.from('incident_alerts').insert({
-        triggered_by:   user.id,
-        triggered_name: userName,
-        triggered_phone: userPhone, // ⭐️ ثبت شماره تلفن
-        patient_id:     null,
-        patient_name:   null,
-        visit_id:       null,
-        location:       fullLocation || null,
-        alert_type:     'quick',
-        latitude:       lat,
-        longitude:      lng
-      });
+      // ⭐️ ۱. ارسال فوری هشدار (بدون شماره و لوکیشن)
+      console.log('[QuickIncident] Sending FAST alert now...');
+      const { data: alertData, error } = await sb.from('incident_alerts').insert({
+        triggered_by:    user.id,
+        triggered_name:  userName,
+        location:        fullLocation || null,
+        alert_type:      'quick'
+      }).select('id').single();
 
       if (error) throw error;
 
-      toast('🚨 هشدار حادثه به همه ارسال شد', 'success');
+      toast('🚨 هشدار ارسال شد. در حال دریافت اطلاعات تکمیلی...', 'success');
       if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
       modal.hide();
+
+      // ⭐️ ۲. دریافت و آپدیت اطلاعات تکمیلی در پس‌زمینه
+      if (alertData?.id) {
+        fetchSupplementalInfo(user).then(async (info) => {
+          console.log('[QuickIncident] Background info result:', info);
+          
+          const updatePayload = {};
+          if (info.phone) updatePayload.triggered_phone = info.phone;
+          if (info.lat) updatePayload.latitude = info.lat;
+          if (info.lng) updatePayload.longitude = info.lng;
+
+          if (Object.keys(updatePayload).length > 0) {
+            await sb.from('incident_alerts').update(updatePayload).eq('id', alertData.id);
+            console.log('[QuickIncident] ✅ Supplemental info updated in DB.');
+          }
+
+          // ⭐️ اطلاع‌رسانی به کاربر در صورت ناقص بودن اطلاعات
+          if (info.anyFailed || !info.phone) {
+            toast('⚠️ نتوانستیم همه اطلاعات تکمیلی (شماره تلفن یا لوکیشن) را دریافت کنیم.', 'warning', 5000);
+          }
+        }).catch(err => {
+          console.error('[QuickIncident] Supplemental failed entirely:', err);
+          toast('⚠️ خطا در دریافت اطلاعات تکمیلی', 'warning');
+        });
+      }
 
     } catch (e) {
       console.error(e);
