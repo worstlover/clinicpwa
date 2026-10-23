@@ -1,5 +1,6 @@
 // js/incident-alert.js
 import { sb } from './sb.js';
+import { showOfflineMapModal } from './alert-center.js'; // ⭐️ ایمپورت تابع نقشه
 
 const ALLOWED_ROLES = ['Nurse', 'doctor', 'safety', 'Supervisor'];
 const ALERT_MP3_QUICK = './sounds/incident-alert1.mp3';
@@ -9,7 +10,7 @@ let currentUserRole = null;
 let currentUserUuid = null;
 let alertChannel = null;
 let isPlaying = false;
-let currentPlayTimeout = null; // ⭐️ تایمر ایمنی برای جلوگیری از قفل شدن
+let currentPlayTimeout = null; 
 let lastAlertTime = 0;
 let mp3Available = null;
 
@@ -39,7 +40,6 @@ document.addEventListener('touchstart', unlockAllAudio, { once: true });
 document.addEventListener('click', unlockAllAudio, { once: true });
 
 async function fetchSupplementalInfo(user, patientId = null) {
-  console.log('[SUPPLEMENTAL-VISIT] Started fetching extra info for visit incident...');
   let phone = user.phone || user.user_metadata?.phone || null;
   let patientPhone = null;
   let anyFailed = false;
@@ -50,30 +50,15 @@ async function fetchSupplementalInfo(user, patientId = null) {
       if (data && data.phone) phone = data.phone;
     } catch (e) {}
   }
-
-  if (!phone) {
-    console.warn('[SUPPLEMENTAL-VISIT] Could not find employee phone number.');
-    anyFailed = true;
-  } else {
-    console.log('[SUPPLEMENTAL-VISIT] Employee phone found:', phone);
-  }
+  if (!phone) anyFailed = true;
 
   if (patientId) {
-    console.log('[SUPPLEMENTAL-VISIT] Searching patient phone for ID:', patientId);
     try {
       const { data, error } = await sb.from('core_patient').select('phone_number').eq('id', patientId).maybeSingle();
-      if (!error && data) {
-        patientPhone = data.phone_number || null;
-        console.log('[SUPPLEMENTAL-VISIT] Patient phone found:', patientPhone);
-      }
-    } catch (e) {
-      console.warn('[SUPPLEMENTAL-VISIT] Error fetching patient phone:', e);
-    }
+      if (!error && data) patientPhone = data.phone_number || null;
+    } catch (e) {}
   }
-
-  if (!patientPhone && patientId) {
-    anyFailed = true;
-  }
+  if (!patientPhone && patientId) anyFailed = true;
 
   return { phone, patientPhone, anyFailed };
 }
@@ -121,7 +106,6 @@ export async function broadcastIncidentAlert({ patientName, patientId, visitId, 
 
     const userName = user.user_metadata?.full_name || user.email || 'کاربر';
 
-    console.log('[IncidentAlert] Sending FAST visit alert now...');
     const { data: alertData, error } = await sb.from('incident_alerts').insert({
       triggered_by:   user.id,
       triggered_name: userName,
@@ -137,21 +121,13 @@ export async function broadcastIncidentAlert({ patientName, patientId, visitId, 
 
     if (alertData?.id) {
       fetchSupplementalInfo(user, patientId).then(async (info) => {
-        console.log('[IncidentAlert] Background info result:', info);
         const updatePayload = {};
         if (info.phone) updatePayload.triggered_phone = info.phone;
         if (info.patientPhone) updatePayload.patient_phone = info.patientPhone;
 
         if (Object.keys(updatePayload).length > 0) {
           await sb.from('incident_alerts').update(updatePayload).eq('id', alertData.id);
-          console.log('[IncidentAlert] ✅ Supplemental info updated in DB.');
         }
-
-        if (info.anyFailed) {
-          toast('⚠️ نتوانستیم شماره تلفن بیمار یا گزارش‌دهنده را به طور کامل دریافت کنیم.', 'warning', 5000);
-        }
-      }).catch(err => {
-        console.error('[IncidentAlert] Supplemental failed entirely:', err);
       });
     }
   } catch (e) { console.error(e); }
@@ -189,27 +165,21 @@ function handleUpdateAlert(alert) {
     `);
   }
 
+  // ⭐️ دکمه نقشه آفلاین
   if (alert.latitude && alert.longitude && !actionBtns.querySelector('.map-btn')) {
-    const mapUrl = `https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}`;
     actionBtns.insertAdjacentHTML('beforeend', `
-      <a href="${mapUrl}" target="_blank" class="map-btn" style="background:#fff; color:#dc2626; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; gap:6px;">
-        📍 مشاهده موقعیت
-      </a>
+      <button onclick="window.showOfflineMap('${alert.latitude}', '${alert.longitude}')" class="map-btn" style="background:#fff; color:#dc2626; border:none; padding:6px 12px; border-radius:8px; cursor:pointer; font-family:inherit; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; gap:6px;">
+        📍 مشاهده موقعیت آفلاین
+      </button>
     `);
   }
 }
 
-// ⭐️ اعمال تایمر ایمنی
 function playIncidentAlert(alert) {
-  if (isPlaying) {
-    console.log('[Alert] Already playing, skipping');
-    return;
-  }
+  if (isPlaying) return;
   isPlaying = true;
 
-  // تایمر ۲۰ ثانیه‌ای برای شکستن قفل در صورت بروز خطا
   currentPlayTimeout = setTimeout(() => {
-    console.warn('[Alert] Safety timeout reached, forcing isPlaying = false');
     isPlaying = false;
     currentPlayTimeout = null;
   }, 20000);
@@ -222,7 +192,6 @@ function playIncidentAlert(alert) {
       else playTtsAlert(alert);
     }, 4500);
   } catch (e) {
-    console.error('[Alert] play failed:', e);
     isPlaying = false;
     clearTimeout(currentPlayTimeout);
     currentPlayTimeout = null;
@@ -321,8 +290,9 @@ function showIncidentBanner(alert) {
     actionBtnsHtml += `<a href="tel:${alert.patient_phone}" class="call-patient-btn" style="background:#3b82f6; color:#fff; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem;">📞 تماس با بیمار</a>`;
   }
 
+  // ⭐️ دکمه نقشه آفلاین
   if (alert.latitude && alert.longitude) {
-    actionBtnsHtml += `<a href="https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}" target="_blank" class="map-btn" style="background:#fff; color:#dc2626; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem;">📍 مشاهده موقعیت</a>`;
+    actionBtnsHtml += `<button onclick="window.showOfflineMap('${alert.latitude}', '${alert.longitude}')" class="map-btn" style="background:#fff; color:#dc2626; border:none; padding:6px 12px; border-radius:8px; cursor:pointer; font-family:inherit; font-weight:bold; font-size:0.85rem;">📍 مشاهده موقعیت آفلاین</button>`;
   }
   
   actionBtnsHtml += '</div>';
