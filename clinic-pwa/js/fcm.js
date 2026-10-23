@@ -1,19 +1,12 @@
 // js/fcm.js
 
-import { 
-  VAPID_KEY, 
-  getMessagingInstance 
-} from './firebase.js';
+import { VAPID_KEY, getMessagingInstance } from './firebase.js';
 import { sb } from './sb.js';
 import { toast } from './utils.js';
 
 let currentToken = null;
-let isListenerAttached = false; 
+let isListenerAttached = false;
 
-/**
- * دریافت رجیستری Service Worker فعلی اپلیکیشن
- * این کار از تداخل و ساخت SW جدید توسط Firebase جلوگیری می‌کند.
- */
 async function getSWRegistration() {
   let reg = await navigator.serviceWorker.getRegistration();
   if (!reg) {
@@ -23,88 +16,146 @@ async function getSWRegistration() {
   return reg;
 }
 
-/**
- * وضعیت دسترسی به نوتیفیکیشن مرورگر
- */
 export function getPermissionStatus() {
-  if (!('Notification' in window)) {
-    return 'unsupported';
-  }
+  if (!('Notification' in window)) return 'unsupported';
   return Notification.permission;
 }
 
-/**
- * وضعیت توکن FCM در دیتابیس
- */
-export async function getTokenStatus() {
+// ═══════════════════════════════════════════════════════════════
+// ⭐ NEW: درخواست مجوز + ذخیره توکن — از روی کلیک کاربر
+// ═══════════════════════════════════════════════════════════════
+export async function requestPermissionAndInit() {
   try {
-    const { data: { user } } = await sb.auth.getUser();
-    if (!user) return { saved: false, count: 0, lastSeen: null };
-
-    const { data: tokens, error } = await sb.from('user_tokens')
-      .select('token, updated_at')
-      .eq('user_id', user.id);
-
-    if (error || !tokens || tokens.length === 0) {
-      return { saved: false, count: 0, lastSeen: null };
+    if (!VAPID_KEY) {
+      console.error('[FCM] VAPID_KEY missing');
+      return { ok: false, reason: 'no-vapid' };
+    }
+    if (!('Notification' in window)) {
+      return { ok: false, reason: 'unsupported' };
+    }
+    if (Notification.permission === 'denied') {
+      toast('نوتیفیکیشن در مرورگر مسدود شده. از تنظیمات مرورگر اجازه دهید.', 'warning');
+      return { ok: false, reason: 'denied' };
     }
 
-    const count = tokens.length;
-    const lastSeen = tokens.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0]?.updated_at;
-    
-    let actualToken = currentToken;
-    if (!actualToken) {
-      try {
-        const messaging = await getMessagingInstance();
-        if (messaging) {
-          const swReg = await getSWRegistration();
-          const tokenPromise = messaging.getToken({ 
-            vapidKey: VAPID_KEY,
-            serviceWorkerRegistration: swReg 
-          });
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000));
-          
-          actualToken = await Promise.race([tokenPromise, timeoutPromise]).catch(err => {
-            console.warn('[FCM] تایم‌اوت یا خطا در getTokenStatus:', err.message);
-            return null;
-          });
-          
-          if (actualToken) currentToken = actualToken; 
-        }
-      } catch (e) {
-        console.warn('[FCM] خطا در دریافت messaging instance:', e);
-      }
+    let perm = Notification.permission;
+    if (perm === 'default') {
+      perm = await Notification.requestPermission();
+    }
+    if (perm !== 'granted') {
+      console.warn('[FCM] permission not granted:', perm);
+      return { ok: false, reason: 'not-granted', permission: perm };
     }
 
-    const currentSaved = actualToken 
-      ? tokens.some(t => t.token === actualToken) 
-      : false;
+    const messaging = await getMessagingInstance();
+    if (!messaging) {
+      console.warn('[FCM] no messaging instance');
+      return { ok: false, reason: 'no-messaging' };
+    }
 
-    return {
-      saved: currentSaved,
-      count: count,
-      lastSeen: lastSeen,
-      actualTokenLoaded: !!actualToken
-    };
-  } catch (err) {
-    console.error('[FCM] خطای کلی در getTokenStatus:', err);
-    return { saved: false, count: 0, lastSeen: null };
+    const swReg = await getSWRegistration();
+    const token = await messaging.getToken({
+      vapidKey: VAPID_KEY,
+      serviceWorkerRegistration: swReg
+    }).catch(err => {
+      console.error('[FCM] getToken failed:', err);
+      return null;
+    });
+
+    if (!token) {
+      console.error('[FCM] no token returned');
+      return { ok: false, reason: 'no-token' };
+    }
+
+    currentToken = token;
+    const saved = await saveTokenToDB(token);
+    await setupMessageListener(messaging);
+
+    if (saved) toast('✅ هشدارها فعال شدند', 'success');
+    return { ok: true, token, saved };
+  } catch (error) {
+    console.error('[FCM] requestPermissionAndInit error:', error);
+    toast('خطا در فعال‌سازی نوتیفیکیشن', 'danger');
+    return { ok: false, reason: 'exception', error: error.message };
   }
 }
 
-/**
- * اتصال لیسنر پیام‌ها
- */
+// ═══════════════════════════════════════════════════════════════
+// ⭐ FIXED: initFCM — با لاگ، retry، و return وضعیت
+// ═══════════════════════════════════════════════════════════════
+export async function initFCM() {
+  try {
+    const permission = getPermissionStatus();
+    console.log('[FCM] initFCM — permission:', permission);
+
+    if (permission === 'unsupported') {
+      return { ok: false, reason: 'unsupported' };
+    }
+    if (permission === 'default') {
+      console.log('[FCM] permission default → needs user gesture to enable');
+      return { ok: false, reason: 'needs-permission' };
+    }
+    if (permission === 'denied') {
+      console.warn('[FCM] permission denied — user must unblock in browser settings');
+      return { ok: false, reason: 'denied' };
+    }
+
+    // granted
+    const messaging = await getMessagingInstance();
+    if (!messaging) {
+      return { ok: false, reason: 'no-messaging' };
+    }
+
+    const token = await refreshTokenWithRetry(messaging, 2);
+    if (!token) {
+      console.error('[FCM] failed to get token after retries');
+      return { ok: false, reason: 'no-token' };
+    }
+
+    currentToken = token;
+    const saved = await saveTokenToDB(token);
+    await setupMessageListener(messaging);
+
+    console.log('[FCM] ✅ token refreshed', saved ? 'and saved' : '(save failed)');
+    return { ok: saved, token, reason: saved ? 'ok' : 'save-failed' };
+  } catch (error) {
+    console.error('[FCM] initFCM error:', error);
+    return { ok: false, reason: 'exception', error: error.message };
+  }
+}
+
+async function refreshTokenWithRetry(messaging, attempts = 2) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const swReg = await getSWRegistration();
+      const tokenPromise = messaging.getToken({
+        vapidKey: VAPID_KEY,
+        serviceWorkerRegistration: swReg
+      });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 12000)
+      );
+      const token = await Promise.race([tokenPromise, timeoutPromise]);
+      if (token) return token;
+    } catch (e) {
+      console.warn(`[FCM] token attempt ${i + 1}/${attempts} failed:`, e.message);
+      if (i < attempts - 1) await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Message listener
+// ═══════════════════════════════════════════════════════════════
 async function setupMessageListener(messaging) {
   if (isListenerAttached) return;
-  
   try {
     messaging.onMessage((payload) => {
-      console.log('[FCM] پیام دریافت شد:', payload);
+      console.log('[FCM] message received:', payload);
       if (payload.notification) {
         const title = payload.notification.title || 'پیام جدید';
         const body = payload.notification.body || '';
-        
         if (Notification.permission === 'granted') {
           new Notification(title, { body, icon: '/icons/icon-192.png' });
         }
@@ -112,188 +163,151 @@ async function setupMessageListener(messaging) {
       }
     });
     isListenerAttached = true;
-    console.log('[FCM] ✅ Message listener attached');
+    console.log('[FCM] ✅ message listener attached');
   } catch (e) {
-    console.error('[FCM] خطا در اتصال لیسنر:', e);
+    console.error('[FCM] listener error:', e);
   }
 }
 
-/**
- * درخواست اجازه و راه‌اندازی FCM
- */
-export async function requestPermissionAndInit() {
-  try {
-    if (!VAPID_KEY) {
-      console.error('[FCM] VAPID_KEY یافت نشد.');
-      return null;
-    }
-
-    if (!('Notification' in window)) {
-      console.warn('[FCM] این مرورگر از نوتیفیکیشن پشتیبانی نمی‌کند.');
-      return null;
-    }
-
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      console.warn('[FCM] کاربر اجازه نوتیفیکیشن را رد کرد.');
-      return null;
-    }
-
-    const messaging = await getMessagingInstance();
-    if (!messaging) return null;
-
-    // ⭐ پاس دادن Service Worker Registration
-    const swReg = await getSWRegistration();
-    const token = await messaging.getToken({ 
-      vapidKey: VAPID_KEY,
-      serviceWorkerRegistration: swReg
-    });
-    
-    console.log('[FCM] Token دریافت شد:', token);
-
-    if (token) {
-      currentToken = token;
-      await saveTokenToDB(token); 
-      await setupMessageListener(messaging);
-      return token;
-    }
-    return null;
-  } catch (error) {
-    console.error('[FCM] خطا در فرآیند ثبت‌نام:', error);
-    toast('خطا در راه‌اندازی نوتیفیکیشن‌ها', 'danger');
-    return null;
-  }
-}
-
-/**
- * راه‌اندازی FCM در پس‌زمینه هنگام ورود کاربر
- */
-export async function initFCM() {
-  try {
-    const permission = getPermissionStatus();
-    
-    if (permission === 'unsupported') return;
-    
-    if (permission === 'granted') {
-      const messaging = await getMessagingInstance();
-      if (!messaging) return;
-
-      // ⭐ پاس دادن Service Worker Registration
-      const swReg = await getSWRegistration();
-      
-      const tokenPromise = messaging.getToken({ 
-        vapidKey: VAPID_KEY,
-        serviceWorkerRegistration: swReg
-      });
-      
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('FCM Timeout')), 10000)
-      );
-
-      const token = await Promise.race([tokenPromise, timeoutPromise]).catch(err => {
-        console.warn('[FCM] دریافت توکن کند بود یا انجام نشد:', err.message);
-        return null;
-      });
-
-      if (token) {
-        currentToken = token;
-        await saveTokenToDB(token); 
-        await setupMessageListener(messaging);
-        console.log('[FCM] ✅ توکن در پس‌زمینه به‌روزرسانی شد.');
-      }
-    }
-  } catch (error) {
-    console.error('[FCM] خطا در راه‌اندازی خودکار:', error);
-  }
-}
-
-/**
- * ذخیره توکن در دیتابیس
- */
+// ═══════════════════════════════════════════════════════════════
+// saveTokenToDB (بدون تغییر ساختاری — فقط لاگ بهتر)
+// ═══════════════════════════════════════════════════════════════
 async function saveTokenToDB(token) {
   try {
     const { data: { user } } = await sb.auth.getUser();
-    if (!user) return;
+    if (!user) {
+      console.warn('[FCM] no user — cannot save token');
+      return false;
+    }
 
+    // حذف توکن مشابه از کاربران دیگر
     const { error: delError } = await sb.from('user_tokens')
       .delete()
       .eq('token', token)
       .neq('user_id', user.id);
-      
-    if (delError) {
-      console.error('[FCM] خطا در حذف توکن‌های قبلی:', delError.message);
-    }
+    if (delError) console.warn('[FCM] delete other-user token:', delError.message);
 
+    // آیا این توکن قبلاً برای این کاربر هست؟
     const { data: existing, error: selError } = await sb.from('user_tokens')
       .select('id')
       .eq('user_id', user.id)
       .eq('token', token)
       .maybeSingle();
-
     if (selError) {
-      console.error('[FCM] خطا در جستجوی توکن:', selError.message);
-      return;
+      console.error('[FCM] select token:', selError.message);
+      return false;
     }
 
     if (existing) {
       const { error: updError } = await sb.from('user_tokens').update({
         updated_at: new Date().toISOString()
       }).eq('id', existing.id);
-      
       if (updError) {
-        console.error('[FCM] ❌ خطای RLS یا دیتابیس در آپدیت توکن:', updError);
-      } else {
-        console.log('[FCM] ✅ زمان توکن آپدیت شد.');
+        console.error('[FCM] update token:', updError);
+        return false;
       }
-    } else {
-      const { error: insError } = await sb.from('user_tokens').insert({
-        user_id: user.id,
-        token: token,
-        updated_at: new Date().toISOString(),
-        platform: 'web'
-      });
-      
-      if (insError) {
-        console.error('[FCM] ❌ خطای RLS یا دیتابیس در درج توکن:', insError);
-        toast('خطا در ذخیره توکن در سرور', 'danger');
-      } else {
-        console.log('[FCM] ✅ توکن جدید برای دستگاه ذخیره شد.');
-      }
+      console.log('[FCM] ✅ existing token updated');
+      return true;
     }
+
+    const { error: insError } = await sb.from('user_tokens').insert({
+      user_id: user.id,
+      token,
+      updated_at: new Date().toISOString(),
+      platform: 'web'
+    });
+    if (insError) {
+      console.error('[FCM] insert token:', insError);
+      toast('خطا در ذخیره توکن در سرور', 'danger');
+      return false;
+    }
+    console.log('[FCM] ✅ new token inserted');
+    return true;
   } catch (err) {
-    console.error('[FCM] خطای غیرمنتظره در ذخیره توکن:', err);
+    console.error('[FCM] saveTokenToDB unexpected:', err);
+    return false;
   }
 }
 
-/**
- * حذف توکن (هنگام خروج از حساب)
- */
+// ═══════════════════════════════════════════════════════════════
+// getTokenStatus و removeFCMToken — بدون تغییر
+// ═══════════════════════════════════════════════════════════════
+export async function getTokenStatus() {
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) return { saved: false, count: 0, lastSeen: null };
+
+    const { data: tokens, error } = await sb.from('user_tokens')
+      .select('token, updated_at').eq('user_id', user.id);
+    if (error || !tokens || tokens.length === 0) {
+      return { saved: false, count: 0, lastSeen: null };
+    }
+
+    const count = tokens.length;
+    const lastSeen = tokens.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0]?.updated_at;
+
+    let actualToken = currentToken;
+    if (!actualToken) {
+      try {
+        const messaging = await getMessagingInstance();
+        if (messaging) {
+          const swReg = await getSWRegistration();
+          const tokenPromise = messaging.getToken({
+            vapidKey: VAPID_KEY,
+            serviceWorkerRegistration: swReg
+          });
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout')), 8000)
+          );
+          actualToken = await Promise.race([tokenPromise, timeoutPromise]).catch(err => {
+            console.warn('[FCM] getTokenStatus timeout:', err.message);
+            return null;
+          });
+          if (actualToken) currentToken = actualToken;
+        }
+      } catch (e) {
+        console.warn('[FCM] getTokenStatus messaging:', e);
+      }
+    }
+
+    return {
+      saved: actualToken ? tokens.some(t => t.token === actualToken) : false,
+      count,
+      lastSeen,
+      actualTokenLoaded: !!actualToken
+    };
+  } catch (err) {
+    console.error('[FCM] getTokenStatus error:', err);
+    return { saved: false, count: 0, lastSeen: null };
+  }
+}
+
 export async function removeFCMToken() {
   try {
     if (!currentToken) {
-        const messaging = await getMessagingInstance();
-        if (messaging) {
-            const swReg = await getSWRegistration();
-            currentToken = await messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg }).catch(() => null);
-        }
+      const messaging = await getMessagingInstance();
+      if (messaging) {
+        const swReg = await getSWRegistration();
+        currentToken = await messaging.getToken({
+          vapidKey: VAPID_KEY,
+          serviceWorkerRegistration: swReg
+        }).catch(() => null);
+      }
     }
-    
     if (!currentToken) return;
 
     const messaging = await getMessagingInstance();
-    if (messaging) {
-      await messaging.deleteToken();
-    }
+    if (messaging) await messaging.deleteToken();
 
     const { data: { user } } = await sb.auth.getUser();
     if (user && currentToken) {
-      const { error } = await sb.from('user_tokens').delete().eq('user_id', user.id).eq('token', currentToken);
-      if (error) console.error('[FCM] خطا در حذف توکن از دیتابیس:', error);
-      else console.log('[FCM] توکن از دیتابیس حذف شد.');
+      const { error } = await sb.from('user_tokens')
+        .delete().eq('user_id', user.id).eq('token', currentToken);
+      if (error) console.error('[FCM] remove token:', error);
+      else console.log('[FCM] token removed from DB');
     }
-
     currentToken = null;
   } catch (err) {
-    console.error('[FCM] خطا در حذف توکن:', err);
+    console.error('[FCM] removeFCMToken error:', err);
   }
-  }
+}
