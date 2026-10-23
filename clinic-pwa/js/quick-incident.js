@@ -1,7 +1,6 @@
 // js/quick-incident.js
 import { sb } from './sb.js';
 import { $, toast } from './utils.js';
-import { broadcastIncidentAlert } from './incident-alert.js';
 
 export function initQuickIncidentButton() {
   const btn = $('btnQuickIncident');
@@ -68,7 +67,6 @@ function openQuickIncidentModal() {
     let lat = null;
     let lng = null;
 
-    // ⭐️ گرفتن موقعیت مکانی (بدون نیاز به API بین‌المللی)
     if (wantsLocation && navigator.geolocation) {
       try {
         const pos = await new Promise((resolve, reject) => {
@@ -87,17 +85,22 @@ function openQuickIncidentModal() {
       if (!user) throw new Error('کاربر یافت نشد');
 
       const userName = user.user_metadata?.full_name || user.email || 'کاربر';
+      
+      // ⭐️ استخراج شماره تلفن کاربر
+      // (بسته به ساختار دیتابیس شما، ممکن است user.user_metadata.phone یا user.phone باشد)
+      const userPhone = user.user_metadata?.phone || user.phone || null;
+
       const fullLocation = [location, note].filter(Boolean).join(' | ');
 
-      // ⭐️ ثبت در دیتابیس همراه با موقعیت
       const { error } = await sb.from('incident_alerts').insert({
         triggered_by:   user.id,
         triggered_name: userName,
+        triggered_phone: userPhone, // ⭐️ ثبت شماره تلفن
         patient_id:     null,
         patient_name:   null,
         visit_id:       null,
         location:       fullLocation || null,
-        alert_type:     'quick', // ⭐️ نوع هشدار: سریع
+        alert_type:     'quick',
         latitude:       lat,
         longitude:      lng
       });
