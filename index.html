@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#f3f6f9" id="metaThemeColor">
+<title>کلینیک گندله سازی بهاباد</title>
+
+<!-- آیکون‌های تب مرورگر و اپل -->
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+<!-- ⭐️ استایل‌های نقشه و مسیریابی -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+
+<link href="lib/vazirmatn.css" rel="stylesheet">
+<link href="lib/bootstrap.rtl.min.css" rel="stylesheet">
+<link href="lib/bootstrap-icons.min.css" rel="stylesheet">
+<link href="styles/main.css" rel="stylesheet">
+<link href="js/forms/print.css" rel="stylesheet">
+<link href="js/forms/forms-theme.css" rel="stylesheet">
+<link href="js/process/process.css" rel="stylesheet">
+<link href="styles/theme.css" rel="stylesheet">
+
+<style>
+  .screen { display: none !important; }
+  .screen.active { display: block !important; }
+  #screenLoading { display: none; }
+  #screenLoading.active { display: flex !important; }
+  
+  #screenLogin {
+    background-image: url('icons/login.png') !important; 
+    background-size: cover !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+    background-color: #1a202c !important;
+    position: relative;
+  }
+  
+  .login-bg-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(3px);
+  }
+
+  @media (min-width: 768px) {
+    .login-bg-overlay {
+      background: linear-gradient(to left, rgba(0, 0, 0, 0.1) 10%, rgba(0, 0, 0, 0.85) 90%) !important;
+      backdrop-filter: blur(0px);
+    }
+  }
+
+  .login-card-glass {
+    position: relative;
+    z-index: 2;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  }
+
+  body.dark-mode .login-card-glass {
+    background: rgba(30, 41, 59, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .login-wrapper {
+    position: relative;
+    z-index: 2;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }
+  
+  @media (min-width: 768px) {
+    .login-wrapper {
+      justify-content: flex-end;
+      padding-left: 8vw;
+    }
+  }
+</style>
+</head>
+<body>
+<script>
+  (function () {
+    try {
+      var t = localStorage.getItem('theme');
+      var dark = t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.body.classList.add('dark-mode');
+    } catch (e) {}
+  })();
+</script>
+
+<!-- ═════════════ لودینگ ═════════════ -->
+<div id="screenLoading" class="screen active" style="align-items: center; justify-content: center; min-height: 100vh; background: var(--bg);">
+  <div class="loading-wrapper text-center">
+    <img src="icons/logo-transparent.png" class="mx-auto mb-4" style="width: 100px; height: 100px; object-fit: contain;" alt="Logo">
+    <h2 class="loading-title fw-bold mb-4" style="font-size: 1.5rem;">کلینیک گندله سازی بهاباد</h2>
+    <div class="progress" style="width: 220px; height: 10px; background: #e2e8f0; border-radius: 10px; overflow: hidden; direction: ltr; margin: 0 auto;">
+      <div id="loadingProgressBar" class="progress-bar" role="progressbar" style="width: 0%; background: var(--primary); transition: width 0.1s;"></div>
+    </div>
+    <div id="loadingPercent" class="mt-2 text-muted" style="font-size: 0.9rem;">0%</div>
+  </div>
+</div>
+
+<!-- ═════════════ صفحه لاگین ═════════════ -->
+<div id="screenLogin" class="screen">
+  <div class="login-bg-overlay"></div>
+  
+  <div class="login-wrapper">
+    <div class="login-card-glass p-4 rounded-4 w-100" style="max-width: 400px;">
+      <div class="text-center mb-3">
+        <img src="icons/logo-transparent.png" class="mx-auto d-block" style="width: 110px; height: 110px; object-fit: contain;" alt="Logo">
+      </div>
+      <h3 class="text-center fw-bold mb-4" style="color: var(--text);">ورود به سامانه کلینیک</h3>
+      <div id="loginMsg"></div>
+      <div class="mb-3">
+        <label class="form-label" style="color: var(--text);">نام کاربری</label>
+        <input type="text" id="loginEmail" class="form-control" placeholder="نام کاربری" dir="ltr">
+      </div>
+      <div class="mb-4">
+        <label class="form-label" style="color: var(--text);">رمز عبور</label>
+        <input type="password" id="loginPass" class="form-control" dir="ltr" placeholder="••••••••">
+      </div>
+      <button class="btn btn-success w-100 btn-lg" id="btnLogin" type="button">ورود</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════════ هدر ═════════════ -->
+<div class="app-header hidden" id="appHeader">
+  <div class="d-flex align-items-center gap-2">
+    <button id="btnBack" class="hidden btn btn-light" aria-label="بازگشت"><i class="bi bi-arrow-right"></i></button>
+    <div class="title" id="headerTitle">کلینیک</div>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <button id="btnToggleTheme" title="تغییر تم" class="btn btn-light" aria-label="تغییر تم"><i class="bi bi-moon-stars-fill"></i></button>
+    
+    <button id="btnAlertBell" class="btn btn-light position-relative d-flex align-items-center justify-content-center p-1" aria-label="هشدارها" style="width: 40px; height: 40px;">
+      <i class="bi bi-bell-fill text-danger" style="font-size: 1.2rem;"></i>
+      <span id="alertBellBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display:none;">!</span>
+    </button>
+
+    <button id="btnProfile" class="btn btn-light" aria-label="پروفایل"><i class="bi bi-person-circle"></i></button>
+    <button id="btnLogout" class="btn btn-light text-danger" aria-label="خروج"><i class="bi bi-box-arrow-left"></i></button>
+  </div>
+</div>
+
+<!-- ═════════════ سایدبار دسکتاپ ═════════════ -->
+<aside class="side-nav" id="sideNav">
+  <div class="side-brand">
+    <img src="icons/logo-transparent.png" style="width: 45px; height: 45px; object-fit: contain;" alt="Logo">
+    <div>
+      <div class="brand-name">گندله سازی بهاباد</div>
+      <div class="brand-sub">سامانه جامع کلینیک صنعتی</div>
+    </div>
+  </div>
+  <nav class="side-links">
+    <a href="#" data-nav="home" class="active"><i class="bi bi-house-door-fill"></i><span>خانه</span></a>
+    <a href="#" data-nav="visits"><i class="bi bi-clipboard2-pulse"></i><span>ویزیت‌ها</span></a>
+    <a href="#" data-nav="patients"><i class="bi bi-people"></i><span>بیماران</span></a>
+    <a href="#" data-nav="pharmacy"><i class="bi bi-capsule-pill"></i><span>داروخانه</span></a>
+    <a href="#" data-nav="occupational"><i class="bi bi-briefcase"></i><span>طب کار</span></a>
+    <a href="#" data-nav="formsMenu"><i class="bi bi-file-earmark-text"></i><span>فرآیندها و فرم‌ها</span></a>
+    <a href="#" data-nav="visitReports"><i class="bi bi-file-earmark-bar-graph"></i><span>گزارش ویزیت‌ها</span></a>
+    <a href="#" data-nav="report"><i class="bi bi-graph-up-arrow"></i><span>گزارش دارو</span></a>
+    <a href="#" data-nav="fineReward"><i class="bi bi-shield-exclamation"></i><span>جریمه و تشویقی</span></a>
+    <a href="#" data-nav="profile"><i class="bi bi-person"></i><span>پروفایل</span></a>
+  </nav>
+  <div class="side-foot">
+    <button class="side-toggle" id="sideThemeToggle" type="button">
+      <span><i class="bi bi-moon-stars ms-2"></i>حالت تاریک</span><span class="sw"></span>
+    </button>
+    <div class="side-user">
+      <span class="av"><i class="bi bi-person-fill"></i></span>
+      <div><div class="nm">کاربر سیستم</div><div class="em" id="sideUserEmail">admin@clinic.local</div></div>
+    </div>
+  </div>
+</aside>
+
+<!-- ═════════════ منوی اصلی (Home) ═════════════ -->
+<div id="screenHome" class="screen">
+  <div class="container-fluid p-0">
+    <div class="home-greeting">
+      <div>
+        <div class="home-greeting-text">سلام</div>
+        <div class="home-greeting-sub">به کلینیک گندله سازی بهاباد خوش آمدید</div>
+        <div class="home-greeting-email" id="userEmail">admin@clinic.local</div>
+      </div>
+      <div class="home-greeting-art"><i class="bi bi-flower1"></i></div>
+    </div>
+
+    <button id="btnQuickIncident" class="home-incident-btn" type="button">
+      <svg class="home-incident-ecg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,32 46,32 56,32 64,8 74,54 84,18 92,32 200,32" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="home-incident-icon d-flex align-items-center justify-content-center" style="background: rgba(255,255,255,0.2); border-radius: 50%; width: 46px; height: 46px;">
+        <i class="bi bi-bell-fill" style="font-size: 1.8rem; color: #fff;"></i>
+      </div>
+      <div class="home-incident-body">
+        <div class="home-incident-title">اعلام حادثه سریع</div>
+        <div class="home-incident-sub">گزارش سریع حادثه و درخواست کمک فوری</div>
+      </div>
+      <span class="home-incident-cta d-none d-md-inline-flex">اعلام فوری <i class="bi bi-chevron-left ms-1"></i></span>
+    </button>
+
+    <div class="home-dashboard-grid">
+      <button class="home-card tone-green" data-nav="visits" type="button">
+        <span class="home-card-icon"><i class="bi bi-clipboard2-pulse-fill"></i></span>
+        <span class="home-card-label">ویزیت‌ها</span>
+        <span class="home-card-sub">ثبت و مدیریت مراجعات</span>
+        <span class="hc-chip"><span data-stat="visitsToday">—</span> ویزیت امروز</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+
+      <button class="home-card tone-purple" data-nav="patients" type="button">
+        <span class="home-card-icon"><i class="bi bi-people-fill"></i></span>
+        <span class="home-card-label">بیماران</span>
+        <span class="home-card-sub">پرونده و سوابق</span>
+        <span class="hc-chip"><span data-stat="patientsTotal">—</span> پرونده</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+
+      <button class="home-card tone-blue" data-nav="occupational" type="button">
+        <span class="home-card-icon"><i class="bi bi-briefcase-fill"></i></span>
+        <span class="home-card-label">طب کار</span>
+        <span class="home-card-sub">معاینات شغلی و دوره‌ای</span>
+        <span class="hc-chip"><span data-stat="examsMonth">—</span> معاینه این ماه</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+
+      <button class="home-card tone-red" data-nav="fineReward" type="button">
+        <span class="home-card-icon"><i class="bi bi-shield-exclamation"></i></span>
+        <span class="home-card-label">جریمه و تشویقی</span>
+        <span class="home-card-sub">سوابق و اخطارهای ایمنی</span>
+        <span class="hc-chip"><span data-stat="finesMonth">—</span> مورد این ماه</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+
+      <button class="home-card card-full tone-purple" data-nav="formsMenu" type="button">
+        <span class="home-card-icon"><i class="bi bi-file-earmark-text-fill"></i></span>
+        <span class="home-card-body">
+          <span class="home-card-label d-block">فرآیندها و فرم‌ها</span>
+          <span class="home-card-sub d-block">پر کردن فرم‌ها، آرشیو و چاپ مجدد، راهنمای فرآیندها</span>
+          <span class="hc-chip"><span data-stat="formsCount">—</span> فرم ثبت‌شده <i class="bi bi-chevron-left"></i></span>
+        </span>
+      </button>
+
+      <button class="home-card card-wide tone-green" data-nav="pharmacy" type="button">
+        <span class="home-card-icon"><i class="bi bi-capsule-pill"></i></span>
+        <span class="home-card-label">داروخانه کلینیک</span>
+        <span class="home-card-sub">دریافت، تحویل، انبارگردانی و خروج منقضی</span>
+        
+        <div class="hc-stats">
+          <div><b data-stat="drugsTotal">—</b><small>تنوع دارو</small></div>
+          <div class="tone-amber"><b data-stat="drugsLow">—</b><small>رو به اتمام</small></div>
+          <div class="tone-red"><b data-stat="drugsExpiring">—</b><small>نزدیک انقضا</small></div>
+        </div>
+      </button>
+
+      <button class="home-card card-half tone-amber" data-nav="visitReports" type="button">
+        <span class="home-card-icon"><i class="bi bi-file-earmark-bar-graph"></i></span>
+        <span class="home-card-label">گزارش ویزیت‌ها</span>
+        <span class="home-card-sub">جامع و با جزئیات</span>
+        <svg class="hc-spark" viewBox="0 0 120 40" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,32 14,28 28,30 42,20 56,24 70,14 84,18 98,8 120,4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--tone)"/></svg>
+      </button>
+
+      <button class="home-card card-half tone-cyan" data-nav="report" type="button">
+        <span class="home-card-icon"><i class="bi bi-graph-up-arrow"></i></span>
+        <span class="home-card-label">گزارش دارو</span>
+        <span class="home-card-sub">موجودی و هشدارها</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+
+      <button class="home-card card-full tone-blue" data-nav="profile" type="button" style="min-height:0;">
+        <span class="home-card-icon"><i class="bi bi-person-badge-fill"></i></span>
+        <span class="home-card-body">
+          <span class="home-card-label d-block">پروفایل</span>
+          <span class="home-card-sub d-block">حساب کاربری، اعلان‌ها و تنظیمات هشدار</span>
+        </span>
+      </button>
+    </div>
+
+    <button id="btnInstallPWA" class="btn btn-outline-success w-100 mb-5 rounded-pill px-4" style="max-width:300px; margin: 0 auto; display:none;" onclick="window._triggerInstall()">
+      <i class="bi bi-download"></i> نصب اپلیکیشن
+    </button>
+  </div>
+</div>
+
+<!-- ═════════════ صفحه داروخانه ═════════════ -->
+<div id="screenPharmacy" class="screen">
+  <div class="container-fluid p-0">
+    <div class="home-greeting" style="margin-bottom: 20px;">
+      <div>
+        <div class="home-greeting-text" style="font-size: 1.4rem;">داروخانه</div>
+        <div class="home-greeting-sub">مدیریت انبار و داروها</div>
+      </div>
+      <div class="home-greeting-art" style="font-size: 2.5rem;"><i class="bi bi-capsule"></i></div>
+    </div>
+
+    <div class="home-dashboard-grid">
+      <button class="home-card tone-green" data-nav="inventory">
+        <span class="home-card-icon"><i class="bi bi-clipboard-check"></i></span>
+        <span class="home-card-label">انبارگردانی</span>
+        <span class="home-card-sub">شمارش و مغایرت</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+
+      <button class="home-card tone-amber" data-nav="receive">
+        <span class="home-card-icon"><i class="bi bi-truck"></i></span>
+        <span class="home-card-label">دریافت دارو</span>
+        <span class="home-card-sub">ورود به انبار</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+
+      <button class="home-card tone-red" data-nav="disposal">
+        <span class="home-card-icon"><i class="bi bi-trash3"></i></span>
+        <span class="home-card-label">خروج منقضی</span>
+        <span class="home-card-sub">دور ریختن دارو</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+
+      <button class="home-card tone-cyan" data-nav="report">
+        <span class="home-card-icon"><i class="bi bi-graph-up"></i></span>
+        <span class="home-card-label">گزارش‌ها</span>
+        <span class="home-card-sub">موجودی و هشدارها</span>
+        <i class="bi bi-chevron-left home-card-arrow"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════════ صفحات دیگر ═════════════ -->
+<div id="screenVisit"          class="screen"><div class="content p-3" id="visitContent"></div></div>
+<div id="screenPatients"       class="screen"><div class="content p-3" id="patientContent"></div></div>
+<div id="screenInventory"      class="screen"><div class="content p-3" id="invContent"></div></div>
+<div id="screenReceive"        class="screen"><div class="content p-3" id="recvContent"></div></div>
+<div id="screenDisposal"       class="screen"><div class="content p-3" id="disp2Content"></div></div>
+<div id="screenReport"         class="screen"><div class="content p-3" id="repContent"></div></div>
+<div id="screenProfile"        class="screen"><div class="content p-3" id="profileContent"></div></div>
+<div id="screenOccupational"   class="screen"><div class="content p-3" id="occContent"></div></div>
+<div id="screenForms"          class="screen"><div class="content p-3" id="formsContent"></div></div>
+<div id="screenFormsMenu"      class="screen"><div class="content p-3" id="formsMenuContent"></div></div>
+<div id="screenFormsArchive"   class="screen"><div class="content p-3" id="formsArchiveContent"></div></div>
+<div id="screenGuide"          class="screen"><div class="content p-3" id="guideContent"></div></div>
+<div id="screenVisitReports"   class="screen"><div class="content p-3" id="visitReportsContent"></div></div>
+<div id="screenFineReward"     class="screen"><div class="content p-3" id="fineRewardContent"></div></div>
+
+<!-- ═════════════ منوی پایین (موبایل) ═════════════ -->
+<div class="bottom-nav" id="bottomNav">
+  <a href="#" data-nav="home" class="active"><i class="bi bi-house-door-fill"></i>خانه</a>
+  <a href="#" data-nav="visits"><i class="bi bi-calendar2-check"></i>ویزیت</a>
+  <a href="#" id="navFab" class="nav-fab" aria-label="ثبت سریع"><i class="bi bi-plus-lg"></i></a>
+  <a href="#" data-nav="patients"><i class="bi bi-people"></i>بیماران</a>
+  <a href="#" data-nav="profile"><i class="bi bi-person"></i>پروفایل</a>
+</div>
+
+<!-- ═════════════ اسکریپت‌ها ═════════════ -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
+<script src="lib/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+<!-- ⭐️ اسکریپت‌های نقشه و مسیریابی -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
+<script type="module" src="js/app.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    var btns = [document.getElementById('btnToggleTheme'), document.getElementById('sideThemeToggle')].filter(Boolean);
+    var meta = document.getElementById('metaThemeColor');
+    var icon = document.querySelector('#btnToggleTheme i');
+    function apply(dark) {
+      document.body.classList.toggle('dark-mode', dark);
+      if (icon) icon.className = dark ? 'bi bi-sun-fill' : 'bi bi-moon-stars-fill';
+      if (meta) meta.setAttribute('content', dark ? '#070b10' : '#f3f6f9');
+    }
+    apply(document.body.classList.contains('dark-mode'));
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () {
+        var dark = !document.body.classList.contains('dark-mode');
+        try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
+        apply(dark);
+      });
+    });
+  });
+</script>
+</body>
+</html>
