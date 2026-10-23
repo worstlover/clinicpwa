@@ -1,6 +1,6 @@
 // js/incident-alert.js
 import { sb } from './sb.js';
-import { showOfflineMapModal } from './alert-center.js'; // ⭐️ ایمپورت تابع نقشه
+import { showOfflineMapModal } from './alert-center.js';
 
 const ALLOWED_ROLES = ['Nurse', 'doctor', 'safety', 'Supervisor'];
 const ALERT_MP3_QUICK = './sounds/incident-alert1.mp3';
@@ -39,11 +39,10 @@ document.addEventListener('pointerdown', unlockAllAudio, { once: true });
 document.addEventListener('touchstart', unlockAllAudio, { once: true });
 document.addEventListener('click', unlockAllAudio, { once: true });
 
-// ⭐️ جستجوی هوشمند در پس‌زمینه (بدون معطل کردن هشدار)
-async function fetchSupplementalInfo(user, patientId = null) {
+// جستجوی هوشمند شماره تلفن در پس‌زمینه
+async function fetchPhoneNumber(user, patientId = null) {
   let phone = user.phone || user.user_metadata?.phone || null;
   let patientPhone = null;
-  let anyFailed = false;
 
   if (!phone) {
     try {
@@ -51,7 +50,6 @@ async function fetchSupplementalInfo(user, patientId = null) {
       if (data && data.phone) phone = data.phone;
     } catch (e) {}
   }
-  if (!phone) anyFailed = true;
 
   if (patientId) {
     try {
@@ -59,9 +57,8 @@ async function fetchSupplementalInfo(user, patientId = null) {
       if (!error && data) patientPhone = data.phone_number || null;
     } catch (e) {}
   }
-  if (!patientPhone && patientId) anyFailed = true;
 
-  return { phone, patientPhone, anyFailed };
+  return { phone, patientPhone };
 }
 
 export async function initIncidentAlertListener() {
@@ -100,7 +97,7 @@ async function checkMp3Availability() {
   } catch (e) { mp3Available = false; }
 }
 
-// ⭐️ هشدار ویزیت (ارسال فوری و سپس جستجوی پس‌زمینه)
+// ⭐️ هشدار ویزیت (بدون درخواست GPS)
 export async function broadcastIncidentAlert({ patientName, patientId, visitId, location }) {
   try {
     const { data: { user } } = await sb.auth.getUser();
@@ -108,6 +105,7 @@ export async function broadcastIncidentAlert({ patientName, patientId, visitId, 
 
     const userName = user.user_metadata?.full_name || user.email || 'کاربر';
 
+    console.log('[IncidentAlert] Sending FAST visit alert now...');
     const { data: alertData, error } = await sb.from('incident_alerts').insert({
       triggered_by:   user.id,
       triggered_name: userName,
@@ -121,16 +119,24 @@ export async function broadcastIncidentAlert({ patientName, patientId, visitId, 
     if (error) return;
     showSenderToast(userName);
 
+    // ⭐️ فقط شماره تلفن را در پس‌زمینه می‌گیریم (لوکیشن حذف شد)
     if (alertData?.id) {
-      fetchSupplementalInfo(user, patientId).then(async (info) => {
+      (async () => {
+        const info = await fetchPhoneNumber(user, patientId);
+        
         const updatePayload = {};
         if (info.phone) updatePayload.triggered_phone = info.phone;
         if (info.patientPhone) updatePayload.patient_phone = info.patientPhone;
 
         if (Object.keys(updatePayload).length > 0) {
           await sb.from('incident_alerts').update(updatePayload).eq('id', alertData.id);
+          console.log('[IncidentAlert] ✅ Supplemental info updated in DB.');
         }
-      });
+
+        if (!info.phone) {
+          toast('⚠️ نتوانستیم شماره تلفن را به طور کامل دریافت کنیم.', 'warning', 5000);
+        }
+      })();
     }
   } catch (e) { console.error(e); }
 }
@@ -167,7 +173,7 @@ function handleUpdateAlert(alert) {
     `);
   }
 
-  // ⭐️ دکمه‌های نقشه (آفلاین و آنلاین) در بنر
+  // دکمه نقشه فقط اگر مختصات وجود داشته باشد (برای ویزیت نمایش داده نمی‌شود)
   if (alert.latitude && alert.longitude && !actionBtns.querySelector('.map-btn')) {
     actionBtns.insertAdjacentHTML('beforeend', `
       <div style="display:flex; flex-direction:column; gap:2px;">
@@ -176,6 +182,7 @@ function handleUpdateAlert(alert) {
         </button>
         <span style="font-size:9px; color:rgba(255,255,255,0.8); text-align:center;">(مخصوص داخل سایت)</span>
       </div>
+      
       <a href="https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}" target="_blank" class="map-btn" style="background:rgba(255,255,255,0.2); color:#fff; border:1px solid rgba(255,255,255,0.4); padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; justify-content:center;">
         🌐 نقشه آنلاین
       </a>
@@ -298,7 +305,7 @@ function showIncidentBanner(alert) {
     actionBtnsHtml += `<a href="tel:${alert.patient_phone}" class="call-patient-btn" style="background:#3b82f6; color:#fff; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem;">📞 تماس با بیمار</a>`;
   }
 
-  // ⭐️ دکمه‌های نقشه (آفلاین و آنلاین) در بنر
+  // دکمه نقشه فقط اگر مختصات وجود داشته باشد
   if (alert.latitude && alert.longitude) {
     actionBtnsHtml += `
       <div style="display:flex; flex-direction:column; gap:2px;">
