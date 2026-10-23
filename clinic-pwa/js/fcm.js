@@ -33,26 +33,20 @@ export function getPermissionStatus() {
   return Notification.permission;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ⭐️ اصلاح اصلی: مجبور کردن مرورگر به ساخت Subscription
-// ═══════════════════════════════════════════════════════════════
+// ⭐️ مجبور کردن مرورگر به ساخت Subscription
 async function forceSubscribePush(swReg) {
   try {
     let sub = await swReg.pushManager.getSubscription();
     if (sub) return sub;
-
-    console.log('[FCM] No existing subscription, trying to create one...');
     
-    // بررسی معتبر بودن VAPID Key
     if (!VAPID_KEY || VAPID_KEY.length < 50) {
-      throw new Error('VAPID_KEY نامعتبر است یا تنظیم نشده است.');
+      throw new Error('VAPID_KEY نامعتبر است.');
     }
 
     sub = await swReg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(VAPID_KEY)
     });
-    console.log('[FCM] ✅ Push subscription created:', sub.endpoint);
     return sub;
   } catch (e) {
     console.error('[FCM] forceSubscribePush error:', e);
@@ -60,36 +54,26 @@ async function forceSubscribePush(swReg) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// درخواست مجوز و ساخت توکن (از روی کلیک کاربر)
-// ═══════════════════════════════════════════════════════════════
 export async function requestPermissionAndInit() {
   try {
     if (!VAPID_KEY) return { ok: false, reason: 'no-vapid' };
     if (!('Notification' in window)) return { ok: false, reason: 'unsupported' };
     
     let perm = Notification.permission;
-    if (perm === 'default') {
-      perm = await Notification.requestPermission();
-    }
-    if (perm !== 'granted') {
-      return { ok: false, reason: 'not-granted', permission: perm };
-    }
+    if (perm === 'default') perm = await Notification.requestPermission();
+    if (perm !== 'granted') return { ok: false, reason: 'not-granted', permission: perm };
 
     const messaging = await getMessagingInstance();
     if (!messaging) return { ok: false, reason: 'no-messaging' };
 
     const swReg = await getSWRegistration();
-    
-    // ۱. اول دستی سابسکرایب می‌کنیم
     await forceSubscribePush(swReg);
 
-    // ۲. حالا توکن را می‌گیریم
     const token = await messaging.getToken({
       vapidKey: VAPID_KEY,
       serviceWorkerRegistration: swReg
     }).catch(err => {
-      console.error('[FCM] getToken after subscribe failed:', err);
+      console.error('[FCM] getToken failed:', err);
       return null;
     });
 
@@ -107,9 +91,6 @@ export async function requestPermissionAndInit() {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Init در پس‌زمینه
-// ═══════════════════════════════════════════════════════════════
 export async function initFCM() {
   try {
     const permission = getPermissionStatus();
@@ -123,8 +104,6 @@ export async function initFCM() {
     if (!messaging) return { ok: false, reason: 'no-messaging' };
 
     const swReg = await getSWRegistration();
-    
-    // ⭐️ در پس‌زمینه هم دستی سابسکرایب می‌کنیم تا خطای Error retrieving push subscription رفع شود
     await forceSubscribePush(swReg);
 
     const token = await messaging.getToken({
@@ -135,17 +114,24 @@ export async function initFCM() {
       return null;
     });
 
-    if (!token) {
-      console.error('[FCM] failed to get token');
-      return { ok: false, reason: 'no-token' };
-    }
+    if (!token) return { ok: false, reason: 'no-token' };
 
     currentToken = token;
     const saved = await saveTokenToDB(token);
     await setupMessageListener(messaging);
 
-    console.log('[FCM] ✅ token refreshed', saved ? 'and saved' : '(save failed)');
-    return { ok: saved, token, reason: saved ? 'ok' : 'save-failed' };
+    if (saved) {
+      console.log('[FCM] ✅ token refreshed and saved');
+      return { ok: true, token, reason: 'ok' };
+    } else {
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) {
+        console.log('[FCM] ⏳ token ready (will save after login)');
+        return { ok: true, token, reason: 'no-user-yet' };
+      }
+      console.warn('[FCM] ⚠️ token ready but DB save failed');
+      return { ok: false, reason: 'save-failed' };
+    }
   } catch (error) {
     console.error('[FCM] initFCM error:', error);
     return { ok: false, reason: 'exception', error: error.message };
@@ -156,7 +142,6 @@ async function setupMessageListener(messaging) {
   if (isListenerAttached) return;
   try {
     messaging.onMessage((payload) => {
-      console.log('[FCM] message received:', payload);
       if (payload.notification) {
         const title = payload.notification.title || 'پیام جدید';
         const body = payload.notification.body || '';
@@ -172,34 +157,51 @@ async function setupMessageListener(messaging) {
   }
 }
 
+// ⭐️ تغییر جدول به fcm_tokens و پر کردن ستون‌های جدید
 async function saveTokenToDB(token) {
   try {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return false;
 
-    // پاک کردن توکن‌های تکراری از کاربران دیگر
-    await sb.from('user_tokens').delete().eq('token', token).neq('user_id', user.id);
+    const now = new Date().toISOString();
+    const platform = 'web';
+    const browserInfo = navigator.userAgent.substring(0, 50); // کوتاه شده برای ستون browser
+    const userAgent = navigator.userAgent;
 
-    const { data: existing, error: selError } = await sb.from('user_tokens')
+    // پاک کردن توکن مشابه از کاربران دیگر
+    await sb.from('fcm_tokens').delete().eq('token', token).neq('user_id', user.id);
+
+    const { data: existing, error: selError } = await sb.from('fcm_tokens')
       .select('id').eq('user_id', user.id).eq('token', token).maybeSingle();
 
     if (selError) return false;
 
     if (existing) {
-      await sb.from('user_tokens').update({ updated_at: new Date().toISOString() }).eq('id', existing.id);
-      console.log('[FCM] ✅ existing token updated');
+      const { error: updErr } = await sb.from('fcm_tokens').update({
+        updated_at: now,
+        last_seen: now,
+        browser: browserInfo,
+        user_agent: userAgent,
+        platform: platform
+      }).eq('id', existing.id);
+      if (updErr) return false;
+      console.log('[FCM] ✅ existing token updated in fcm_tokens');
     } else {
-      const { error: insError } = await sb.from('user_tokens').insert({
+      const { error: insErr } = await sb.from('fcm_tokens').insert({
         user_id: user.id,
         token,
-        updated_at: new Date().toISOString(),
-        platform: 'web'
+        platform,
+        browser: browserInfo,
+        user_agent: userAgent,
+        created_at: now,
+        updated_at: now,
+        last_seen: now
       });
-      if (insError) {
-        console.error('[FCM] insert token error (RLS?):', insError);
+      if (insErr) {
+        console.error('[FCM] insert token error:', insErr);
         return false;
       }
-      console.log('[FCM] ✅ new token inserted');
+      console.log('[FCM] ✅ new token inserted into fcm_tokens');
     }
     return true;
   } catch (err) {
@@ -208,12 +210,13 @@ async function saveTokenToDB(token) {
   }
 }
 
+// ⭐️ خواندن وضعیت از جدول fcm_tokens
 export async function getTokenStatus() {
   try {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return { saved: false, count: 0, lastSeen: null };
 
-    const { data: tokens, error } = await sb.from('user_tokens').select('token, updated_at').eq('user_id', user.id);
+    const { data: tokens, error } = await sb.from('fcm_tokens').select('token, updated_at').eq('user_id', user.id);
     if (error || !tokens || tokens.length === 0) return { saved: false, count: 0, lastSeen: null };
 
     const lastSeen = tokens.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0]?.updated_at;
@@ -228,6 +231,7 @@ export async function getTokenStatus() {
   }
 }
 
+// ⭐️ حذف از جدول fcm_tokens
 export async function removeFCMToken() {
   try {
     const messaging = await getMessagingInstance();
@@ -237,7 +241,7 @@ export async function removeFCMToken() {
       if (current) {
         await messaging.deleteToken();
         const { data: { user } } = await sb.auth.getUser();
-        if (user) await sb.from('user_tokens').delete().eq('user_id', user.id).eq('token', current);
+        if (user) await sb.from('fcm_tokens').delete().eq('user_id', user.id).eq('token', current);
       }
     }
     currentToken = null;
