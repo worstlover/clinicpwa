@@ -11,7 +11,7 @@ import { openReport } from './modules/report.js';
 import { openProfile } from './modules/profile.js';
 import { openOccupational } from './modules/occupational.js';
 import { openVisits } from './modules/visit/index.js';
-import { openCreate } from './modules/visit/create.js'; 
+import { openCreate } from './modules/visit/create.js';
 import { openPatients } from './modules/patients.js';
 import { openForms } from './forms/engine.js';
 import { openGuide } from './process/guide.js';
@@ -142,7 +142,7 @@ async function loadDashboardStats() {
 
     const { data: stockData, error: stockErr } = await sb.from('v_drug_stock').select('drug_id, total_quantity');
     if (!stockErr && stockData) {
-      const totalDrugTypes = stockData.length; 
+      const totalDrugTypes = stockData.length;
       const lowStock = stockData.filter(s => s.total_quantity > 0 && s.total_quantity <= 10).length;
       setStat('drugsTotal', totalDrugTypes);
       setStat('drugsLow', lowStock);
@@ -150,7 +150,7 @@ async function loadDashboardStats() {
       setStat('drugsTotal', 0);
       setStat('drugsLow', 0);
     }
-    
+
     const { count: expCount, error: expErr } = await sb.from('drugs_drugbatch').select('*', { count: 'exact', head: true }).lt('expiry_date', threeMonthsLater).gt('quantity', 0);
     setStat('drugsExpiring', expErr ? 0 : expCount);
 
@@ -183,16 +183,15 @@ function initFab() {
 }
 
 // ═══════════════════════════════════════════════════════
-// 📱 مدیریت نصب PWA (اصلاح‌شده)
+// 📱 مدیریت نصب PWA
 // ═══════════════════════════════════════════════════════
 let deferredInstallPrompt = null;
 const btnInstall = document.getElementById('btnInstallPWA');
 
-// اگر برنامه از قبل نصب شده باشد، دکمه را مخفی کن
 if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
   if (btnInstall) btnInstall.style.display = 'none';
 } else {
-  if (btnInstall) btnInstall.style.display = 'flex'; // دکمه به صورت پیش‌فرض دیده شود
+  if (btnInstall) btnInstall.style.display = 'flex';
 }
 
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -212,15 +211,145 @@ window._triggerInstall = async () => {
     alert('مرورگر شما از نصب خودکار پشتیبانی نمی‌کند.\n\nلطفاً از منوی مرورگر خود اقدام کنید:\n\n• در اندروید (کروم): منوی سه نقطه ⋮ ➔ Install app یا Add to Home screen\n• در آیفون (سافاری): دکمه Share ➔ Add to Home Screen\n• در دسکتاپ (کروم): آیکون نصب در نوار آدرس کنار ستاره');
     return;
   }
-  
+
   deferredInstallPrompt.prompt();
   const { outcome } = await deferredInstallPrompt.userChoice;
-  
+
   if (outcome === 'accepted') {
     if (btnInstall) btnInstall.style.display = 'none';
   }
   deferredInstallPrompt = null;
 };
+
+// ═══════════════════════════════════════════════════════
+// 🔔 مدیریت نوتیفیکیشن (FCM)
+// ═══════════════════════════════════════════════════════
+
+// ⭐ FCM guard: جلوگیری از فراخوانی هم‌زمان
+let __fcmInited = false;
+let __fcmInFlight = null;
+
+async function tryInitFCM(reason = 'initial') {
+  if (typeof Notification === 'undefined') {
+    console.warn('[APP-FCM] Notification API not available');
+    return;
+  }
+
+  // اگر permission داده نشده، FCM نمی‌تواند کار کند
+  if (Notification.permission !== 'granted') {
+    console.log(`[APP-FCM] skip (${reason}) — permission: ${Notification.permission}`);
+    showNotificationBanner();
+    return;
+  }
+
+  // جلوگیری از اجرای هم‌زمان
+  if (__fcmInFlight) return __fcmInFlight;
+
+  __fcmInFlight = (async () => {
+    try {
+      console.log(`[APP-FCM] init (${reason})`);
+      await initFCM();
+      __fcmInited = true;
+      hideNotificationBanner();
+    } catch (e) {
+      console.error('[APP-FCM] init failed:', e);
+    } finally {
+      __fcmInFlight = null;
+    }
+  })();
+  return __fcmInFlight;
+}
+
+// ⭐ بنر غیرمزاحم بالای صفحه وقتی مجوز داده نشده
+function showNotificationBanner() {
+  if (Notification.permission === 'granted') return hideNotificationBanner();
+  if (Notification.permission === 'denied') {
+    // denied → کاربر باید دستی از تنظیمات مرورگر اجازه دهد
+    if (document.getElementById('notifBanner')) return;
+    const b = document.createElement('div');
+    b.id = 'notifBanner';
+    b.style.cssText = `
+      position: fixed; top: 8px; left: 8px; right: 8px; z-index: 99998;
+      background: #fef3c7; border: 1px solid #fcd34d; border-radius: 12px;
+      padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+      direction: rtl; font-family: inherit; font-size: 13px; color: #92400e;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    `;
+    b.innerHTML = `
+      <i class="bi bi-bell-slash" style="font-size: 18px;"></i>
+      <div style="flex: 1; line-height: 1.5;">
+        <strong>نوتیفیکیشن غیرفعال است.</strong>
+        برای دریافت هشدارها، از تنظیمات مرورگر اجازه دهید.
+      </div>
+      <button id="notifBannerClose" style="background: transparent; border: none; color: #92400e; font-size: 18px; cursor: pointer; padding: 4px;">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    `;
+    document.body.appendChild(b);
+    b.querySelector('#notifBannerClose').onclick = () => b.remove();
+    return;
+  }
+
+  // default → هنوز درخواست نشده
+  if (document.getElementById('notifBanner')) return;
+  const b = document.createElement('div');
+  b.id = 'notifBanner';
+  b.style.cssText = `
+    position: fixed; top: 8px; left: 8px; right: 8px; z-index: 99998;
+    background: #dbeafe; border: 1px solid #93c5fd; border-radius: 12px;
+    padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+    direction: rtl; font-family: inherit; font-size: 13px; color: #1e40af;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  `;
+  b.innerHTML = `
+    <i class="bi bi-bell" style="font-size: 18px;"></i>
+    <div style="flex: 1; line-height: 1.5;">
+      <strong>هشدارها را فعال کنید</strong> تا اعلان‌ها را دریافت کنید.
+    </div>
+    <button id="notifBannerEnable" style="background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;">
+      فعال‌سازی
+    </button>
+    <button id="notifBannerClose" style="background: transparent; border: none; color: #1e40af; font-size: 18px; cursor: pointer; padding: 4px;">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  `;
+  document.body.appendChild(b);
+  b.querySelector('#notifBannerClose').onclick = () => b.remove();
+  b.querySelector('#notifBannerEnable').onclick = async () => {
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        b.remove();
+        await tryInitFCM('banner-button');
+        toast('✅ هشدارها فعال شدند', 'success');
+      } else {
+        toast('مجوز داده نشد', 'warning');
+        b.remove();
+        showNotificationBanner();
+      }
+    } catch (e) {
+      toast('خطا: ' + e.message, 'danger');
+    }
+  };
+}
+
+function hideNotificationBanner() {
+  document.getElementById('notifBanner')?.remove();
+}
+
+// ⭐ بعد از هر SIGNED_IN، دوباره init کن
+let __lastSignedInUser = null;
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_IN' && session?.user) {
+    if (__lastSignedInUser === session.user.id) return;
+    __lastSignedInUser = session.user.id;
+    console.log('[APP-FCM] signed-in event → try init');
+    setTimeout(() => tryInitFCM('signed-in'), 800);
+  } else if (event === 'SIGNED_OUT') {
+    __lastSignedInUser = null;
+    __fcmInited = false;
+  }
+});
 
 // ═══════════════════════════════════════════════════════
 // راه‌اندازی اولیه
@@ -239,9 +368,18 @@ document.addEventListener('keydown', e => {
   } finally {
     finishLoadingProgress();
   }
-  try { await initFCM(); } catch (e) { console.error('[APP] initFCM:', e); }
+
+  // بعد از auth کاملاً پایدار → FCM
+  try { await tryInitFCM('after-checkAuth'); } catch (e) { console.error('[APP-FCM]', e); }
 })();
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./service-worker.js', { scope: './' }).catch(console.error);
+  navigator.serviceWorker.register('./service-worker.js', { scope: './' })
+    .then(async () => {
+      // اگر serviceWorker زودتر register شد، FCM مجدد تلاش کند
+      if (Notification?.permission === 'granted') {
+        setTimeout(() => tryInitFCM('sw-ready'), 500);
+      }
+    })
+    .catch(console.error);
 }
