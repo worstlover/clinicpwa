@@ -1,8 +1,13 @@
 // js/modules/settings.js
 import { sb } from '../sb.js';
 import { $, toast, escapeHtml } from '../utils.js';
-import { getPermissionStatus, getTokenStatus, requestPermissionAndInit } from '../fcm.js';
-import { SUPABASE_URL } from '../config.js';   // 🌟 جدید
+import {
+  getPermissionStatus,
+  getTokenStatus,
+  requestPermissionAndInit,
+  initFCM,
+} from '../fcm.js';
+import { SUPABASE_URL } from '../config.js';
 
 let currentPrefs = {
   incident_alerts_mode: 'shift',
@@ -51,6 +56,173 @@ async function loadPrefs() {
   } catch (e) { console.error(e); }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ⭐ فعال‌سازی هشدارها — همه از همین صفحه
+// ═══════════════════════════════════════════════════════════════
+async function enableAlertsFlow(btn) {
+  const originalHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال فعال‌سازی...';
+
+  try {
+    console.log('[SETTINGS] requestPermissionAndInit start');
+    const res = await requestPermissionAndInit();
+
+    // پشتیبانی از هر دو نوع خروجی (string قدیمی / {ok,token,saved} جدید)
+    const isString = typeof res === 'string';
+    const token = isString ? res : (res?.token || null);
+    const ok = isString ? !!res : (res?.ok === true);
+    const reason = isString ? null : (res?.reason || null);
+
+    if (ok && token) {
+      toast('✅ هشدارها فعال شدند', 'success');
+      await renderSettings();
+      return true;
+    }
+
+    if (reason === 'denied' || reason === 'not-granted') {
+      toast('مجوز داده نشد. از تنظیمات مرورگر اجازه دهید.', 'warning');
+      await renderSettings();
+      return false;
+    }
+
+    if (reason === 'no-vapid') {
+      toast('کلید VAPID تنظیم نشده. با مدیر تماس بگیرید.', 'danger');
+      btn.disabled = false;
+      btn.innerHTML = originalHTML;
+      return false;
+    }
+
+    if (reason === 'unsupported') {
+      toast('مرورگر شما از اعلان‌ها پشتیبانی نمی‌کند.', 'danger');
+      btn.disabled = false;
+      btn.innerHTML = originalHTML;
+      return false;
+    }
+
+    // آخرین حالت: مجوز داده شده ولی توکن نیامد
+    if (getPermissionStatus() === 'granted') {
+      toast('مجوز داده شد ولی توکن ساخته نشد. تلاش دوباره...', 'warning');
+      try {
+        await initFCM();
+        await renderSettings();
+        return true;
+      } catch (e) {
+        console.error('[SETTINGS] initFCM retry failed:', e);
+        toast('خطا: ' + (e.message || 'نامشخص'), 'danger');
+      }
+    } else {
+      toast('خطا در فعال‌سازی: ' + (reason || 'نامشخص'), 'danger');
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+    return false;
+  } catch (e) {
+    console.error('[SETTINGS] enableAlertsFlow error:', e);
+    toast('خطا: ' + (e.message || 'نامشخص'), 'danger');
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ⭐ تلاش دوباره توکن (وقتی مجوز داده شده ولی توکن ذخیره نشده)
+// ═══════════════════════════════════════════════════════════════
+async function retryTokenFlow(btn) {
+  const originalHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ساخت توکن...';
+
+  try {
+    console.log('[SETTINGS] retryToken — calling initFCM');
+    const res = await initFCM();
+
+    const failed = res && res.ok === false;
+    if (failed) {
+      const reason = res.reason || 'نامشخص';
+      if (reason === 'no-token') {
+        toast('توکن ساخته نشد. اتصال اینترنت و Service Worker را چک کنید.', 'danger');
+      } else if (reason === 'no-messaging') {
+        toast('Firebase Messaging در دسترس نیست. اپ را دوباره باز کنید.', 'danger');
+      } else {
+        toast('خطا: ' + reason, 'danger');
+      }
+      btn.disabled = false;
+      btn.innerHTML = originalHTML;
+      return false;
+    }
+
+    // چک کن واقعاً ذخیره شده
+    const after = await getTokenStatus();
+    if (after.saved) {
+      toast('✅ توکن ساخته و ذخیره شد', 'success');
+      await renderSettings();
+      return true;
+    }
+
+    toast('⚠️ توکن ساخته شد ولی در سرور ذخیره نشد. RLS را چک کنید.', 'warning');
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+    return false;
+  } catch (e) {
+    console.error('[SETTINGS] retryToken error:', e);
+    toast('خطا: ' + (e.message || 'نامشخص'), 'danger');
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ⭐ ارسال نوتیف آزمایشی
+// ═══════════════════════════════════════════════════════════════
+async function testNotificationFlow(btn) {
+  const originalHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ارسال...';
+
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) throw new Error('نشست کاربری یافت نشد');
+
+    console.log('[Test] endpoint:', `${SUPABASE_URL}/functions/v1/send-incident-notification`);
+
+    const res = await fetch(
+      `${SUPABASE_URL}/functions/v1/send-incident-notification`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ test: true }),
+      }
+    );
+
+    const data = await res.json();
+    console.log('[Test] result:', data);
+
+    if (data.ok && data.sent > 0) {
+      toast(`✅ نوتیف آزمایشی ارسال شد (${data.sent} دستگاه)`, 'success');
+    } else if (data.ok && data.sent === 0) {
+      toast('⚠️ ارسال شد ولی به هیچ دستگاهی نرسید', 'warning');
+    } else {
+      toast('❌ ' + (data.message || data.error || 'خطا'), 'danger');
+    }
+  } catch (e) {
+    console.error('[Test] error:', e);
+    toast('❌ خطا: ' + (e.message || ''), 'danger');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = originalHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ⭐ Render
+// ═══════════════════════════════════════════════════════════════
 async function renderSettings() {
   const body = $('settingsBody');
   if (!body) return;
@@ -58,11 +230,10 @@ async function renderSettings() {
   const perm = getPermissionStatus();
   const tokenStatus = await getTokenStatus();
 
-  // ─── کارت وضعیت هشدارها ───
   const permColor = {
     granted: 'success', default: 'warning', denied: 'danger', unsupported: 'gray'
   }[perm] || 'gray';
-  
+
   const permLabel = {
     granted: 'فعال ✅', default: 'داده نشده', denied: 'مسدود ❌', unsupported: 'پشتیبانی نمی‌شود'
   }[perm] || perm;
@@ -83,8 +254,11 @@ async function renderSettings() {
     lastSeenLabel = d.toLocaleString('fa-IR');
   }
 
+  // وضعیت ترکیبی
+  const fullyActive = perm === 'granted' && tokenStatus.saved;
+
   body.innerHTML = `
-    <div class="alert alert-info" style="border-radius:12px;">
+    <div class="alert ${fullyActive ? 'alert-success' : 'alert-info'}" style="border-radius:12px;">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <span>وضعیت اجازه:</span>
         <span class="badge-soft ${permColor}">${permLabel}</span>
@@ -103,24 +277,58 @@ async function renderSettings() {
       </div>
     </div>
 
-    ${perm !== 'granted' ? `
-      <button class="btn btn-primary w-100 mb-2" id="btnEnableAlerts">
+    ${perm === 'unsupported' ? `
+      <div class="alert alert-warning small">
+        مرورگر شما از اعلان‌ها پشتیبانی نمی‌کند. از Chrome/Firefox/Safari جدید استفاده کنید.
+      </div>
+    ` : ''}
+
+    ${perm === 'default' ? `
+      <button class="btn btn-primary w-100 mb-2 py-3" id="btnEnableAlerts">
         <i class="bi bi-bell-fill"></i> فعال‌سازی هشدارها
       </button>
-    ` : `
-      <button class="btn btn-outline-primary w-100 mb-2" id="btnTestNotif">
+      <p class="small text-muted text-center mb-2" style="line-height:1.6;">
+        با کلیک روی این دکمه، مرورگر از شما اجازه‌ی نمایش اعلان می‌خواهد
+        و توکن دستگاه شما در سرور ذخیره می‌شود.
+      </p>
+    ` : ''}
+
+    ${perm === 'granted' && !tokenStatus.saved ? `
+      <button class="btn btn-warning w-100 mb-2 py-3" id="btnRetryToken">
+        <i class="bi bi-arrow-clockwise"></i> تلاش دوباره برای ساخت توکن
+      </button>
+      <p class="small text-muted text-center mb-2" style="line-height:1.6;">
+        مجوز داده شده، ولی توکن در سرور ذخیره نشده. روی دکمه بالا بزنید.
+      </p>
+    ` : ''}
+
+    ${perm === 'granted' && tokenStatus.saved ? `
+      <button class="btn btn-success w-100 mb-2 py-3" id="btnTestNotif">
         <i class="bi bi-send"></i> ارسال نوتیف آزمایشی
       </button>
-    `}
+      <p class="small text-muted text-center mb-2" style="line-height:1.6;">
+        ✅ هشدارها فعال هستند. برای اطمینان، یک نوتیف آزمایشی بفرستید.
+      </p>
+    ` : ''}
 
     ${perm === 'denied' ? `
       <div class="alert alert-danger small">
-        <strong><i class="bi bi-info-circle"></i> چطور فعال کنم؟</strong>
+        <strong><i class="bi bi-info-circle"></i> دسترسی به اعلان مسدود شده است</strong>
         <div style="margin-top:8px;line-height:1.9;">
-          تنظیمات گوشی ← برنامه‌ها ← کلینیک ← اعلان‌ها ← <strong>فعال کنید</strong>
-          <br>
-          و دسته‌ی اعلان را روی <strong>Pop on screen / Urgent</strong> بگذارید.
+          <strong>اندروید:</strong>
+          <br>تنظیمات ← برنامه‌ها ← مرورگر ← اعلان‌ها ← <strong>فعال</strong>
+          <br><br>
+          <strong>کروم دسکتاپ:</strong>
+          <br>آیکون 🔒 کنار آدرس ← Notifications ← <strong>Allow</strong>
+          <br><br>
+          <strong>آیفون (Safari):</strong>
+          <br>Settings ← Safari ← Advanced ← Website Data
+          <br><br>
+          بعد از تنظیم، این صفحه را <strong>رفرش</strong> کنید.
         </div>
+        <button class="btn btn-outline-secondary w-100 mt-3" id="btnReloadPage">
+          <i class="bi bi-arrow-clockwise"></i> رفرش صفحه
+        </button>
       </div>
     ` : ''}
 
@@ -160,7 +368,7 @@ async function renderSettings() {
         const selected = currentPrefs.incident_alerts_mode === mode ? 'selected' : '';
         return `
           <label class="option-card ${selected}" data-mode="${mode}">
-            <input type="radio" name="incidentMode" value="${mode}" 
+            <input type="radio" name="incidentMode" value="${mode}"
                    ${currentPrefs.incident_alerts_mode === mode ? 'checked' : ''}>
             <div class="option-icon">${meta.icon}</div>
             <div class="option-body">
@@ -218,62 +426,24 @@ async function renderSettings() {
 
   // ─── رویدادها ───
 
-  // فعال‌سازی هشدارها
   const btnEnable = $('btnEnableAlerts');
   if (btnEnable) {
-    btnEnable.onclick = async () => {
-      const token = await requestPermissionAndInit();
-      if (token) {
-        toast('✅ هشدارها فعال شد', 'success');
-        await renderSettings();
-      }
-    };
+    btnEnable.onclick = () => enableAlertsFlow(btnEnable);
   }
 
-  // 🌟 نوتیف آزمایشی - اصلاح شده
+  const btnRetry = $('btnRetryToken');
+  if (btnRetry) {
+    btnRetry.onclick = () => retryTokenFlow(btnRetry);
+  }
+
   const btnTest = $('btnTestNotif');
   if (btnTest) {
-    btnTest.onclick = async () => {
-      btnTest.disabled = true;
-      btnTest.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ارسال...';
-      
-      try {
-        const { data: { session } } = await sb.auth.getSession();
-        if (!session) throw new Error('نشست کاربری یافت نشد');
+    btnTest.onclick = () => testNotificationFlow(btnTest);
+  }
 
-        console.log('[Test] Sending to:', `${SUPABASE_URL}/functions/v1/send-incident-notification`);
-
-        // 🌟 استفاده از SUPABASE_URL از config.js
-        const res = await fetch(
-          `${SUPABASE_URL}/functions/v1/send-incident-notification`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${session.access_token}`,
-            },
-            body: JSON.stringify({ test: true }),
-          }
-        );
-
-        const data = await res.json();
-        console.log('[Test] Result:', data);
-        
-        if (data.ok && data.sent > 0) {
-          toast(`✅ نوتیف آزمایشی ارسال شد (${data.sent} دستگاه)`, 'success');
-        } else if (data.ok && data.sent === 0) {
-          toast('⚠️ ارسال شد ولی به هیچ دستگاهی نرسید', 'warning');
-        } else {
-          toast('❌ ' + (data.message || data.error || 'خطا'), 'danger');
-        }
-      } catch (e) {
-        console.error('[Test] Error:', e);
-        toast('❌ خطا: ' + e.message, 'danger');
-      }
-      
-      btnTest.disabled = false;
-      btnTest.innerHTML = '<i class="bi bi-send"></i> ارسال نوتیف آزمایشی';
-    };
+  const btnReload = $('btnReloadPage');
+  if (btnReload) {
+    btnReload.onclick = () => location.reload();
   }
 
   // انتخاب mode
@@ -281,13 +451,13 @@ async function renderSettings() {
     card.onclick = async () => {
       const mode = card.dataset.mode;
       if (mode === currentPrefs.incident_alerts_mode) return;
-      
+
       document.querySelectorAll('.option-card[data-mode]').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
       card.querySelector('input').checked = true;
       currentPrefs.incident_alerts_mode = mode;
       await savePrefs();
-      
+
       if ((mode === 'always' || mode === 'shift') && getPermissionStatus() === 'default') {
         toast('برای دریافت هشدار، دکمه «فعال‌سازی هشدارها» را بزنید', 'info');
       }
@@ -317,7 +487,7 @@ async function savePrefs() {
       referral_alerts_enabled: currentPrefs.referral_alerts_enabled,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id' });
-    
+
     if (error) throw error;
     toast('✅ ذخیره شد', 'success');
   } catch (e) {
