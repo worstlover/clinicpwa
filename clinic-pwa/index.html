@@ -6,9 +6,9 @@
 <meta name="theme-color" content="#f3f6f9" id="metaThemeColor">
 <title>کلینیک گندله سازی بهاباد</title>
 
-<!-- آیکون‌های اپلیکیشن (PWA) -->
-<link rel="icon" type="image/png" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<!-- آیکون‌های تب مرورگر و اپل -->
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 
 <link href="lib/vazirmatn.css" rel="stylesheet">
 <link href="lib/bootstrap.rtl.min.css" rel="stylesheet">
@@ -25,20 +25,40 @@
   #screenLoading { display: none; }
   #screenLoading.active { display: flex !important; }
   
-  /* استایل لوگوهای جدید */
-  .custom-logo { border-radius: 18px; object-fit: contain; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-  .custom-alert-icon { 
-    width: 24px; height: 24px; object-fit: contain;
-    background: #dc2626; /* پس‌زمینه قرمز برای دیده شدن آیکون سفید */
-    padding: 4px; border-radius: 8px;
+  /* ⭐️ استایل‌های اختصاصی لوگوها و پس‌زمینه لاگین */
+  .custom-logo { border-radius: 16px; object-fit: contain; }
+  
+  .login-bg-wrapper {
+    /* تصویر کارخانه به عنوان پس‌زمینه */
+    background-image: url('icons/logo-form.png'); 
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    position: relative;
   }
-  .alert-icon-circle {
-    width: 48px; height: 48px; background: #dc2626;
-    border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+  
+  /* لایه تاریک برای خوانایی متن روی عکس */
+  .login-bg-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45); /* سایه مشکی ملایم */
+    backdrop-filter: blur(4px); /* محو کردن پس‌زمینه */
+    z-index: 1;
   }
-  .alert-icon-circle img {
-    width: 28px; height: 28px; object-fit: contain; filter: brightness(0) invert(1); /* سفید کردن آیکون */
+
+  /* کارت شیشه‌ای (Glassmorphism) */
+  .login-card-glass {
+    position: relative;
+    z-index: 2;
+    background: rgba(255, 255, 255, 0.85); /* سفید با شفافیت */
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  }
+
+  body.dark-mode .login-card-glass {
+    background: rgba(30, 41, 59, 0.85); /* تیره با شفافیت برای حالت دارک */
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 </style>
 </head>
@@ -53,15 +73,15 @@
   })();
 </script>
 
-<!-- ═════════════ لودینگ با نوار پیشرفت ═════════════ -->
+<!-- ═════════════ لودینگ ═════════════ -->
 <div id="screenLoading" class="screen active" style="align-items: center; justify-content: center; min-height: 100vh; background: var(--bg);">
   <div class="loading-wrapper text-center">
-    <!-- لوگوی رنگی کارخانه -->
-    <img src="icons/logo.png" class="custom-logo mx-auto mb-4" style="width: 100px; height: 100px;" alt="Logo">
+    
+    <!-- لوگوی شفاف جدید -->
+    <img src="icons/logo-transparent.png" class="custom-logo mx-auto mb-4" style="width: 100px; height: 100px;" alt="Logo">
     
     <h2 class="loading-title fw-bold mb-4" style="font-size: 1.5rem;">کلینیک گندله سازی بهاباد</h2>
     
-    <!-- نوار پیشرفت -->
     <div class="progress" style="width: 220px; height: 10px; background: #e2e8f0; border-radius: 10px; overflow: hidden; direction: ltr; margin: 0 auto;">
       <div id="loadingProgressBar" class="progress-bar" role="progressbar" style="width: 0%; background: var(--primary); transition: width 0.1s;"></div>
     </div>
@@ -69,22 +89,24 @@
   </div>
 </div>
 
-<!-- ═════════════ صفحه لاگین ═════════════ -->
-<div id="screenLogin" class="screen">
-  <div class="login-wrapper p-4 d-flex align-items-center justify-content-center" style="min-height: 100vh;">
-    <div class="login-card p-4 rounded-4 w-100" style="max-width: 400px;">
+<!-- ═════════════ صفحه لاگین (با پس‌زمینه کارخانه و افکت شیشه‌ای) ═════════════ -->
+<div id="screenLogin" class="screen login-bg-wrapper">
+  <div class="login-bg-overlay"></div>
+  
+  <div class="login-wrapper p-4 d-flex align-items-center justify-content-center position-relative" style="min-height: 100vh; z-index: 2;">
+    <div class="login-card-glass p-4 rounded-4 w-100" style="max-width: 400px;">
       <div class="text-center mb-3">
-        <!-- لوگوی رنگی کارخانه در صفحه لاگین -->
-        <img src="icons/logo.png" class="custom-logo mx-auto" style="width: 120px; height: 120px;" alt="Logo">
+        <!-- لوگوی شفاف جدید -->
+        <img src="icons/logo-transparent.png" class="mx-auto d-block" style="width: 110px; height: 110px; object-fit: contain;" alt="Logo">
       </div>
-      <h3 class="text-center fw-bold mb-4">ورود به کلینیک گندله سازی بهاباد</h3>
+      <h3 class="text-center fw-bold mb-4" style="color: var(--text);">ورود به سامانه کلینیک</h3>
       <div id="loginMsg"></div>
       <div class="mb-3">
-        <label class="form-label">نام کاربری</label>
+        <label class="form-label" style="color: var(--text);">نام کاربری</label>
         <input type="text" id="loginEmail" class="form-control" placeholder="نام کاربری" dir="ltr">
       </div>
       <div class="mb-4">
-        <label class="form-label">رمز عبور</label>
+        <label class="form-label" style="color: var(--text);">رمز عبور</label>
         <input type="password" id="loginPass" class="form-control" dir="ltr" placeholder="••••••••">
       </div>
       <button class="btn btn-success w-100 btn-lg" id="btnLogin" type="button">ورود</button>
@@ -101,9 +123,9 @@
   <div class="d-flex align-items-center gap-2">
     <button id="btnToggleTheme" title="تغییر تم" class="btn btn-light" aria-label="تغییر تم"><i class="bi bi-moon-stars-fill"></i></button>
     
-    <!-- دکمه هشدار با آیکون سفید درون کادر قرمز -->
+    <!-- ⭐️ زنگ هشدار با آیکون badge-96 -->
     <button id="btnAlertBell" class="btn btn-light position-relative d-flex align-items-center justify-content-center p-1" aria-label="هشدارها" style="width: 40px; height: 40px;">
-      <img src="icons/alert-icon.png" style="width: 24px; height: 24px; filter: brightness(0) invert(1);">
+      <img src="icons/badge-96.png" style="width: 24px; height: 24px; object-fit: contain;">
       <span id="alertBellBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display:none;">!</span>
     </button>
 
@@ -115,8 +137,8 @@
 <!-- ═════════════ سایدبار دسکتاپ ═════════════ -->
 <aside class="side-nav" id="sideNav">
   <div class="side-brand">
-    <!-- لوگوی رنگی کارخانه در سایدبار -->
-    <img src="icons/logo.png" class="custom-logo" style="width: 45px; height: 45px;" alt="Logo">
+    <!-- ⭐️ لوگوی شفاف در سایدبار -->
+    <img src="icons/logo-transparent.png" class="custom-logo" style="width: 45px; height: 45px;" alt="Logo">
     <div>
       <div class="brand-name">گندله سازی بهاباد</div>
       <div class="brand-sub">سامانه جامع کلینیک صنعتی</div>
@@ -158,11 +180,11 @@
       <div class="home-greeting-art"><i class="bi bi-flower1"></i></div>
     </div>
 
-    <!-- دکمه اعلام حادثه با آیکون سفید -->
+    <!-- ⭐️ دکمه اعلام حادثه با آیکون badge-96 -->
     <button id="btnQuickIncident" class="home-incident-btn" type="button">
       <svg class="home-incident-ecg" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,32 46,32 56,32 64,8 74,54 84,18 92,32 200,32" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div class="home-incident-icon">
-        <img src="icons/alert-icon.png" style="width: 32px; height: 32px; filter: brightness(0) invert(1);">
+      <div class="home-incident-icon d-flex align-items-center justify-content-center" style="background: #fff; border-radius: 50%; width: 46px; height: 46px;">
+        <img src="icons/badge-96.png" style="width: 32px; height: 32px; object-fit: contain;">
       </div>
       <div class="home-incident-body">
         <div class="home-incident-title">اعلام حادثه سریع</div>
@@ -172,7 +194,7 @@
     </button>
 
     <div class="home-dashboard-grid">
-
+      <!-- سایر کارت‌ها بدون تغییر... -->
       <button class="home-card tone-green" data-nav="visits" type="button">
         <span class="home-card-icon"><i class="bi bi-clipboard2-pulse-fill"></i></span>
         <span class="home-card-label">ویزیت‌ها</span>
