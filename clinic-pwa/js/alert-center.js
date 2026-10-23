@@ -4,9 +4,8 @@ import { $, escapeHtml, gregorianToJalali } from './utils.js';
 
 let currentUserUuid = null;
 let alertCenterChannel = null;
-let offlineMapInstance = null; // ⭐️ متغیر برای نگه داشتن نقشه Leaflet
+let offlineMapInstance = null;
 
-// ⭐️ در دسترس قرار دادن تابع برای دکمه‌های HTML
 window.showOfflineMap = showOfflineMapModal;
 
 export async function initAlertCenter() {
@@ -315,7 +314,6 @@ function showIncidentDetailModal(alert) {
     actionBtnsHtml += `<a href="tel:${alert.patient_phone}" style="background:#3b82f6; color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; justify-content:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📞 تماس با بیمار</a>`;
   }
 
-  // دکمه‌های نقشه (آفلاین و آنلاین) با راهنما
   if (alert.latitude && alert.longitude) {
     actionBtnsHtml += `
       <div style="display:flex; flex-direction:column; gap:4px;">
@@ -431,7 +429,6 @@ export function showOfflineMapModal(lat, lng, title = 'محل حادثه') {
   modal.show();
 
   modalEl.addEventListener('shown.bs.modal', () => {
-    // ⭐️ بررسی وجود کتابخانه Leaflet قبل از اجرای کدهای نقشه
     if (typeof L === 'undefined') {
       console.error('[AlertCenter] Leaflet library is not loaded.');
       document.getElementById('offlineMapContainer').innerHTML = `
@@ -443,17 +440,41 @@ export function showOfflineMapModal(lat, lng, title = 'محل حادثه') {
       return;
     }
 
-    offlineMapInstance = L.map('offlineMapContainer').setView([lat, lng], 16);
+    // ⭐️ مقداردهی اولیه نقشه (بهینه‌شده برای جلوگیری از هنگ)
+    offlineMapInstance = L.map('offlineMapContainer', {
+      preferCanvas: true,
+      zoomControl: true,
+    }).setView([lat, lng], 16);
 
+    // ⭐️ تنظیمات پیشرفته کاشی‌ها برای زوم بیشتر و جلوگیری از هنگ
     L.tileLayer('map-tiles/{z}/{x}/{y}.png', {
-      maxZoom: 18,
-      minZoom: 14,
+      minZoom: 13,
+      maxZoom: 22,
+      maxNativeZoom: 17, // بالاترین زوم موجود در فایل‌های شما
+      keepBuffer: 2,
+      updateWhenIdle: true,
+      updateWhenZooming: false,
       attribution: '© Offline Map'
     }).addTo(offlineMapInstance);
 
     L.marker([lat, lng]).addTo(offlineMapInstance)
       .bindPopup(`<b>📍 ${title}</b>`)
       .openPopup();
+      
+    // ⭐️ اضافه کردن مسیریابی
+    if (L.Routing) {
+      L.Routing.control({
+        waypoints: [
+          L.latLng(lat, lng), 
+          L.latLng(lat + 0.005, lng + 0.005) // نقطه فرضی (می‌توانید تغییر دهید)
+        ],
+        routeWhileDragging: true,
+        showAlternatives: false,
+        lineOptions: {
+          styles: [{ color: '#2563eb', weight: 5 }]
+        }
+      }).addTo(offlineMapInstance);
+    }
       
     setTimeout(() => offlineMapInstance.invalidateSize(), 200);
   });
