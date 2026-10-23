@@ -3,6 +3,7 @@ import { sb } from '../sb.js';
 import { $, escapeHtml, toast, beep, gregorianToJalali } from '../utils.js';
 import { showScreen } from '../ui.js';
 import { currentUser } from '../auth.js';
+import { openSettings } from './settings.js'; // ⭐️ ایمپورت فایل تنظیمات واقعی
 
 export async function openProfile() {
   showScreen('Profile');
@@ -77,27 +78,14 @@ async function renderProfile() {
       </div>
     </div>
 
+    <!-- ⭐️ دکمه ورود به تنظیمات واقعی هشدارها -->
     <div class="card">
-      <div class="card-head info"><i class="bi bi-bell"></i> تنظیمات هشدارها</div>
+      <div class="card-head info"><i class="bi bi-bell"></i> تنظیمات هشدارها و اعلان‌ها</div>
       <div class="card-body">
-        <div class="form-check form-switch mb-2">
-          <input class="form-check-input" type="checkbox" id="alertFCM" checked>
-          <label class="form-check-label" for="alertFCM">دریافت اعلان‌های پوش (FCM)</label>
-        </div>
-        <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" id="alertReferral" checked>
-          <label class="form-check-label" for="alertReferral">اعلان ویزیت‌های ارجاعی</label>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head secondary"><i class="bi bi-key"></i> توکن دسترسی (API Token)</div>
-      <div class="card-body">
-        <details>
-          <summary class="text-primary" style="cursor:pointer; font-size:0.9rem;">برای مشاهده توکن کلیک کنید</summary>
-          <textarea class="form-control mt-2" dir="ltr" rows="4" readonly style="font-size:0.75rem;">${currentUser?.access_token || 'توکنی یافت نشد'}</textarea>
-        </details>
+        <p class="small text-muted mb-3">برای مدیریت نوتیفیکیشن‌ها، مشاهده توکن و تنظیمات پیشرفته کلیک کنید.</p>
+        <button class="btn btn-outline-primary w-100 py-3" id="btnGoToSettings">
+          <i class="bi bi-gear-fill"></i> ورود به تنظیمات پیشرفته
+        </button>
       </div>
     </div>
 
@@ -119,6 +107,9 @@ async function renderProfile() {
       نسخه ۱.۰ - کلینیک صنعتی گندله‌سازی بهاباد
     </div>
   `;
+
+  // ⭐️ اتصال دکمه تنظیمات به فایل settings.js
+  $('btnGoToSettings').onclick = () => openSettings();
 
   $('btnChangePassword').onclick = openChangePasswordModal;
   $('btnLogoutProfile').onclick = async () => {
