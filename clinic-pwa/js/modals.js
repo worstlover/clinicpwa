@@ -2,9 +2,90 @@
 import { sb } from './sb.js';
 import { $, escapeHtml, gregorianToJalali, jalaliToGregorian, checkExpiry, toast } from './utils.js';
 
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// ⭐ تزریق HTML مودال‌ها در صورت نبودن در DOM (رفع خطای _config)
+// ═══════════════════════════════════════════════════════════════════
+const QTY_MODAL_HTML = `
+<div class="modal fade" id="qtyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white" id="qmHeader">
+        <h5 class="modal-title" id="qmTitle">ثبت تعداد</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="بستن"></button>
+      </div>
+      <div class="modal-body">
+        <div id="qmDrugName" class="fw-bold mb-2" style="font-size:1rem;"></div>
+        <div id="qmExtraInfo" class="mb-2"></div>
+        <div id="qmWarnings"></div>
+
+        <div class="mb-3">
+          <label class="form-label fw-bold">تعداد دریافتی</label>
+          <div class="d-flex gap-2 align-items-center">
+            <button type="button" class="btn btn-outline-secondary" id="qmMinus" style="width:44px;">−</button>
+            <input type="number" id="qmQty" class="form-control text-center fw-bold" value="1" min="0" style="font-size:1.3rem;color:#d97706;">
+            <button type="button" class="btn btn-outline-secondary" id="qmPlus" style="width:44px;">+</button>
+          </div>
+          <div class="d-flex gap-1 mt-2 flex-wrap">
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="1">1</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="2">2</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="5">5</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="10">10</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="20">20</button>
+            <button type="button" class="btn btn-sm btn-outline-primary qm-quick" data-n="50">50</button>
+          </div>
+        </div>
+
+        <div id="qmExtraFields">
+          <div class="mb-3 qm-field">
+            <label class="form-label" for="qmExpiry">تاریخ انقضا</label>
+            <input type="text" id="qmExpiry" class="form-control" placeholder="2027-03-15 یا 1405/12/24" dir="ltr" autocomplete="off">
+            <div id="qmShamsi" class="small mt-1"></div>
+            <div id="qmExpiryBadge" class="mt-1"></div>
+          </div>
+          <div class="mb-3 qm-field">
+            <label class="form-label" for="qmBatch">شماره بچ (اختیاری)</label>
+            <input type="text" id="qmBatch" class="form-control" dir="ltr" autocomplete="off">
+            <div id="qmBatchInfo" class="mt-1"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">انصراف</button>
+        <button type="button" class="btn btn-primary" id="qmSave"><i class="bi bi-check2"></i> تایید</button>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+const SEARCH_MODAL_HTML = `
+<div class="modal fade" id="searchModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title"><i class="bi bi-search"></i> جستجوی دارو</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="بستن"></button>
+      </div>
+      <div class="modal-body">
+        <div id="smInfo" class="mb-2 small text-muted"></div>
+        <input type="text" id="smQuery" class="form-control" placeholder="نام دارو را تایپ کنید..." autocomplete="off" dir="rtl">
+        <div id="smResults" class="mt-2"></div>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+function ensureModalsInDOM() {
+  if (!document.getElementById('qtyModal')) {
+    document.body.insertAdjacentHTML('beforeend', QTY_MODAL_HTML);
+  }
+  if (!document.getElementById('searchModal')) {
+    document.body.insertAdjacentHTML('beforeend', SEARCH_MODAL_HTML);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 // ۱. مودال تعداد (askQty)
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 let qtyModal = null;
 let qtyResolve = null;
 let qtyShowExtras = true;
@@ -13,7 +94,11 @@ let qtyHideBatchInput = false;
 let qtyRequireExpiry = false;
 
 function ensureQtyModal() {
-  if (!qtyModal) qtyModal = new bootstrap.Modal($('qtyModal'));
+  ensureModalsInDOM(); // اول مطمئن شو HTML هست
+  if (!qtyModal) {
+    const el = $('qtyModal');
+    if (el) qtyModal = new bootstrap.Modal(el);
+  }
 }
 
 export function askQty(opts = {}) {
@@ -25,25 +110,25 @@ export function askQty(opts = {}) {
     qtyHideBatchInput = !!opts.hideBatchInput;
     qtyRequireExpiry = !!opts.requireExpiry;
 
-    $('qmTitle').textContent = opts.title || 'ثبت تعداد';
-    $('qmHeader').className = 'modal-header ' + (opts.headerClass || 'bg-primary text-white');
-    $('qmDrugName').textContent = opts.drugName || '';
-    $('qmExtraInfo').innerHTML = opts.extraInfo || '';
-    $('qmQty').value = opts.defaultQty ?? 1;
-    $('qmExpiry').value = opts.defaultExpiry || '';
-    $('qmBatch').value = '';
-    $('qmExtraFields').style.display = qtyShowExtras ? '' : 'none';
+    if ($('qmTitle')) $('qmTitle').textContent = opts.title || 'ثبت تعداد';
+    if ($('qmHeader')) $('qmHeader').className = 'modal-header ' + (opts.headerClass || 'bg-primary text-white');
+    if ($('qmDrugName')) $('qmDrugName').textContent = opts.drugName || '';
+    if ($('qmExtraInfo')) $('qmExtraInfo').innerHTML = opts.extraInfo || '';
+    if ($('qmQty')) $('qmQty').value = opts.defaultQty ?? 1;
+    if ($('qmExpiry')) $('qmExpiry').value = opts.defaultExpiry || '';
+    if ($('qmBatch')) $('qmBatch').value = '';
+    if ($('qmExtraFields')) $('qmExtraFields').style.display = qtyShowExtras ? '' : 'none';
 
     setBatchVisibility(!qtyHideBatchInput && qtyShowExtras);
     markExpiryRequired(qtyRequireExpiry && qtyShowExtras);
 
-    $('qmWarnings').innerHTML = opts.warnings || '';
+    if ($('qmWarnings')) $('qmWarnings').innerHTML = opts.warnings || '';
     const batchInfoEl = $('qmBatchInfo');
     if (batchInfoEl) batchInfoEl.innerHTML = '';
     
     updateQmExpiryHint();
-    qtyModal.show();
-    setTimeout(() => { $('qmQty').focus(); $('qmQty').select(); }, 300);
+    if (qtyModal) qtyModal.show();
+    setTimeout(() => { if ($('qmQty')) { $('qmQty').focus(); $('qmQty').select(); } }, 300);
   });
 }
 
@@ -71,9 +156,11 @@ function markExpiryRequired(required) {
 }
 
 function updateQmExpiryHint() {
-  const v = $('qmExpiry').value.trim();
+  const v = $('qmExpiry') ? $('qmExpiry').value.trim() : '';
   const hint = $('qmShamsi');
   const badge = $('qmExpiryBadge');
+  if (!hint || !badge) return;
+
   hint.textContent = '';
   hint.style.color = '#64748b';
   badge.innerHTML = '';
@@ -131,6 +218,8 @@ function updateQmExpiryHint() {
 function applyExpiryWarning(greg) {
   const chk = checkExpiry(greg);
   const badge = $('qmExpiryBadge');
+  if (!badge) return;
+
   if (!chk || chk.level === 'ok') {
     badge.innerHTML = chk ? `<span class="badge-soft success">${chk.msg}</span>` : '';
     return;
@@ -144,87 +233,93 @@ function applyExpiryWarning(greg) {
   }
 }
 
-// ⭐ این تابع بود که خطا می‌داد. حالا به درستی export شده است.
 export function initQtyModal() {
   ensureQtyModal();
-  $('qmExpiry').addEventListener('input', updateQmExpiryHint);
-  $('qmMinus').onclick = () => $('qmQty').value = Math.max(0, (+$('qmQty').value || 0) - 1);
-  $('qmPlus').onclick  = () => $('qmQty').value = (+$('qmQty').value || 0) + 1;
   
-  document.querySelectorAll('.qm-quick').forEach(b => b.onclick = () => $('qmQty').value = b.dataset.n);
+  if ($('qmExpiry')) $('qmExpiry').addEventListener('input', updateQmExpiryHint);
+  if ($('qmMinus')) $('qmMinus').onclick = () => { if ($('qmQty')) $('qmQty').value = Math.max(0, (+$('qmQty').value || 0) - 1); };
+  if ($('qmPlus')) $('qmPlus').onclick  = () => { if ($('qmQty')) $('qmQty').value = (+$('qmQty').value || 0) + 1; };
+  
+  document.querySelectorAll('.qm-quick').forEach(b => {
+    b.onclick = () => { if ($('qmQty')) $('qmQty').value = b.dataset.n; };
+  });
   
   ['qmQty', 'qmExpiry', 'qmBatch'].forEach(id => {
     const el = $(id);
     if (el) {
-      el.addEventListener('keydown', e => { if (e.key === 'Enter') $('qmSave').click(); });
+      el.addEventListener('keydown', e => { if (e.key === 'Enter' && $('qmSave')) $('qmSave').click(); });
     }
   });
 
-  $('qmSave').onclick = () => {
-    if (!qtyResolve) return;
-    const qty = parseInt($('qmQty').value, 10);
-    if (isNaN(qty) || qty < 0) { toast('تعداد نامعتبر', 'warning'); return; }
+  if ($('qmSave')) {
+    $('qmSave').onclick = () => {
+      if (!qtyResolve) return;
+      const qty = parseInt($('qmQty').value, 10);
+      if (isNaN(qty) || qty < 0) { toast('تعداد نامعتبر', 'warning'); return; }
 
-    const res = { qty };
+      const res = { qty };
 
-    if (qtyShowExtras) {
-      let raw = $('qmExpiry').value.trim();
-      let expG = raw;
+      if (qtyShowExtras) {
+        let raw = $('qmExpiry').value.trim();
+        let expG = raw;
 
-      if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(raw)) {
-        expG = jalaliToGregorian(raw);
-        if (!expG) { toast('تاریخ شمسی نامعتبر', 'warning'); return; }
-      } else if (raw && !/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-        toast('تاریخ نامعتبر. مثال: 2027-03-15', 'warning');
-        return;
+        if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(raw)) {
+          expG = jalaliToGregorian(raw);
+          if (!expG) { toast('تاریخ شمسی نامعتبر', 'warning'); return; }
+        } else if (raw && !/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+          toast('تاریخ نامعتبر. مثال: 2027-03-15', 'warning');
+          return;
+        }
+
+        if (qtyRequireExpiry && !expG) {
+          toast('تاریخ انقضا الزامی است', 'warning');
+          $('qmExpiry').focus();
+          $('qmExpiry').classList.add('expiry-warn');
+          return;
+        }
+
+        res.expiry_gregorian = expG || null;
+        res.expiry_jalali = expG ? gregorianToJalali(expG) : '';
+        res.batch = null; 
       }
 
-      if (qtyRequireExpiry && !expG) {
-        toast('تاریخ انقضا الزامی است', 'warning');
-        $('qmExpiry').focus();
-        $('qmExpiry').classList.add('expiry-warn');
-        return;
-      }
-
-      res.expiry_gregorian = expG || null;
-      res.expiry_jalali = expG ? gregorianToJalali(expG) : '';
-      res.batch = null; // بچ همیشه از سمت فرم نادیده گرفته می‌شود
-    }
-
-    const cb = qtyResolve;
-    qtyResolve = null;
-    qtyBatchCheckFn = null;
-    qtyHideBatchInput = false;
-    qtyRequireExpiry = false;
-    qtyModal.hide();
-    cb(res);
-  };
+      const cb = qtyResolve;
+      qtyResolve = null;
+      qtyBatchCheckFn = null;
+      qtyHideBatchInput = false;
+      qtyRequireExpiry = false;
+      if (qtyModal) qtyModal.hide();
+      cb(res);
+    };
+  }
 }
 
-
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 // ۲. مودال جستجوی دارو (openDrugSearch)
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 let searchModal = null;
 let searchCallback = null;
 let searchTimer = null;
 
 function ensureSearchModal() {
-  if (!searchModal) searchModal = new bootstrap.Modal($('searchModal'));
+  ensureModalsInDOM();
+  if (!searchModal) {
+    const el = $('searchModal');
+    if (el) searchModal = new bootstrap.Modal(el);
+  }
 }
 
 export function openDrugSearch(info, cb) {
   ensureSearchModal();
   searchCallback = cb;
-  $('smInfo').innerHTML = info || '';
-  $('smQuery').value = '';
-  $('smResults').innerHTML = '<div class="text-center muted small py-3">حداقل ۲ حرف تایپ کنید</div>';
+  if ($('smInfo')) $('smInfo').innerHTML = info || '';
+  if ($('smQuery')) $('smQuery').value = '';
+  if ($('smResults')) $('smResults').innerHTML = '<div class="text-center muted small py-3">حداقل ۲ حرف تایپ کنید</div>';
   ensureAddNewButton();
-  searchModal.show();
-  setTimeout(() => $('smQuery').focus(), 300);
+  if (searchModal) searchModal.show();
+  setTimeout(() => { if ($('smQuery')) $('smQuery').focus(); }, 300);
 }
 
-// ⭐ دکمه ثبت داروی جدید
 function ensureAddNewButton() {
   if (document.getElementById('smAddNewBtn')) return;
   const results = $('smResults');
@@ -235,9 +330,9 @@ function ensureAddNewButton() {
   btn.className = 'btn btn-outline-success w-100 mt-2';
   btn.innerHTML = '<i class="bi bi-plus-circle"></i> ثبت دارو جدید';
   btn.onclick = () => {
-    const prefill = $('smQuery').value.trim();
+    const prefill = $('smQuery') ? $('smQuery').value.trim() : '';
     const cb = searchCallback;
-    searchModal.hide();
+    if (searchModal) searchModal.hide();
     setTimeout(() => openNewDrugModal(prefill, (drug) => {
       if (cb) cb(drug);
     }), 250);
@@ -245,25 +340,26 @@ function ensureAddNewButton() {
   results.parentElement.appendChild(btn);
 }
 
-// ⭐ این تابع هم خطا می‌داد که حالا export شده است.
 export function initSearchModal() {
   ensureSearchModal();
-  $('smQuery').addEventListener('input', e => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => doSearch(e.target.value.trim()), 300);
-  });
+  if ($('smQuery')) {
+    $('smQuery').addEventListener('input', e => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => doSearch(e.target.value.trim()), 300);
+    });
+  }
   window._pickDrug = (drug) => {
-    searchModal.hide();
+    if (searchModal) searchModal.hide();
     if (searchCallback) searchCallback(drug);
   };
 }
 
 async function doSearch(q) {
   if (q.length < 2) {
-    $('smResults').innerHTML = '<div class="text-center muted small py-3">حداقل ۲ حرف</div>';
+    if ($('smResults')) $('smResults').innerHTML = '<div class="text-center muted small py-3">حداقل ۲ حرف</div>';
     return;
   }
-  $('smResults').innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div>';
+  if ($('smResults')) $('smResults').innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div>';
 
   const { data, error } = await sb.from('drugs_drug')
     .select('id, name, form')
@@ -272,30 +368,28 @@ async function doSearch(q) {
     .limit(20);
 
   if (error) {
-    $('smResults').innerHTML = `<div class="alert alert-danger small py-2">${escapeHtml(error.message)}</div>`;
+    if ($('smResults')) $('smResults').innerHTML = `<div class="alert alert-danger small py-2">${escapeHtml(error.message)}</div>`;
     return;
   }
   if (!data?.length) {
-    $('smResults').innerHTML = `
-      <div class="text-center muted small py-3">
-        یافت نشد — می‌توانید داروی جدید ثبت کنید
-      </div>`;
+    if ($('smResults')) $('smResults').innerHTML = `<div class="text-center muted small py-3">یافت نشد — می‌توانید داروی جدید ثبت کنید</div>`;
     return;
   }
-  $('smResults').innerHTML = data.map(d => `
-    <button class="w-100 text-end mb-2 p-3"
-            style="background:#f8fafc;border:1.5px solid var(--border);border-radius:12px;"
-            onclick='window._pickDrug(${JSON.stringify(d).replace(/'/g, "&#39;")})'>
-      <div style="font-weight:700;">${escapeHtml(d.name)}</div>
-      <div class="muted small">${escapeHtml(d.form || '')}</div>
-    </button>
-  `).join('');
+  if ($('smResults')) {
+    $('smResults').innerHTML = data.map(d => `
+      <button class="w-100 text-end mb-2 p-3"
+              style="background:#f8fafc;border:1.5px solid var(--border);border-radius:12px;"
+              onclick='window._pickDrug(${JSON.stringify(d).replace(/'/g, "&#39;")})'>
+        <div style="font-weight:700;">${escapeHtml(d.name)}</div>
+        <div class="muted small">${escapeHtml(d.form || '')}</div>
+      </button>
+    `).join('');
+  }
 }
 
-
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 // ۳. مودال ثبت دارو جدید (openNewDrugModal)
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 let newDrugModal = null;
 
 function ensureNewDrugModal() {
@@ -352,22 +446,24 @@ function ensureNewDrugModal() {
     document.body.appendChild(el);
   }
 
-  newDrugModal = new bootstrap.Modal($('newDrugModal'));
+  const el = $('newDrugModal');
+  if (el) newDrugModal = new bootstrap.Modal(el);
 
-  $('ndmName').addEventListener('input', updateNewDrugPreview);
-  $('ndmForm').addEventListener('change', updateNewDrugPreview);
-  $('ndmNewForm').addEventListener('input', updateNewDrugPreview);
-  $('ndmReloadForms').onclick = () => loadFormOptions(true);
-  $('ndmSave').onclick = saveNewDrug;
+  if ($('ndmName')) $('ndmName').addEventListener('input', updateNewDrugPreview);
+  if ($('ndmForm')) $('ndmForm').addEventListener('change', updateNewDrugPreview);
+  if ($('ndmNewForm')) $('ndmNewForm').addEventListener('input', updateNewDrugPreview);
+  if ($('ndmReloadForms')) $('ndmReloadForms').onclick = () => loadFormOptions(true);
+  if ($('ndmSave')) $('ndmSave').onclick = saveNewDrug;
 }
 
 function updateNewDrugPreview() {
-  const name = $('ndmName').value.trim();
-  const formSel = $('ndmForm').value.trim();
-  const formNew = $('ndmNewForm').value.trim();
+  const name = $('ndmName') ? $('ndmName').value.trim() : '';
+  const formSel = $('ndmForm') ? $('ndmForm').value.trim() : '';
+  const formNew = $('ndmNewForm') ? $('ndmNewForm').value.trim() : '';
   const form = formNew || formSel;
   const preview = $('ndmPreview');
   const nameErr = $('ndmNameError');
+  if (!preview || !nameErr) return;
 
   preview.textContent = (name && form) ? `${name} ${form}` : (name || form || '—');
 
@@ -393,6 +489,8 @@ function updateNewDrugPreview() {
 
 export async function openNewDrugModal(prefillName = '', cb) {
   ensureNewDrugModal();
+  if (!$('ndmName')) return;
+  
   $('ndmName').value = prefillName || '';
   $('ndmForm').value = '';
   $('ndmNewForm').value = '';
@@ -400,17 +498,18 @@ export async function openNewDrugModal(prefillName = '', cb) {
   $('ndmError').textContent = '';
   $('ndmNameError').textContent = '';
   $('ndmPreview').textContent = prefillName || '—';
-  newDrugModal._cb = cb;
+  if (newDrugModal) newDrugModal._cb = cb;
 
   $('ndmForm').dataset.loaded = '';
   await loadFormOptions(true);
 
-  newDrugModal.show();
-  setTimeout(() => $('ndmName').focus(), 300);
+  if (newDrugModal) newDrugModal.show();
+  setTimeout(() => { if ($('ndmName')) $('ndmName').focus(); }, 300);
 }
 
 async function loadFormOptions(force) {
   const sel = $('ndmForm');
+  if (!sel) return;
   if (!force && sel.dataset.loaded === '1') return;
   sel.innerHTML = '<option value="">در حال بارگذاری...</option>';
   try {
@@ -453,6 +552,7 @@ function extractPersianForm(raw) {
 }
 
 async function saveNewDrug() {
+  if (!$('ndmName')) return;
   const name = $('ndmName').value.trim();
   const formSel = $('ndmForm').value.trim();
   const formNew = $('ndmNewForm').value.trim();
@@ -497,8 +597,8 @@ async function saveNewDrug() {
     toast(`✅ «${name} ${form}» ثبت شد`, 'success');
 
     const cb = newDrugModal._cb;
-    newDrugModal.hide();
-    newDrugModal._cb = null;
+    if (newDrugModal) newDrugModal.hide();
+    if (newDrugModal) newDrugModal._cb = null;
     if (cb) setTimeout(() => cb(inserted), 250);
   } catch (e) {
     console.error('[NEW-DRUG] save error:', e);
@@ -509,8 +609,10 @@ async function saveNewDrug() {
   saveBtn.disabled = false;
   saveBtn.innerHTML = '<i class="bi bi-check2"></i> ذخیره';
 }
-// js/modals.js
-// ⭐ تابع جدید برای انتخاب تاریخ از بین چند تاریخ
+
+// ═══════════════════════════════════════════════════════════════════
+// ⭐ تابع انتخاب تاریخ از بین چند تاریخ
+// ═══════════════════════════════════════════════════════════════════
 export function promptExpirySelection(rawDates) {
   return new Promise((resolve) => {
     const modalId = 'expirySelectionModal';
@@ -533,13 +635,11 @@ export function promptExpirySelection(rawDates) {
                   let displayJalali = 'تاریخ نامعتبر (خارج از فرمت)';
                   let isInvalid = true;
 
-                  // اگر از قبل فرمت YYYY-MM-DD داشت (یعنی معتبر بود)
                   if (d.includes('-')) {
                     displayGreg = d;
                     displayJalali = gregorianToJalali(d);
                     isInvalid = false;
                   } else if (d.length === 6) {
-                    // اگر 6 رقم خام بود، چک کن ببینیم معتبر هست یا نه
                     const yy = parseInt(d.substring(0, 2), 10);
                     const mm = parseInt(d.substring(2, 4), 10);
                     const dd = parseInt(d.substring(4, 6), 10);
