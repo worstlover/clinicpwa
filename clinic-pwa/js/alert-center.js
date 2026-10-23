@@ -315,7 +315,7 @@ function showIncidentDetailModal(alert) {
     actionBtnsHtml += `<a href="tel:${alert.patient_phone}" style="background:#3b82f6; color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; justify-content:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📞 تماس با بیمار</a>`;
   }
 
-  // ⭐️ دکمه‌های نقشه (آفلاین و آنلاین) با راهنما
+  // دکمه‌های نقشه (آفلاین و آنلاین) با راهنما
   if (alert.latitude && alert.longitude) {
     actionBtnsHtml += `
       <div style="display:flex; flex-direction:column; gap:4px;">
@@ -431,6 +431,18 @@ export function showOfflineMapModal(lat, lng, title = 'محل حادثه') {
   modal.show();
 
   modalEl.addEventListener('shown.bs.modal', () => {
+    // ⭐️ بررسی وجود کتابخانه Leaflet قبل از اجرای کدهای نقشه
+    if (typeof L === 'undefined') {
+      console.error('[AlertCenter] Leaflet library is not loaded.');
+      document.getElementById('offlineMapContainer').innerHTML = `
+        <div class="alert alert-danger m-3 text-center">
+          <i class="bi bi-exclamation-triangle-fill"></i>
+          خطا: کتابخانه نقشه (Leaflet) بارگذاری نشده است.<br>
+          لطفاً اتصال اینترنت خود را بررسی کنید یا صفحه را رفرش نمایید.
+        </div>`;
+      return;
+    }
+
     offlineMapInstance = L.map('offlineMapContainer').setView([lat, lng], 16);
 
     L.tileLayer('map-tiles/{z}/{x}/{y}.png', {
