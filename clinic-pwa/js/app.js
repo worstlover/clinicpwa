@@ -19,7 +19,7 @@ import { openFormsMenu } from './modules/forms-menu.js';
 import { openFormsArchive } from './modules/forms-archive.js';
 import { openVisitReports } from './modules/visit-reports.js';
 import { openFineReward } from './modules/fine-reward.js';
-import { initFCM } from './fcm.js';
+import { initFCM, requestPermissionAndInit, getPermissionStatus } from './fcm.js';
 import { sb } from './sb.js';
 
 console.log('[APP] module loaded');
@@ -225,129 +225,168 @@ window._triggerInstall = async () => {
 // 🔔 مدیریت نوتیفیکیشن (FCM)
 // ═══════════════════════════════════════════════════════
 
-// ⭐ FCM guard: جلوگیری از فراخوانی هم‌زمان
-let __fcmInited = false;
 let __fcmInFlight = null;
+let __fcmLastResult = null;
 
+/**
+ * تلاش برای راه‌اندازی FCM — با تشخیص دقیق وضعیت
+ */
 async function tryInitFCM(reason = 'initial') {
-  if (typeof Notification === 'undefined') {
-    console.warn('[APP-FCM] Notification API not available');
+  const perm = getPermissionStatus();
+  console.log(`[APP-FCM] tryInit (${reason}) — permission: ${perm}`);
+
+  if (perm === 'unsupported') {
     return;
   }
 
-  // اگر permission داده نشده، FCM نمی‌تواند کار کند
-  if (Notification.permission !== 'granted') {
-    console.log(`[APP-FCM] skip (${reason}) — permission: ${Notification.permission}`);
-    showNotificationBanner();
+  if (perm !== 'granted') {
+    // permission default یا denied → بنر نمایش بده
+    showNotificationBanner(perm);
     return;
   }
 
-  // جلوگیری از اجرای هم‌زمان
   if (__fcmInFlight) return __fcmInFlight;
 
   __fcmInFlight = (async () => {
     try {
-      console.log(`[APP-FCM] init (${reason})`);
-      await initFCM();
-      __fcmInited = true;
+      console.log(`[APP-FCM] calling initFCM (${reason})`);
+      const res = await initFCM();
+      __fcmLastResult = res;
+
+      // پشتیبانی از هر دو نوع return: void (قدیمی) یا {ok, reason} (جدید)
+      const failed = res && res.ok === false;
+      if (failed) {
+        console.warn('[APP-FCM] initFCM failed:', res.reason);
+        if (res.reason === 'needs-permission' || res.reason === 'denied') {
+          showNotificationBanner(res.reason === 'denied' ? 'denied' : 'default');
+        }
+        return;
+      }
+
       hideNotificationBanner();
+      console.log('[APP-FCM] ✅ ready');
     } catch (e) {
-      console.error('[APP-FCM] init failed:', e);
+      console.error('[APP-FCM] initFCM threw:', e);
     } finally {
       __fcmInFlight = null;
     }
   })();
+
   return __fcmInFlight;
 }
 
-// ⭐ بنر غیرمزاحم بالای صفحه وقتی مجوز داده نشده
-function showNotificationBanner() {
-  if (Notification.permission === 'granted') return hideNotificationBanner();
-  if (Notification.permission === 'denied') {
-    // denied → کاربر باید دستی از تنظیمات مرورگر اجازه دهد
-    if (document.getElementById('notifBanner')) return;
-    const b = document.createElement('div');
-    b.id = 'notifBanner';
-    b.style.cssText = `
-      position: fixed; top: 8px; left: 8px; right: 8px; z-index: 99998;
-      background: #fef3c7; border: 1px solid #fcd34d; border-radius: 12px;
-      padding: 10px 12px; display: flex; align-items: center; gap: 10px;
-      direction: rtl; font-family: inherit; font-size: 13px; color: #92400e;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    `;
-    b.innerHTML = `
-      <i class="bi bi-bell-slash" style="font-size: 18px;"></i>
-      <div style="flex: 1; line-height: 1.5;">
-        <strong>نوتیفیکیشن غیرفعال است.</strong>
-        برای دریافت هشدارها، از تنظیمات مرورگر اجازه دهید.
-      </div>
-      <button id="notifBannerClose" style="background: transparent; border: none; color: #92400e; font-size: 18px; cursor: pointer; padding: 4px;">
-        <i class="bi bi-x-lg"></i>
-      </button>
-    `;
-    document.body.appendChild(b);
-    b.querySelector('#notifBannerClose').onclick = () => b.remove();
+/**
+ * بنر بالای صفحه برای مدیریت مجوز نوتیفیکیشن
+ */
+function showNotificationBanner(perm) {
+  const currentPerm = perm || getPermissionStatus();
+
+  // اگر مجوز داده شده یا پشتیبانی نمی‌شود → بنر نباید نمایش داده شود
+  if (currentPerm === 'granted' || currentPerm === 'unsupported') {
+    hideNotificationBanner();
     return;
   }
 
-  // default → هنوز درخواست نشده
-  if (document.getElementById('notifBanner')) return;
+  // اگر بنر قبلاً هست و وضعیت تغییر نکرده → دست نزن
+  const existing = document.getElementById('notifBanner');
+  if (existing && existing.dataset.perm === currentPerm) return;
+  if (existing) existing.remove();
+
+  const isDenied = currentPerm === 'denied';
+  const bg = isDenied ? '#fef3c7' : '#dbeafe';
+  const border = isDenied ? '#fcd34d' : '#93c5fd';
+  const color = isDenied ? '#92400e' : '#1e40af';
+  const icon = isDenied ? 'bi-bell-slash' : 'bi-bell';
+  const text = isDenied
+    ? '<strong>نوتیفیکیشن مسدود است.</strong> از تنظیمات مرورگر اجازه دهید.'
+    : '<strong>هشدارها را فعال کنید</strong> تا اعلان‌ها را دریافت کنید.';
+
   const b = document.createElement('div');
   b.id = 'notifBanner';
+  b.dataset.perm = currentPerm;
   b.style.cssText = `
     position: fixed; top: 8px; left: 8px; right: 8px; z-index: 99998;
-    background: #dbeafe; border: 1px solid #93c5fd; border-radius: 12px;
+    background: ${bg}; border: 1px solid ${border}; border-radius: 12px;
     padding: 10px 12px; display: flex; align-items: center; gap: 10px;
-    direction: rtl; font-family: inherit; font-size: 13px; color: #1e40af;
+    direction: rtl; font-family: inherit; font-size: 13px; color: ${color};
     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   `;
   b.innerHTML = `
-    <i class="bi bi-bell" style="font-size: 18px;"></i>
-    <div style="flex: 1; line-height: 1.5;">
-      <strong>هشدارها را فعال کنید</strong> تا اعلان‌ها را دریافت کنید.
-    </div>
-    <button id="notifBannerEnable" style="background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;">
-      فعال‌سازی
-    </button>
-    <button id="notifBannerClose" style="background: transparent; border: none; color: #1e40af; font-size: 18px; cursor: pointer; padding: 4px;">
+    <i class="bi ${icon}" style="font-size: 18px;"></i>
+    <div style="flex: 1; line-height: 1.5;">${text}</div>
+    ${!isDenied ? `<button id="notifBannerEnable" style="background: #2563eb; color: white; border: none; padding: 6px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;">فعال‌سازی</button>` : ''}
+    <button id="notifBannerClose" style="background: transparent; border: none; color: ${color}; font-size: 18px; cursor: pointer; padding: 4px;">
       <i class="bi bi-x-lg"></i>
     </button>
   `;
   document.body.appendChild(b);
+
   b.querySelector('#notifBannerClose').onclick = () => b.remove();
-  b.querySelector('#notifBannerEnable').onclick = async () => {
-    try {
-      const perm = await Notification.requestPermission();
-      if (perm === 'granted') {
-        b.remove();
-        await tryInitFCM('banner-button');
-        toast('✅ هشدارها فعال شدند', 'success');
-      } else {
-        toast('مجوز داده نشد', 'warning');
-        b.remove();
-        showNotificationBanner();
+
+  if (!isDenied) {
+    const enableBtn = b.querySelector('#notifBannerEnable');
+    enableBtn.onclick = async () => {
+      const originalText = enableBtn.textContent;
+      enableBtn.disabled = true;
+      enableBtn.textContent = '...';
+      try {
+        console.log('[APP-FCM] requestPermissionAndInit from banner');
+        const res = await requestPermissionAndInit();
+
+        // پشتیبانی از هر دو نوع return
+        const ok = res === true
+          || res?.ok === true
+          || (typeof res === 'string' && res.length > 0);
+
+        if (ok) {
+          b.remove();
+          hideNotificationBanner();
+          toast('✅ هشدارها فعال شدند', 'success');
+          return;
+        }
+
+        if (res?.reason === 'denied' || res?.reason === 'not-granted') {
+          toast('مجوز رد شد. از تنظیمات مرورگر اجازه دهید.', 'warning');
+          b.remove();
+          showNotificationBanner('denied');
+          return;
+        }
+
+        // fallback: مجوز داده شد ولی مشکل دیگری هست
+        if (getPermissionStatus() === 'granted') {
+          b.remove();
+          await tryInitFCM('banner-fallback');
+          return;
+        }
+
+        toast('خطا در فعال‌سازی: ' + (res?.reason || 'نامشخص'), 'danger');
+        enableBtn.disabled = false;
+        enableBtn.textContent = 'تلاش دوباره';
+      } catch (e) {
+        console.error('[APP-FCM] banner enable error:', e);
+        toast('خطا: ' + e.message, 'danger');
+        enableBtn.disabled = false;
+        enableBtn.textContent = 'تلاش دوباره';
       }
-    } catch (e) {
-      toast('خطا: ' + e.message, 'danger');
-    }
-  };
+    };
+  }
 }
 
 function hideNotificationBanner() {
   document.getElementById('notifBanner')?.remove();
 }
 
-// ⭐ بعد از هر SIGNED_IN، دوباره init کن
+// ⭐ هر SIGNED_IN → دوباره init کن
 let __lastSignedInUser = null;
 sb.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_IN' && session?.user) {
     if (__lastSignedInUser === session.user.id) return;
     __lastSignedInUser = session.user.id;
-    console.log('[APP-FCM] signed-in event → try init');
+    console.log('[APP-FCM] signed-in event → schedule init');
     setTimeout(() => tryInitFCM('signed-in'), 800);
   } else if (event === 'SIGNED_OUT') {
     __lastSignedInUser = null;
-    __fcmInited = false;
+    __fcmLastResult = null;
   }
 });
 
@@ -369,15 +408,13 @@ document.addEventListener('keydown', e => {
     finishLoadingProgress();
   }
 
-  // بعد از auth کاملاً پایدار → FCM
   try { await tryInitFCM('after-checkAuth'); } catch (e) { console.error('[APP-FCM]', e); }
 })();
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./service-worker.js', { scope: './' })
     .then(async () => {
-      // اگر serviceWorker زودتر register شد، FCM مجدد تلاش کند
-      if (Notification?.permission === 'granted') {
+      if (getPermissionStatus() === 'granted') {
         setTimeout(() => tryInitFCM('sw-ready'), 500);
       }
     })
