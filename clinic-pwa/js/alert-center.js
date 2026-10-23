@@ -4,6 +4,7 @@ import { $, escapeHtml, gregorianToJalali } from './utils.js';
 
 let currentUserUuid = null;
 let alertCenterChannel = null;
+let offlineMapInstance = null; // ⭐️ متغیر سراسری برای نگه داشتن نمونه نقشه
 
 export async function initAlertCenter() {
   try {
@@ -215,16 +216,8 @@ async function loadTab(tab) {
           <div class="alert-item-meta">
             توسط: <strong>${escapeHtml(a.triggered_name || 'کاربر')}</strong>
           </div>
-          ${a.patient_name ? `
-            <div class="alert-item-meta">
-              بیمار: <strong>${escapeHtml(a.patient_name)}</strong>
-            </div>
-          ` : ''}
-          ${a.location ? `
-            <div class="alert-item-meta">
-              📍 ${escapeHtml(a.location)}
-            </div>
-          ` : ''}
+          ${a.patient_name ? `<div class="alert-item-meta">بیمار: <strong>${escapeHtml(a.patient_name)}</strong></div>` : ''}
+          ${a.location ? `<div class="alert-item-meta">📍 ${escapeHtml(a.location)}</div>` : ''}
           <div class="alert-item-time">
             ${gregorianToJalali(a.created_at)} - ${new Date(a.created_at).toLocaleTimeString('fa-IR', {hour:'2-digit',minute:'2-digit'})}
           </div>
@@ -255,11 +248,7 @@ async function loadTab(tab) {
           <div class="alert-item-meta">
             از طرف: <strong>${escapeHtml(a.referred_by_name || 'کاربر')}</strong>
           </div>
-          ${a.patient_name ? `
-            <div class="alert-item-meta">
-              بیمار: <strong>${escapeHtml(a.patient_name)}</strong>
-            </div>
-          ` : ''}
+          ${a.patient_name ? `<div class="alert-item-meta">بیمار: <strong>${escapeHtml(a.patient_name)}</strong></div>` : ''}
           <div class="alert-item-time">
             ${gregorianToJalali(a.created_at)} - ${new Date(a.created_at).toLocaleTimeString('fa-IR', {hour:'2-digit',minute:'2-digit'})}
           </div>
@@ -274,22 +263,14 @@ async function loadTab(tab) {
         const visitId = el.dataset.visitId;
 
         if (type === 'incident') {
-          // ⭐️ پیدا کردن اطلاعات کامل حادثه از دیتای لود شده
-          let alertData;
-          if (tab === 'incident') {
-             // برای دسترسی به دیتای ردیف کلیک شده، دوباره از دیتابیس می‌خوانیم یا از متغیر گلوبال استفاده می‌کنیم. 
-             // بهترین راه خواندن از دیتابیس است تا همیشه آپدیت باشد (مثلا اگر شماره یا لوکیشن بعدا اضافه شده باشد)
-             const { data: freshAlert } = await sb.from('incident_alerts').select('*').eq('id', id).maybeSingle();
-             alertData = freshAlert;
-          }
-
+          const { data: freshAlert } = await sb.from('incident_alerts').select('*').eq('id', id).maybeSingle();
+          
           await sb.from('incident_alerts').update({ is_read: true }).eq('id', id);
           el.classList.remove('unread');
           await refreshBellBadge();
           await refreshTabBadges();
 
-          // ⭐️ باز کردن مودال جزئیات
-          if (alertData) showIncidentDetailModal(alertData);
+          if (freshAlert) showIncidentDetailModal(freshAlert);
 
         } else {
           await sb.from('visit_referral_alerts').update({ is_read: true }).eq('id', id);
@@ -317,7 +298,6 @@ async function loadTab(tab) {
   }
 }
 
-// ⭐️ مودال نمایش جزئیات کامل حادثه
 function showIncidentDetailModal(alert) {
   const oldModal = document.getElementById('incidentDetailModal');
   if (oldModal) oldModal.remove();
@@ -332,8 +312,9 @@ function showIncidentDetailModal(alert) {
     actionBtnsHtml += `<a href="tel:${alert.patient_phone}" style="background:#3b82f6; color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📞 تماس با بیمار</a>`;
   }
 
+  // ⭐️ دکمه تغییر یافته برای نقشه آفلاین
   if (alert.latitude && alert.longitude) {
-    actionBtnsHtml += `<a href="https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}" target="_blank" style="background:#fff; color:#dc2626; border: 1px solid #dc2626; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📍 مشاهده موقعیت</a>`;
+    actionBtnsHtml += `<button onclick="window.showOfflineMap('${alert.latitude}', '${alert.longitude}')" style="background:#fff; color:#dc2626; border: 1px solid #dc2626; padding:8px 14px; border-radius:8px; font-family:inherit; cursor:pointer; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📍 مشاهده نقشه آفلاین</button>`;
   }
   
   actionBtnsHtml += '</div>';
@@ -398,3 +379,69 @@ function showIncidentDetailModal(alert) {
   m.show();
   el.addEventListener('hidden.bs.modal', () => el.remove());
 }
+
+// ⭐️ تابع جدید برای نمایش نقشه آفلاین
+export function showOfflineMapModal(lat, lng, title = 'محل حادثه') {
+  const oldMapModal = document.getElementById('offlineMapModal');
+  if (oldMapModal) oldMapModal.remove();
+
+  if (offlineMapInstance) {
+    offlineMapInstance.remove();
+    offlineMapInstance = null;
+  }
+
+  const modalHtml = `
+    <div class="modal fade" id="offlineMapModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content" style="border-radius: 16px; overflow: hidden; border: none;">
+          <div class="modal-header text-white" style="background:#1e293b;">
+            <h5 class="modal-title"><i class="bi bi-map"></i> ${title}</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body p-0" style="position: relative;">
+            <div id="offlineMapContainer" style="width: 100%; height: 450px; background: #e2e8f0;"></div>
+            <div style="position: absolute; bottom: 10px; left: 10px; z-index: 1000; background: rgba(255,255,255,0.9); padding: 5px 10px; border-radius: 8px; font-size: 12px; direction: ltr; font-family: monospace;">
+              Lat: ${parseFloat(lat).toFixed(5)} | Lng: ${parseFloat(lng).toFixed(5)}
+            </div>
+          </div>
+          <div class="modal-footer" style="background: #f8fafc; border-top: none;">
+            <button type="button" class="btn btn-secondary w-100" data-bs-dismiss="modal">بستن نقشه</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  const modalEl = document.getElementById('offlineMapModal');
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+
+  modalEl.addEventListener('shown.bs.modal', () => {
+    offlineMapInstance = L.map('offlineMapContainer').setView([lat, lng], 16);
+
+    // ⭐️ لود کردن تایل‌ها از پوشه map-tiles
+    L.tileLayer('map-tiles/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      minZoom: 14,
+      attribution: '© Offline Map'
+    }).addTo(offlineMapInstance);
+
+    L.marker([lat, lng]).addTo(offlineMapInstance)
+      .bindPopup(`<b>📍 ${title}</b>`)
+      .openPopup();
+      
+    setTimeout(() => offlineMapInstance.invalidateSize(), 200);
+  });
+
+  modalEl.addEventListener('hidden.bs.modal', () => {
+    if (offlineMapInstance) {
+      offlineMapInstance.remove();
+      offlineMapInstance = null;
+    }
+    modalEl.remove();
+  });
+}
+
+// ⭐️ در دسترس قرار دادن تابع برای دکمه‌های HTML
+window.showOfflineMap = showOfflineMapModal;
