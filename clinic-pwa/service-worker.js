@@ -20,7 +20,7 @@ const messaging = firebase.messaging();
 // جلوگیری از نمایش پیام تکراری
 const recentNotifications = new Set();
 function isDuplicate(payload) {
-  const key = payload.messageId || (payload.notification && payload.notification.title + payload.notification.body);
+  const key = payload.messageId || (payload.data && payload.data.id);
   if (!key) return false;
   if (recentNotifications.has(key)) return true;
   recentNotifications.add(key);
@@ -33,14 +33,19 @@ messaging.onBackgroundMessage((payload) => {
   console.log('[service-worker.js] Received background message ', payload);
   if (isDuplicate(payload)) return;
 
-  const notificationTitle = payload.notification?.title || 'پیام جدید';
+  // ⭐️ چون در Edge Function از data استفاده می‌کنیم، مقادیر را از data می‌خوانیم
+  const data = payload.data || {};
+  const notificationTitle = data.title || '🚨 اعلام حادثه';
+  
   const notificationOptions = {
-    body: payload.notification?.body || '',
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+    body: data.body || 'اعلام حادثه جدید',
+    icon: '/icons/icon-192.png',       // آیکون بزرگ (رنگی)
+    badge: '/icons/badge-96.png',      // ⭐️ آیکون کوچک (سفید و شفاف برای اندروید)
     dir: 'rtl',
     lang: 'fa',
-    data: payload.data
+    data: data,
+    requireInteraction: true,          // نوتیفیکیشن تا زمانی که کاربر نبندد باز بماند
+    vibrate: [200, 100, 200, 100, 200] // لرزش برای هشدار مهم
   };
 
   self.registration.showNotification(notificationTitle, notificationOptions);
