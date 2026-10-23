@@ -1,7 +1,4 @@
 // js/quick-incident.js
-// ═══════════════════════════════════════════════════════
-// دکمه حادثه سریع (روی صفحه اصلی)
-// ═══════════════════════════════════════════════════════
 import { sb } from './sb.js';
 import { $, toast } from './utils.js';
 import { broadcastIncidentAlert } from './incident-alert.js';
@@ -30,13 +27,17 @@ function openQuickIncidentModal() {
             </div>
             <div class="mb-3">
               <label class="form-label small">محل حادثه (اختیاری)</label>
-              <input type="text" class="form-control" id="qiLocation" 
-                placeholder="مثال: خط تولید ۳، انبار..." autocomplete="off">
+              <input type="text" class="form-control" id="qiLocation" placeholder="مثال: خط تولید ۳، انبار..." autocomplete="off">
             </div>
             <div class="mb-3">
               <label class="form-label small">توضیح کوتاه (اختیاری)</label>
-              <input type="text" class="form-control" id="qiNote" 
-                placeholder="مثال: سقوط از ارتفاع..." autocomplete="off">
+              <input type="text" class="form-control" id="qiNote" placeholder="مثال: سقوط از ارتفاع..." autocomplete="off">
+            </div>
+            <div class="form-check form-switch mt-3">
+              <input class="form-check-input" type="checkbox" id="qiSendLocation" checked>
+              <label class="form-check-label small" for="qiSendLocation">
+                ارسال موقعیت مکانی دقیق (GPS) برای ردیابی
+              </label>
             </div>
           </div>
           <div class="modal-footer">
@@ -58,19 +59,37 @@ function openQuickIncidentModal() {
   $('qiConfirm').onclick = async () => {
     const location = $('qiLocation').value.trim();
     const note = $('qiNote').value.trim();
+    const wantsLocation = $('qiSendLocation').checked;
 
     const btn = $('qiConfirm');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال ارسال...';
 
+    let lat = null;
+    let lng = null;
+
+    // ⭐️ گرفتن موقعیت مکانی (بدون نیاز به API بین‌المللی)
+    if (wantsLocation && navigator.geolocation) {
+      try {
+        const pos = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 7000, enableHighAccuracy: true });
+        });
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+      } catch (err) {
+        console.warn('Geolocation failed:', err);
+        toast('دریافت موقعیت مکانی ناموفق بود، بدون موقعیت ارسال می‌شود', 'warning');
+      }
+    }
+
     try {
-      // 🌟 استفاده از همون تابع موجود + اضافه کردن location
       const { data: { user } } = await sb.auth.getUser();
       if (!user) throw new Error('کاربر یافت نشد');
 
       const userName = user.user_metadata?.full_name || user.email || 'کاربر';
       const fullLocation = [location, note].filter(Boolean).join(' | ');
 
+      // ⭐️ ثبت در دیتابیس همراه با موقعیت
       const { error } = await sb.from('incident_alerts').insert({
         triggered_by:   user.id,
         triggered_name: userName,
@@ -78,6 +97,9 @@ function openQuickIncidentModal() {
         patient_name:   null,
         visit_id:       null,
         location:       fullLocation || null,
+        alert_type:     'quick', // ⭐️ نوع هشدار: سریع
+        latitude:       lat,
+        longitude:      lng
       });
 
       if (error) throw error;
