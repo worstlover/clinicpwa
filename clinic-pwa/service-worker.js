@@ -13,31 +13,17 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-const recentNotifications = new Set();
-function isDuplicate(payload) {
-  const key = payload.messageId || (payload.data && payload.data.id);
-  if (!key) return false;
-  if (recentNotifications.has(key)) return true;
-  recentNotifications.add(key);
-  setTimeout(() => recentNotifications.delete(key), 5000);
-  return false;
-}
-
+// دریافت پیام در پس‌زمینه
 messaging.onBackgroundMessage((payload) => {
-  if (isDuplicate(payload)) return;
-
+  console.log('[service-worker.js] Background message:', payload);
+  
   const data = payload.data || {};
   const notificationTitle = data.title || '🚨 اعلام حادثه';
   
-  // ⭐️ حل مشکل مسیر آیکون‌ها با استفاده از scope
-  const base = self.registration.scope;
-  const iconUrl = new URL('icons/icon-192.png', base).href;
-  const badgeUrl = new URL('icons/badge-96.png', base).href;
-
   const notificationOptions = {
     body: data.body || 'اعلام حادثه جدید',
-    icon: iconUrl,       
-    badge: badgeUrl,      
+    icon: '/icons/icon-192.png',
+    badge: '/icons/badge-96.png',
     dir: 'rtl',
     lang: 'fa',
     data: data,
@@ -48,81 +34,54 @@ messaging.onBackgroundMessage((payload) => {
   self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
+// کلیک روی نوتیفیکیشن
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  
-  // ⭐️ هدایت کاربر به مسیر صحیح (زیرپوشه)
-  const targetUrl = self.registration.scope; 
-
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
-        if (client.url === targetUrl && 'focus' in client) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
           return client.focus();
         }
       }
       if (clients.openWindow) {
-        return clients.openWindow(targetUrl);
+        return clients.openWindow('/');
       }
     })
   );
 });
 
-// ... (کدهای Caching شما بدون تغییر در اینجا قرار می‌گیرد) ...
-const CACHE = 'clinic-drugs-__BUILD__';
-const ASSETS = __ASSETS__;
+// ⭐️ کش کردن ساده (بدون نیاز به بیلد اسکریپت)
+const CACHE_NAME = 'clinic-cache-v1';
+const ASSETS_TO_CACHE = [
+  '/',
+  '/index.html',
+  '/styles/main.css',
+  '/js/app.js'
+];
 
-self.addEventListener('install', e => {
+self.addEventListener('install', (e) => {
   self.skipWaiting();
-  e.waitUntil((async () => {
-    const c = await caches.open(CACHE);
-    for (const u of ASSETS) {
-      try {
-        const res = await fetch(u, { cache: 'no-cache' });
-        if (res && res.ok) await c.put(u, res);
-      } catch {}
-    }
-  })());
+  e.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(ASSETS_TO_CACHE).catch(err => console.log('Cache add error:', err));
+    })
+  );
 });
 
-self.addEventListener('activate', e => {
-  e.waitUntil((async () => {
-    const keys = await caches.keys();
-    await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)));
-    await self.clients.claim();
-  })());
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+      );
+    }).then(() => self.clients.claim())
+  );
 });
 
-self.addEventListener('fetch', e => {
-  const req = e.request;
-  if (req.method !== 'GET') return;
-  const url = new URL(req.url);
-  if (url.origin !== location.origin) return;
-
-  if (req.mode === 'navigate') {
-    e.respondWith((async () => {
-      try { return await fetch(req); } 
-      catch {
-        const cached = await caches.match('./') || await caches.match('./index.html') || await caches.match('./offline.html');
-        if (cached) return cached;
-        return new Response('<h1>آفلاین</h1>', { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-      }
-    })());
-    return;
-  }
-
-  e.respondWith((async () => {
-    try {
-      const res = await fetch(req);
-      if (res && res.ok) {
-        const clone = res.clone();
-        caches.open(CACHE).then(c => c.put(req, clone)).catch(() => {});
-      }
-      return res;
-    } catch {
-      const cached = await caches.match(req);
-      if (cached) return cached;
-      return new Response('/* offline */', { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
-    }
-  })());
+self.addEventListener('fetch', (e) => {
+  if (e.request.method !== 'GET') return;
+  e.respondWith(
+    fetch(e.request).catch(() => caches.match(e.request))
+  );
 });
