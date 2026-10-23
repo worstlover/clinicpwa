@@ -4,7 +4,10 @@ import { $, escapeHtml, gregorianToJalali } from './utils.js';
 
 let currentUserUuid = null;
 let alertCenterChannel = null;
-let offlineMapInstance = null; // ⭐️ متغیر سراسری برای نگه داشتن نمونه نقشه
+let offlineMapInstance = null; // ⭐️ متغیر برای نگه داشتن نقشه Leaflet
+
+// ⭐️ در دسترس قرار دادن تابع برای دکمه‌های HTML
+window.showOfflineMap = showOfflineMapModal;
 
 export async function initAlertCenter() {
   try {
@@ -302,19 +305,30 @@ function showIncidentDetailModal(alert) {
   const oldModal = document.getElementById('incidentDetailModal');
   if (oldModal) oldModal.remove();
 
-  let actionBtnsHtml = '<div style="margin-top:15px; display:flex; flex-wrap:wrap; gap:8px;">';
+  let actionBtnsHtml = '<div style="margin-top:15px; display:flex; flex-wrap:wrap; gap:10px;">';
   
   if (alert.triggered_phone) {
-    actionBtnsHtml += `<a href="tel:${alert.triggered_phone}" style="background:#10b981; color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📞 تماس با گزارش‌دهنده</a>`;
+    actionBtnsHtml += `<a href="tel:${alert.triggered_phone}" style="background:#10b981; color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; justify-content:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📞 تماس با گزارش‌دهنده</a>`;
   }
   
   if (alert.patient_phone) {
-    actionBtnsHtml += `<a href="tel:${alert.patient_phone}" style="background:#3b82f6; color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📞 تماس با بیمار</a>`;
+    actionBtnsHtml += `<a href="tel:${alert.patient_phone}" style="background:#3b82f6; color:#fff; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; justify-content:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📞 تماس با بیمار</a>`;
   }
 
-  // ⭐️ دکمه تغییر یافته برای نقشه آفلاین
+  // ⭐️ دکمه‌های نقشه (آفلاین و آنلاین) با راهنما
   if (alert.latitude && alert.longitude) {
-    actionBtnsHtml += `<button onclick="window.showOfflineMap('${alert.latitude}', '${alert.longitude}')" style="background:#fff; color:#dc2626; border: 1px solid #dc2626; padding:8px 14px; border-radius:8px; font-family:inherit; cursor:pointer; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📍 مشاهده نقشه آفلاین</button>`;
+    actionBtnsHtml += `
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <button onclick="window.showOfflineMap('${alert.latitude}', '${alert.longitude}')" style="background:#fff; color:#dc2626; border: 1px solid #dc2626; padding:8px 14px; border-radius:8px; font-family:inherit; cursor:pointer; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; justify-content:center; gap:6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          📍 مشاهده نقشه آفلاین
+        </button>
+        <span style="font-size:10px; color:#64748b; text-align:center;">💡 اگر داخل سایت هستید، از این گزینه استفاده کنید</span>
+      </div>
+      
+      <a href="https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}" target="_blank" style="background:#f8fafc; color:#374151; border: 1px solid #cbd5e1; padding:8px 14px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; justify-content:center; gap:6px;">
+        🌐 نقشه آنلاین (نشان)
+      </a>
+    `;
   }
   
   actionBtnsHtml += '</div>';
@@ -380,7 +394,6 @@ function showIncidentDetailModal(alert) {
   el.addEventListener('hidden.bs.modal', () => el.remove());
 }
 
-// ⭐️ تابع جدید برای نمایش نقشه آفلاین
 export function showOfflineMapModal(lat, lng, title = 'محل حادثه') {
   const oldMapModal = document.getElementById('offlineMapModal');
   if (oldMapModal) oldMapModal.remove();
@@ -420,7 +433,6 @@ export function showOfflineMapModal(lat, lng, title = 'محل حادثه') {
   modalEl.addEventListener('shown.bs.modal', () => {
     offlineMapInstance = L.map('offlineMapContainer').setView([lat, lng], 16);
 
-    // ⭐️ لود کردن تایل‌ها از پوشه map-tiles
     L.tileLayer('map-tiles/{z}/{x}/{y}.png', {
       maxZoom: 18,
       minZoom: 14,
@@ -442,6 +454,3 @@ export function showOfflineMapModal(lat, lng, title = 'محل حادثه') {
     modalEl.remove();
   });
 }
-
-// ⭐️ در دسترس قرار دادن تابع برای دکمه‌های HTML
-window.showOfflineMap = showOfflineMapModal;
