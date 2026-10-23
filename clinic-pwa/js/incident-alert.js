@@ -9,6 +9,7 @@ let currentUserRole = null;
 let currentUserUuid = null;
 let alertChannel = null;
 let isPlaying = false;
+let currentPlayTimeout = null; // ⭐️ تایمر ایمنی برای جلوگیری از قفل شدن
 let lastAlertTime = 0;
 let mp3Available = null;
 
@@ -37,7 +38,6 @@ document.addEventListener('pointerdown', unlockAllAudio, { once: true });
 document.addEventListener('touchstart', unlockAllAudio, { once: true });
 document.addEventListener('click', unlockAllAudio, { once: true });
 
-// ⭐️ جستجوی هوشمند بیمار و کارمند
 async function fetchSupplementalInfo(user, patientId = null) {
   console.log('[SUPPLEMENTAL-VISIT] Started fetching extra info for visit incident...');
   let phone = user.phone || user.user_metadata?.phone || null;
@@ -189,7 +189,6 @@ function handleUpdateAlert(alert) {
     `);
   }
 
-  // ⭐️ لینک نقشه با فرمت استاندارد نشان
   if (alert.latitude && alert.longitude && !actionBtns.querySelector('.map-btn')) {
     const mapUrl = `https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}`;
     actionBtns.insertAdjacentHTML('beforeend', `
@@ -200,9 +199,21 @@ function handleUpdateAlert(alert) {
   }
 }
 
+// ⭐️ اعمال تایمر ایمنی
 function playIncidentAlert(alert) {
-  if (isPlaying) return;
+  if (isPlaying) {
+    console.log('[Alert] Already playing, skipping');
+    return;
+  }
   isPlaying = true;
+
+  // تایمر ۲۰ ثانیه‌ای برای شکستن قفل در صورت بروز خطا
+  currentPlayTimeout = setTimeout(() => {
+    console.warn('[Alert] Safety timeout reached, forcing isPlaying = false');
+    isPlaying = false;
+    currentPlayTimeout = null;
+  }, 20000);
+
   try {
     showIncidentBanner(alert);
     playLongAlarm();
@@ -210,7 +221,12 @@ function playIncidentAlert(alert) {
       if (mp3Available === true) playMp3Alert(alert);
       else playTtsAlert(alert);
     }, 4500);
-  } catch (e) { isPlaying = false; }
+  } catch (e) {
+    console.error('[Alert] play failed:', e);
+    isPlaying = false;
+    clearTimeout(currentPlayTimeout);
+    currentPlayTimeout = null;
+  }
 }
 
 function playLongAlarm() {
@@ -240,22 +256,38 @@ function playMp3Alert(alert) {
   const audio = new Audio(targetPath);
   audio.volume = 1.0; audio.preload = 'auto'; audio.load();
   let playCount = 0; const MAX = 2;
+  
+  const endPlay = () => {
+    isPlaying = false;
+    if (currentPlayTimeout) { clearTimeout(currentPlayTimeout); currentPlayTimeout = null; }
+  };
+
   const playNext = () => {
-    if (playCount >= MAX) { isPlaying = false; return; }
+    if (playCount >= MAX) { endPlay(); return; }
     playCount++; audio.currentTime = 0;
     const p = audio.play();
     if (p !== undefined) p.then(() => {}).catch(() => playTtsAlert(alert));
   };
-  audio.onended = () => { if (playCount < MAX) setTimeout(playNext, 500); else isPlaying = false; };
+  
+  audio.onended = () => { if (playCount < MAX) setTimeout(playNext, 500); else endPlay(); };
   audio.onerror = () => playTtsAlert(alert);
   playNext();
 }
 
 function playTtsAlert(alert) {
-  if (!('speechSynthesis' in window)) { isPlaying = false; return; }
+  if (!('speechSynthesis' in window)) { 
+    isPlaying = false; 
+    if (currentPlayTimeout) { clearTimeout(currentPlayTimeout); currentPlayTimeout = null; }
+    return; 
+  }
   const name = alert.triggered_name || 'کاربر';
   let text = (alert.alert_type === 'visit' || alert.visit_id || alert.patient_id) ? `اعلام حادثه برای بیمار در ویزیت. ثبت شده توسط ${name}` : `اعلام حادثه سریع توسط ${name}`;
   if (alert.location) text += `. محل حادثه: ${alert.location}`;
+
+  const endPlay = () => {
+    isPlaying = false;
+    if (currentPlayTimeout) { clearTimeout(currentPlayTimeout); currentPlayTimeout = null; }
+  };
 
   const trySpeak = () => {
     const voices = window.speechSynthesis.getVoices();
@@ -266,12 +298,13 @@ function playTtsAlert(alert) {
       const utt = new SpeechSynthesisUtterance(text);
       if (faVoice) utt.voice = faVoice;
       utt.lang = 'fa-IR'; utt.rate = 0.85; utt.pitch = 1.05; utt.volume = 1.0;
-      utt.onend = () => { count++; if (count < MAX) setTimeout(speak, 500); else isPlaying = false; };
-      utt.onerror = () => { isPlaying = false; };
+      utt.onend = () => { count++; if (count < MAX) setTimeout(speak, 500); else endPlay(); };
+      utt.onerror = () => { endPlay(); };
       window.speechSynthesis.speak(utt);
     };
     speak();
   };
+  
   if (window.speechSynthesis.getVoices().length === 0) { window.speechSynthesis.onvoiceschanged = () => trySpeak(); setTimeout(trySpeak, 500); } else trySpeak();
 }
 
@@ -288,7 +321,6 @@ function showIncidentBanner(alert) {
     actionBtnsHtml += `<a href="tel:${alert.patient_phone}" class="call-patient-btn" style="background:#3b82f6; color:#fff; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem;">📞 تماس با بیمار</a>`;
   }
 
-  // ⭐️ لینک نقشه با فرمت استاندارد نشان
   if (alert.latitude && alert.longitude) {
     actionBtnsHtml += `<a href="https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}" target="_blank" class="map-btn" style="background:#fff; color:#dc2626; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem;">📍 مشاهده موقعیت</a>`;
   }
