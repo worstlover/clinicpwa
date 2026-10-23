@@ -39,6 +39,7 @@ document.addEventListener('pointerdown', unlockAllAudio, { once: true });
 document.addEventListener('touchstart', unlockAllAudio, { once: true });
 document.addEventListener('click', unlockAllAudio, { once: true });
 
+// ⭐️ جستجوی هوشمند در پس‌زمینه (بدون معطل کردن هشدار)
 async function fetchSupplementalInfo(user, patientId = null) {
   let phone = user.phone || user.user_metadata?.phone || null;
   let patientPhone = null;
@@ -99,6 +100,7 @@ async function checkMp3Availability() {
   } catch (e) { mp3Available = false; }
 }
 
+// ⭐️ هشدار ویزیت (ارسال فوری و سپس جستجوی پس‌زمینه)
 export async function broadcastIncidentAlert({ patientName, patientId, visitId, location }) {
   try {
     const { data: { user } } = await sb.auth.getUser();
@@ -165,12 +167,18 @@ function handleUpdateAlert(alert) {
     `);
   }
 
-  // ⭐️ دکمه نقشه آفلاین
+  // ⭐️ دکمه‌های نقشه (آفلاین و آنلاین) در بنر
   if (alert.latitude && alert.longitude && !actionBtns.querySelector('.map-btn')) {
     actionBtns.insertAdjacentHTML('beforeend', `
-      <button onclick="window.showOfflineMap('${alert.latitude}', '${alert.longitude}')" class="map-btn" style="background:#fff; color:#dc2626; border:none; padding:6px 12px; border-radius:8px; cursor:pointer; font-family:inherit; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; gap:6px;">
-        📍 مشاهده موقعیت آفلاین
-      </button>
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <button onclick="window.showOfflineMap('${alert.latitude}', '${alert.longitude}')" class="map-btn" style="background:#fff; color:#dc2626; border:none; padding:6px 12px; border-radius:8px; cursor:pointer; font-family:inherit; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; justify-content:center; gap:4px;">
+          📍 نقشه آفلاین
+        </button>
+        <span style="font-size:9px; color:rgba(255,255,255,0.8); text-align:center;">(مخصوص داخل سایت)</span>
+      </div>
+      <a href="https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}" target="_blank" class="map-btn" style="background:rgba(255,255,255,0.2); color:#fff; border:1px solid rgba(255,255,255,0.4); padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; justify-content:center;">
+        🌐 نقشه آنلاین
+      </a>
     `);
   }
 }
@@ -290,9 +298,20 @@ function showIncidentBanner(alert) {
     actionBtnsHtml += `<a href="tel:${alert.patient_phone}" class="call-patient-btn" style="background:#3b82f6; color:#fff; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem;">📞 تماس با بیمار</a>`;
   }
 
-  // ⭐️ دکمه نقشه آفلاین
+  // ⭐️ دکمه‌های نقشه (آفلاین و آنلاین) در بنر
   if (alert.latitude && alert.longitude) {
-    actionBtnsHtml += `<button onclick="window.showOfflineMap('${alert.latitude}', '${alert.longitude}')" class="map-btn" style="background:#fff; color:#dc2626; border:none; padding:6px 12px; border-radius:8px; cursor:pointer; font-family:inherit; font-weight:bold; font-size:0.85rem;">📍 مشاهده موقعیت آفلاین</button>`;
+    actionBtnsHtml += `
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <button onclick="window.showOfflineMap('${alert.latitude}', '${alert.longitude}')" class="map-btn" style="background:#fff; color:#dc2626; border:none; padding:6px 12px; border-radius:8px; cursor:pointer; font-family:inherit; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; justify-content:center; gap:4px;">
+          📍 نقشه آفلاین
+        </button>
+        <span style="font-size:9px; color:rgba(255,255,255,0.8); text-align:center;">(مخصوص داخل سایت)</span>
+      </div>
+      
+      <a href="https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}" target="_blank" class="map-btn" style="background:rgba(255,255,255,0.2); color:#fff; border:1px solid rgba(255,255,255,0.4); padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; justify-content:center;">
+        🌐 نقشه آنلاین
+      </a>
+    `;
   }
   
   actionBtnsHtml += '</div>';
