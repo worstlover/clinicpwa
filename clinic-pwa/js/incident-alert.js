@@ -1,11 +1,11 @@
 // js/incident-alert.js
-// ═══════════════════════════════════════════════════════
-// Import ها - باید در بالای فایل باشن
-// ═══════════════════════════════════════════════════════
 import { sb } from './sb.js';
 
 const ALLOWED_ROLES = ['Nurse', 'doctor', 'safety', 'Supervisor'];
-const ALERT_MP3_PATH = './sounds/incident-alert1.mp3';
+
+// ⭐️ مسیر فایل‌های صوتی مجزا
+const ALERT_MP3_QUICK = './sounds/incident-alert1.mp3'; // صدای حادثه سریع
+const ALERT_MP3_VISIT = './sounds/incident-visit.mp3'; // صدای حادثه در ویزیت
 
 let currentUserRole = null;
 let currentUserUuid = null;
@@ -15,7 +15,7 @@ let lastAlertTime = 0;
 let mp3Available = null;
 
 // ═══════════════════════════════════════════════════════
-// 🌟 unlock کامل Audio (باید قبل از هر تابع دیگه اجرا بشه)
+// 🌟 unlock کامل Audio
 // ═══════════════════════════════════════════════════════
 let audioUnlocked = false;
 
@@ -23,11 +23,9 @@ function unlockAllAudio() {
   if (audioUnlocked) return;
   audioUnlocked = true;
 
-  // ۱. unlock AudioContext (برای آژیر)
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     if (ctx.state === 'suspended') ctx.resume();
-    
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     gain.gain.value = 0;
@@ -40,7 +38,6 @@ function unlockAllAudio() {
     console.warn('[Alert] AudioContext unlock failed:', e);
   }
 
-  // ۲. unlock HTML5 Audio (برای MP3)
   try {
     const sampleRate = 8000;
     const duration = 0.05;
@@ -82,7 +79,6 @@ function unlockAllAudio() {
   }
 }
 
-// اولین interaction کاربر (باید بلافاصله ثبت بشه)
 document.addEventListener('pointerdown', unlockAllAudio, { once: true });
 document.addEventListener('touchstart', unlockAllAudio, { once: true });
 document.addEventListener('click', unlockAllAudio, { once: true });
@@ -146,9 +142,10 @@ export async function initIncidentAlertListener() {
 
 async function checkMp3Availability() {
   try {
-    const res = await fetch(ALERT_MP3_PATH, { method: 'HEAD' });
-    mp3Available = res.ok;
-    console.log('[Alert] MP3 available:', mp3Available);
+    const resQuick = await fetch(ALERT_MP3_QUICK, { method: 'HEAD' });
+    const resVisit = await fetch(ALERT_MP3_VISIT, { method: 'HEAD' });
+    mp3Available = resQuick.ok || resVisit.ok;
+    console.log('[Alert] MP3 Quick available:', resQuick.ok, '| Visit available:', resVisit.ok);
   } catch (e) {
     mp3Available = false;
     console.log('[Alert] MP3 not available, will use TTS');
@@ -156,7 +153,7 @@ async function checkMp3Availability() {
 }
 
 // ═══════════════════════════════════════════════════════
-// ارسال هشدار
+// ارسال هشدار (از داخل صفحه ویزیت)
 // ═══════════════════════════════════════════════════════
 export async function broadcastIncidentAlert({ patientName, patientId, visitId, location }) {
   try {
@@ -172,6 +169,7 @@ export async function broadcastIncidentAlert({ patientName, patientId, visitId, 
       patient_name:   patientName || null,
       visit_id:       visitId || null,
       location:       location || null,
+      alert_type:     'visit' // ⭐️ نوع هشدار: ویزیت
     });
 
     if (error) {
@@ -204,7 +202,6 @@ function handleNewAlert(alert) {
   }
   lastAlertTime = now;
 
-  // 🌟 اطمینان از unlock شدن Audio قبل از پخش
   if (!audioUnlocked) {
     console.log('[Alert] Audio not unlocked yet, unlocking now...');
     unlockAllAudio();
@@ -253,7 +250,6 @@ function playLongAlarm() {
     const cycles = 6;
     const cycleDur = 0.75;
 
-    // لایه ۱: Sweep اصلی
     for (let i = 0; i < cycles; i++) {
       const start = t0 + i * cycleDur;
       const osc = ctx.createOscillator();
@@ -275,7 +271,6 @@ function playLongAlarm() {
       osc.stop(start + cycleDur + 0.02);
     }
 
-    // لایه ۲: هارمونیک
     const osc2 = ctx.createOscillator();
     const gain2 = ctx.createGain();
     osc2.connect(gain2);
@@ -292,40 +287,22 @@ function playLongAlarm() {
 
     osc2.start(t0);
     osc2.stop(t0 + cycles * cycleDur + 0.02);
-
-    // لایه ۳: نویز سفید
-    const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
-    const noiseData = noiseBuffer.getChannelData(0);
-    for (let i = 0; i < noiseData.length; i++) {
-      noiseData[i] = Math.random() * 2 - 1;
-    }
-
-    for (let i = 0; i < cycles; i++) {
-      const start = t0 + i * cycleDur;
-      const noise = ctx.createBufferSource();
-      const noiseGain = ctx.createGain();
-      noise.buffer = noiseBuffer;
-      noise.connect(noiseGain);
-      noiseGain.connect(ctx.destination);
-
-      noiseGain.gain.setValueAtTime(0, start);
-      noiseGain.gain.linearRampToValueAtTime(0.05, start + 0.03);
-      noiseGain.gain.linearRampToValueAtTime(0, start + 0.12);
-
-      noise.start(start);
-      noise.stop(start + 0.15);
-    }
-
   } catch (e) {
     console.warn('[Alert] alarm failed:', e);
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// 🎙️ پخش MP3 (اصلاح‌شده با preload و لاگ دقیق)
+// 🎙️ پخش MP3 (با تشخیص نوع حادثه)
 // ═══════════════════════════════════════════════════════
 function playMp3Alert(alert) {
-  const audio = new Audio(ALERT_MP3_PATH);
+  let targetPath = ALERT_MP3_QUICK;
+  
+  if (alert.alert_type === 'visit' || alert.visit_id || alert.patient_id) {
+    targetPath = ALERT_MP3_VISIT;
+  }
+
+  const audio = new Audio(targetPath);
   audio.volume = 1.0;
   audio.preload = 'auto';
   audio.load();
@@ -336,7 +313,6 @@ function playMp3Alert(alert) {
   const playNext = () => {
     if (playCount >= MAX) {
       isPlaying = false;
-      console.log('[Alert] ✅ MP3 playback finished');
       return;
     }
     playCount++;
@@ -344,11 +320,7 @@ function playMp3Alert(alert) {
     
     const p = audio.play();
     if (p !== undefined) {
-      p.then(() => {
-        console.log(`[Alert] 🔊 MP3 playing (${playCount}/${MAX})`);
-      }).catch(err => {
-        console.warn('[Alert] MP3 play failed:', err.name, '-', err.message);
-        // fallback به TTS
+      p.then(() => {}).catch(err => {
         playTtsAlert(alert);
       });
     }
@@ -359,8 +331,7 @@ function playMp3Alert(alert) {
     else isPlaying = false;
   };
 
-  audio.onerror = (e) => {
-    console.error('[Alert] MP3 load error:', e);
+  audio.onerror = () => {
     playTtsAlert(alert);
   };
 
@@ -377,14 +348,19 @@ function playTtsAlert(alert) {
   }
 
   const name = alert.triggered_name || 'کاربر';
-  const loc = alert.location ? `. محل حادثه: ${alert.location}` : '';
-  const text = `اعلام حادثه توسط ${name}${loc}`;
+  let text = '';
+  
+  if (alert.alert_type === 'visit' || alert.visit_id || alert.patient_id) {
+    text = `اعلام حادثه برای بیمار در ویزیت. ثبت شده توسط ${name}`;
+  } else {
+    text = `اعلام حادثه سریع توسط ${name}`;
+  }
+
+  if (alert.location) text += `. محل حادثه: ${alert.location}`;
 
   const trySpeak = () => {
     const voices = window.speechSynthesis.getVoices();
-    let faVoice = voices.find(v => v.lang === 'fa-IR');
-    if (!faVoice) faVoice = voices.find(v => v.lang?.startsWith('fa'));
-    if (!faVoice) faVoice = voices.find(v => v.lang?.startsWith('ar'));
+    let faVoice = voices.find(v => v.lang === 'fa-IR') || voices.find(v => v.lang?.startsWith('fa')) || voices.find(v => v.lang?.startsWith('ar'));
 
     window.speechSynthesis.cancel();
 
@@ -429,29 +405,32 @@ function playTtsAlert(alert) {
 function showIncidentBanner(alert) {
   document.querySelectorAll('.incident-alert-banner').forEach(el => el.remove());
 
+  // ⭐️ اگر لوکیشن (مختصات) ارسال شده بود، دکمه نقشه را نمایش بده
+  let mapBtnHtml = '';
+  if (alert.latitude && alert.longitude) {
+    mapBtnHtml = `
+      <div style="margin-top:8px;">
+        <a href="geo:${alert.latitude},${alert.longitude}" target="_blank" style="background:#fff; color:#dc2626; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; gap:6px;">
+          📍 مشاهده موقعیت روی نقشه
+        </a>
+      </div>
+    `;
+  }
+
   const banner = document.createElement('div');
   banner.className = 'incident-alert-banner';
   banner.innerHTML = `
     <div class="incident-alert-content">
       <div class="incident-alert-icon">🚨</div>
       <div class="incident-alert-body">
-        <div class="incident-alert-title">اعلام حادثه</div>
+        <div class="incident-alert-title">اعلام حادثه ${alert.alert_type === 'visit' ? '(ویزیت)' : '(سریع)'}</div>
         <div class="incident-alert-line">
           ثبت شده توسط: <strong>${escapeHtmlSafe(alert.triggered_name || 'کاربر')}</strong>
         </div>
-        ${alert.patient_name ? `
-          <div class="incident-alert-line">
-            بیمار: <strong>${escapeHtmlSafe(alert.patient_name)}</strong>
-          </div>
-        ` : ''}
-        ${alert.location ? `
-          <div class="incident-alert-line" style="background:rgba(255,255,255,0.15);padding:5px 8px;border-radius:6px;margin-top:6px;">
-            📍 محل حادثه: <strong>${escapeHtmlSafe(alert.location)}</strong>
-          </div>
-        ` : ''}
-        <div class="incident-alert-time">
-          ${new Date(alert.created_at).toLocaleTimeString('fa-IR')}
-        </div>
+        ${alert.patient_name ? `<div class="incident-alert-line">بیمار: <strong>${escapeHtmlSafe(alert.patient_name)}</strong></div>` : ''}
+        ${alert.location ? `<div class="incident-alert-line" style="background:rgba(255,255,255,0.15);padding:5px 8px;border-radius:6px;margin-top:6px;">📍 محل: <strong>${escapeHtmlSafe(alert.location)}</strong></div>` : ''}
+        ${mapBtnHtml}
+        <div class="incident-alert-time">${new Date(alert.created_at).toLocaleTimeString('fa-IR')}</div>
       </div>
       <button class="incident-alert-close" title="بستن">✕</button>
     </div>
@@ -461,115 +440,37 @@ function showIncidentBanner(alert) {
     const style = document.createElement('style');
     style.id = 'incidentBannerStyle';
     style.textContent = `
-      .incident-alert-banner {
-        position: fixed;
-        top: 0; left: 0; right: 0;
-        z-index: 99999;
-        background: linear-gradient(135deg, #dc2626, #991b1b);
-        color: #fff;
-        box-shadow: 0 8px 32px rgba(220, 38, 38, 0.6);
-        animation: incidentSlideDown 0.35s ease-out;
-        padding: 14px 16px;
-        direction: rtl;
-      }
-      @keyframes incidentSlideDown {
-        from { transform: translateY(-100%); opacity: 0; }
-        to   { transform: translateY(0);     opacity: 1; }
-      }
-      .incident-alert-content {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        max-width: 700px;
-        margin: 0 auto;
-      }
-      .incident-alert-icon {
-        font-size: 2.5rem;
-        animation: incidentPulse 1s infinite;
-      }
-      @keyframes incidentPulse {
-        0%, 100% { transform: scale(1); }
-        50%      { transform: scale(1.15); }
-      }
+      .incident-alert-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 99999; background: linear-gradient(135deg, #dc2626, #991b1b); color: #fff; box-shadow: 0 8px 32px rgba(220, 38, 38, 0.6); animation: incidentSlideDown 0.35s ease-out; padding: 14px 16px; direction: rtl; }
+      @keyframes incidentSlideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+      .incident-alert-content { display: flex; align-items: center; gap: 14px; max-width: 700px; margin: 0 auto; }
+      .incident-alert-icon { font-size: 2.5rem; animation: incidentPulse 1s infinite; }
+      @keyframes incidentPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
       .incident-alert-body { flex: 1; }
-      .incident-alert-title {
-        font-size: 1.15rem;
-        font-weight: 800;
-        margin-bottom: 4px;
-      }
-      .incident-alert-line {
-        font-size: 0.9rem;
-        margin-top: 3px;
-        opacity: 0.95;
-      }
-      .incident-alert-time {
-        font-size: 0.75rem;
-        opacity: 0.75;
-        margin-top: 5px;
-      }
-      .incident-alert-close {
-        background: rgba(255,255,255,0.2);
-        border: none;
-        color: #fff;
-        width: 36px; height: 36px;
-        border-radius: 50%;
-        font-size: 1.2rem;
-        font-weight: 700;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-      }
+      .incident-alert-title { font-size: 1.15rem; font-weight: 800; margin-bottom: 4px; }
+      .incident-alert-line { font-size: 0.9rem; margin-top: 3px; opacity: 0.95; }
+      .incident-alert-time { font-size: 0.75rem; opacity: 0.75; margin-top: 5px; }
+      .incident-alert-close { background: rgba(255,255,255,0.2); border: none; color: #fff; width: 36px; height: 36px; border-radius: 50%; font-size: 1.2rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
       .incident-alert-close:active { background: rgba(255,255,255,0.35); }
-      .incident-sender-toast {
-        position: fixed;
-        bottom: 100px;
-        left: 16px; right: 16px;
-        z-index: 99998;
-        background: #059669;
-        color: #fff;
-        padding: 14px 18px;
-        border-radius: 14px;
-        text-align: center;
-        font-weight: 700;
-        font-size: 0.95rem;
-        box-shadow: 0 8px 24px rgba(5, 150, 105, 0.5);
-        animation: senderToastIn 0.3s ease-out;
-        max-width: 500px;
-        margin: 0 auto;
-      }
-      @keyframes senderToastIn {
-        from { transform: translateY(30px); opacity: 0; }
-        to   { transform: translateY(0);    opacity: 1; }
-      }
     `;
     document.head.appendChild(style);
   }
 
   document.body.appendChild(banner);
 
-  banner.querySelector('.incident-alert-close').onclick = () => {
-    banner.remove();
-  };
+  banner.querySelector('.incident-alert-close').onclick = () => banner.remove();
 
-  if (navigator.vibrate) {
-    navigator.vibrate([500, 200, 500, 200, 500, 200, 500]);
-  }
+  if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500, 200, 500]);
 }
 
 function showSenderToast(userName) {
   document.querySelectorAll('.incident-sender-toast').forEach(el => el.remove());
-
   const toast = document.createElement('div');
   toast.className = 'incident-sender-toast';
   toast.innerHTML = `🚨 هشدار حادثه به همه کادر درمان و ایمنی ارسال شد`;
   document.body.appendChild(toast);
-
   setTimeout(() => toast.remove(), 4000);
 }
 
 function escapeHtmlSafe(s) {
-  return String(s ?? '').replace(/[&<>"']/g,
-    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
