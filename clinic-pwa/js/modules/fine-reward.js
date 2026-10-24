@@ -2,9 +2,10 @@
 import { sb } from '../sb.js';
 import { $, toast, escapeHtml, gregorianToJalali, jalaliToGregorian, todayJalali } from '../utils.js';
 import { getAccountStatus, getDeliveries } from './amoot-api.js';
+import { fitAndPrint } from '../forms/print-fit.js';
 
 // ═══════════════════════════════════════════════════════
-// دکمه‌های سریع
+// متغیرهای سراسری و ثابت‌ها
 // ═══════════════════════════════════════════════════════
 const QUICK_AMOUNTS = [500000, 1000000, 2000000, 5000000];
 const QUICK_REASONS = [
@@ -16,6 +17,9 @@ const QUICK_INCIDENT_LOCATIONS = [
   'خط تولید', 'انبار', 'کارگاه', 'محوطه', 'آزمایشگاه',
   'ساختمان اداری', 'تعمیرگاه', 'باسکول', 'کوره', 'آسیاب'
 ];
+
+let lastSmsCheckTime = 0;
+let selectedItemsForPrint = new Map();
 
 // ═══════════════════════════════════════════════════════
 // توابع کمکی
@@ -39,43 +43,52 @@ const toISOWithTime = (jalaliDate, timeStr) => {
   return new Date(`${g}T${(h||'12').padStart(2,'0')}:${(m||'00').padStart(2,'0')}:00`).toISOString();
 };
 
-// ⭐ فرمت‌بندی تاریخ بدون تغییر ساعت (حل مشکل ۳.۵ ساعت)
 const formatDateTime = (isoStr) => {
   if (!isoStr) return '—';
   try {
     const parts = String(isoStr).split('T');
     if (parts.length !== 2) return '—';
-    
-    const datePart = parts[0]; // yyyy-mm-dd
-    const timePart = parts[1].split('.')[0]; // hh:mm:ss
-    
-    const jDate = gregorianToJalali(datePart);
-    const hm = timePart.split(':').slice(0, 2).join(':');
-    
-    return `${jDate} - ${hm}`;
-  } catch (e) { 
-    return '—'; 
-  }
+    const datePart = parts[0]; 
+    const timePart = parts[1].split('.')[0]; 
+    return `${gregorianToJalali(datePart)} - ${timePart.split(':').slice(0, 2).join(':')}`;
+  } catch (e) { return '—'; }
 };
 
-// ⭐ متن پیامک دقیقاً طبق فرمت درخواستی شما
-function buildSmsText(record, customName) {
-  const type = record.record_type;
-  const amount = fmtMoney(record.amount);
-  const reason = record.reason || '—';
-  
-  const cleanName = customName && customName.trim() !== '' ? customName.trim() : '';
-  const prefix = cleanName ? `آقای ${cleanName}` : 'همکار گرامی';
-  
-  const SIGN = 'واحد ایمنی گندله سازی بهاباد';
+// ⭐️ تبدیل عدد به حروف
+function numberToWords(num) {
+  if (num === 0) return 'صفر';
+  const yekan = ['', 'یک', 'دو', 'سه', 'چهار', 'پنج', 'شش', 'هفت', 'هشت', 'نه'];
+  const dahgan = ['', '', 'بیست', 'سی', 'چهل', 'پنجاه', 'شصت', 'هفتاد', 'هشتاد', 'نود'];
+  const sadgan = ['', 'صد', 'دویست', 'سیصد', 'چهارصد', 'پانصد', 'ششصد', 'هفتصد', 'هشتصد', 'نهصد'];
+  const scales = ['', 'هزار', 'میلیون', 'میلیارد'];
 
-  if (type === "fine") {
-    return `اطلاعیه ایمنی! ${prefix} مبلغ ${amount} ریال جریمه به علت ${reason} برای شما ثبت گردید. ${SIGN}`;
+  let words = [];
+  let scaleIndex = 0;
+
+  while (num > 0) {
+    let chunk = num % 1000;
+    if (chunk > 0) {
+      let chunkWords = [];
+      let s = Math.floor(chunk / 100);
+      let d = Math.floor((chunk % 100) / 10);
+      let y = chunk % 10;
+
+      if (s > 0) chunkWords.push(sadgan[s]);
+      let remainder = chunk % 100;
+      if (remainder >= 11 && remainder <= 19) {
+        const teens = ['', 'یازده', 'دوازده', 'سیزده', 'چهارده', 'پانزده', 'شانزده', 'هفده', 'هجده', 'نوزده'];
+        chunkWords.push(teens[remainder - 10]);
+      } else {
+        if (d > 1) chunkWords.push(dahgan[d]);
+        if (y > 0) chunkWords.push(yekan[y]);
+      }
+      if (scaleIndex > 0) chunkWords.push(scales[scaleIndex]);
+      words.unshift(chunkWords.join(' و '));
+    }
+    num = Math.floor(num / 1000);
+    scaleIndex++;
   }
-  if (type === "reward") {
-    return `اطلاعیه ایمنی! ${prefix} مبلغ ${amount} ریال پاداش به علت ${reason} برای شما ثبت گردید. ${SIGN}`;
-  }
-  return `${prefix} اخطار ایمنی به علت ${reason} برای شما ثبت گردید. ${SIGN}`;
+  return words.join(' و ');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -83,7 +96,6 @@ function buildSmsText(record, customName) {
 // ═══════════════════════════════════════════════════════
 async function sendSMS(phone, text) {
   if (!phone) return { success: false, error: 'شماره موبایل ثبت نشده است' };
-
   let cleanPhone = toEnDigits(phone).replace(/\D/g, '');
   if (cleanPhone.length === 10 && cleanPhone.startsWith('9')) cleanPhone = '0' + cleanPhone;
   if (!/^09\d{9}$/.test(cleanPhone)) return { success: false, error: `شماره نامعتبر (${phone})` };
@@ -92,58 +104,35 @@ async function sendSMS(phone, text) {
     const { data, error } = await sb.functions.invoke('send-fine-sms', {
       body: { mobile: cleanPhone, text: text }
     });
-
     if (error) throw new Error(error.message || 'خطا در ارتباط با سرور');
-    if (!data.success) throw new Error(data.error || 'خطای نامشخص از سمت آموت');
-
+    if (!data.success) throw new Error(data.error || 'خطای نامشخص');
     return { success: true, messageId: data.messageId };
-  } catch (e) {
-    console.error('[SMS] Error:', e);
-    return { success: false, error: e.message };
-  }
+  } catch (e) { return { success: false, error: e.message }; }
 }
 
 // ═══════════════════════════════════════════════════════
-// 📤 خروجی اکسل
+// 📤 خروجی اکسل و PDF
 // ═══════════════════════════════════════════════════════
 function exportToExcel(headers, rows, filename) {
-  if (!window.XLSX) {
-    toast('کتابخانه اکسل لود نشده است', 'danger');
-    return;
-  }
+  if (!window.XLSX) { toast('کتابخانه اکسل لود نشده است', 'danger'); return; }
   try {
     const wsData = [headers, ...rows];
     const ws = window.XLSX.utils.aoa_to_sheet(wsData);
     if(!ws['!views']) ws['!views'] = [];
     ws['!views'].push({ RTL: true });
-    
     const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, "Report");
     window.XLSX.writeFile(wb, filename);
     toast('✅ فایل اکسل دانلود شد', 'success');
-  } catch (e) {
-    console.error('Excel Error:', e);
-    toast('خطا در تولید فایل اکسل', 'danger');
-  }
+  } catch (e) { toast('خطا در تولید فایل اکسل', 'danger'); }
 }
 
-// ═══════════════════════════════════════════════════════
-// 📤 خروجی PDF
-// ═══════════════════════════════════════════════════════
 async function exportToPDF(title, headers, rows, filename) {
-  if (!window.html2canvas || !window.jspdf) {
-    toast('کتابخانه‌های PDF لود نشده‌اند', 'danger');
-    return;
-  }
-
+  if (!window.html2canvas || !window.jspdf) { toast('کتابخانه‌های PDF لود نشده‌اند', 'danger'); return; }
   const tempDiv = document.createElement('div');
-  tempDiv.style.position = 'absolute';
-  tempDiv.style.top = '0';
-  tempDiv.style.left = '-9999px';
-  tempDiv.style.width = '800px';
-  tempDiv.style.backgroundColor = '#ffffff';
-  tempDiv.style.direction = 'rtl';
-  tempDiv.style.fontFamily = 'Tahoma, Arial, sans-serif';
+  tempDiv.style.position = 'absolute'; tempDiv.style.top = '0'; tempDiv.style.left = '-9999px';
+  tempDiv.style.width = '800px'; tempDiv.style.backgroundColor = '#ffffff';
+  tempDiv.style.direction = 'rtl'; tempDiv.style.fontFamily = 'Tahoma, Arial, sans-serif';
   tempDiv.style.padding = '20px';
 
   const tableRows = rows.map(row => `<tr>${row.map(cell => `<td style="border:1px solid #000; padding:6px; text-align:center; font-size:11px;">${cell}</td>`).join('')}</tr>`).join('');
@@ -163,21 +152,144 @@ async function exportToPDF(title, headers, rows, filename) {
     await new Promise(r => setTimeout(r, 200));
     const canvas = await window.html2canvas(tempDiv, { scale: 2, useCORS: true, logging: false });
     const imgData = canvas.toDataURL('image/png');
-
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF('p', 'mm', 'a4');
     const pdfWidth = pdf.internal.pageSize.getWidth();
     const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-
     pdf.addImage(imgData, 'PNG', 0, 10, pdfWidth, pdfHeight);
     pdf.save(filename);
-    toast('✅ PDF با موفقیت دانلود شد', 'success');
-  } catch (err) {
-    console.error('PDF Error:', err);
-    toast('خطا در تولید PDF', 'danger');
-  } finally {
-    document.body.removeChild(tempDiv);
+    toast('✅ PDF دانلود شد', 'success');
+  } catch (err) { toast('خطا در تولید PDF', 'danger'); } 
+  finally { document.body.removeChild(tempDiv); }
+}
+
+// ═══════════════════════════════════════════════════════
+// 📄 قالب چاپ فرم BR-FR-HS-07-00
+// ═══════════════════════════════════════════════════════
+function buildPrintFormHTML(record) {
+  const name = record.patient ? `${record.patient.first_name||''} ${record.patient.last_name||''}`.trim() : (record.patient_name || '—');
+  const pCode = record.patient?.personnel_number || record.personnel_number || '—';
+  const company = record.patient?.company?.name || record.company_name || '—';
+  const date = record.incident_datetime ? gregorianToJalali(record.incident_datetime.split('T')[0]) : (record.date || '—');
+  const time = record.incident_datetime ? record.incident_datetime.split('T')[1].slice(0,5) : (record.time || '—');
+  const reason = record.reason || '—';
+  const amountNum = record.amount || 0;
+  const amountStr = numberToWords(amountNum);
+  
+  const typeLabel = record.record_type === 'fine' ? 'جریمه' : (record.record_type === 'reward' ? 'پاداش' : 'اخطار');
+
+  return `
+    <div class="form-sheet fs compact" dir="rtl">
+      <table class="fs-head">
+        <tr>
+          <td class="fs-logo"><img src="icons/logo-transparent.png" alt="Logo"></td>
+          <td class="fs-title">فرم اخطار کتبی و ${typeLabel}</td>
+          <td class="fs-code">کد فرم: <bdi>BR-FR-HS-07-00</bdi></td>
+        </tr>
+      </table>
+
+      <div class="fs-para" style="margin-top: 20px; text-align: justify; font-size: 14px; line-height: 2.5;">
+        بدینوسیله به آقای/خانم/شرکت پیمانکاری 
+        <span class="fs-dots w160" style="font-size: 16px;">${escapeHtml(name)}</span> 
+        به شماره پرسنلی 
+        <span class="fs-dots w90" dir="ltr">${escapeHtml(pCode)}</span> 
+        از واحد 
+        <span class="fs-dots w120">${escapeHtml(company)}</span> 
+        در تاریخ 
+        <span class="fs-dots w90" dir="ltr">${escapeHtml(date)}</span> 
+        ساعت 
+        <span class="fs-dots w60" dir="ltr">${escapeHtml(time)}</span>
+        <br><br>
+        به علت 
+        <span class="fs-dots w220" style="font-size: 16px;">${escapeHtml(reason)}</span> 
+        اخطار کتبی جهت درج در پرونده ابلاغ گردید. ضمنا نامبرده به مبلغ (به عدد) 
+        <span class="fs-dots w120" dir="ltr">${fmtMoney(amountNum)}</span> 
+        ریال (به حروف) 
+        <span class="fs-dots w220">${escapeHtml(amountStr)}</span> 
+        ریال ${typeLabel} شد که مراتب جهت اجرا به واحد اداری اعلام می‌گردد.
+        <br><br>
+        لازم به ذکر است در صورت تکرار تخلف بیش از سه مرتبه، مراتب در کمیته انضباطی بررسی و تصمیم‌گیری خواهد شد.
+      </div>
+
+      <div style="display: flex; justify-content: space-between; margin-top: 40px; font-size: 13px; font-weight: 700;">
+        <div style="text-align: center;">
+          امضاء رئیس ایمنی، بهداشت و محیط زیست
+          <br><br><br>
+          ....................
+        </div>
+        <div style="text-align: center;">
+          امضاء افسر ایمنی
+          <br><br><br>
+          ....................
+        </div>
+      </div>
+
+      <div style="margin-top: 40px; font-size: 11px; text-align: center; border-top: 1px solid #ccc; padding-top: 10px;">
+        نسخه سفید: واحد اداری &nbsp;&nbsp;&nbsp; نسخه زرد: خاطی &nbsp;&nbsp;&nbsp; نسخه قرمز: واحد HSE
+      </div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════
+// 🖨️ منطق چاپ و آرشیو
+// ═══════════════════════════════════════════════════════
+async function handlePrint(records) {
+  if (!records.length) return;
+
+  const now = Date.now();
+  const isRecentCheck = (now - lastSmsCheckTime) < 5 * 60 * 1000;
+
+  const invalidRecords = records.filter(r => !r.sms_is_delivered);
+
+  if (!isRecentCheck && invalidRecords.length > 0) {
+    toast('⚠️ ابتدا از تب پیامک‌ها استعلام وضعیت تحویل را بگیرید (حداکثر ۵ دقیقه پیش).', 'warning');
+    return;
   }
+
+  const root = document.createElement('div');
+  root.id = 'formPrintArea';
+  root.innerHTML = records.map(buildPrintFormHTML).join('');
+
+  fitAndPrint(root, {
+    onAfterPrint: async () => {
+      const ids = records.map(r => r.id);
+      const nowIso = new Date().toISOString();
+      
+      // ۱. آپدیت وضعیت چاپ در جدول جریمه
+      await sb.from('safety_finereward').update({ is_printed: true, printed_at: nowIso }).in('id', ids);
+
+      // ۲. ⭐️ ثبت در آرشیو فرم‌ها (فقط برای مواردی که قبلاً ثبت نشده‌اند)
+      const { data: { user } } = await sb.auth.getUser();
+      const archiveRecords = records.filter(r => !r.archived_record_id).map(r => {
+        const name = r.patient ? `${r.patient.first_name||''} ${r.patient.last_name||''}`.trim() : '—';
+        return {
+          form_code: 'BR-FR-HS-07-00',
+          patient_id: r.worker_id,
+          data: {
+            patient_name: name,
+            personnel_number: r.patient?.personnel_number || '—',
+            company_name: r.patient?.company?.name || '—',
+            date: r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '—',
+            time: r.incident_datetime ? r.incident_datetime.split('T')[1].slice(0,5) : '—',
+            reason: r.reason,
+            amount: r.amount,
+            record_type: r.record_type
+          },
+          created_by: user?.id || null,
+          created_at: nowIso
+        };
+      });
+
+      if (archiveRecords.length > 0) {
+        await sb.from('form_records').insert(archiveRecords);
+      }
+
+      selectedItemsForPrint.clear();
+      renderList(); 
+      toast('✅ فرم چاپ و در آرشیو ذخیره شد', 'success');
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -192,7 +304,7 @@ export function openFineReward() {
     <div class="fr-page">
       <div class="fr-header">
         <div class="fr-title">مدیریت جریمه و تشویقی</div>
-        <div class="fr-sub">ثبت، پیامک و گزارش‌گیری</div>
+        <div class="fr-sub">ثبت، پیامک، چاپ فرم و گزارش‌گیری</div>
       </div>
       <div class="fr-tabs">
         <button class="fr-tab active" data-tab="list"><i class="bi bi-list-ul"></i> لیست</button>
@@ -208,6 +320,7 @@ export function openFineReward() {
       wrap.querySelectorAll('.fr-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const t = btn.dataset.tab;
+      selectedItemsForPrint.clear();
       if (t === 'list') renderList();
       else if (t === 'add') renderAddForm();
       else if (t === 'finance') renderFinance();
@@ -218,7 +331,7 @@ export function openFineReward() {
 }
 
 // ═══════════════════════════════════════════════════════
-// تب لیست
+// تب لیست (با انتخاب برای چاپ)
 // ═══════════════════════════════════════════════════════
 async function renderList() {
   const body = $('frBody');
@@ -226,7 +339,7 @@ async function renderList() {
     <div class="fr-filters">
       <div class="input-group mb-2">
         <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-        <input type="text" id="frFilterQuery" placeholder="جستجو (نام، کد پرسنلی، موبایل، علت...)" class="form-control">
+        <input type="text" id="frFilterQuery" placeholder="جستجو..." class="form-control">
       </div>
       <div class="row g-2">
         <div class="col-6"><input type="text" id="frFilterFrom" placeholder="از تاریخ" value="${todayJalali().slice(0,4)}/01/01" class="form-control" dir="ltr"></div>
@@ -237,10 +350,20 @@ async function renderList() {
         <div class="col-4"><button class="btn btn-primary w-100" id="frApplyFilter"><i class="bi bi-funnel"></i> فیلتر</button></div>
       </div>
     </div>
+    
+    <div id="frBulkPrintBar" class="d-none mb-3 p-2 bg-primary text-white rounded-3 d-flex justify-content-between align-items-center" style="box-shadow: 0 4px 12px rgba(13,110,253,0.3);">
+      <div><span id="frSelectedCount">0</span> مورد انتخاب شده</div>
+      <button class="btn btn-sm btn-light fw-bold" id="frPrintSelected"><i class="bi bi-printer"></i> چاپ موارد انتخابی</button>
+    </div>
+
     <div id="frListContainer"><div class="text-center py-4"><div class="spinner-border text-primary"></div></div></div>
   `;
 
   $('frApplyFilter').onclick = loadList;
+  $('frPrintSelected').onclick = () => {
+    const itemsToPrint = Array.from(selectedItemsForPrint.values());
+    if (itemsToPrint.length) handlePrint(itemsToPrint);
+  };
   loadList();
 }
 
@@ -255,8 +378,8 @@ async function loadList() {
 
   try {
     let query = sb.from('safety_finereward')
-      .select('*, patient:core_patient(first_name, last_name, personnel_number, national_code, phone_number)')
-      .order('created_at', { ascending: false }).limit(300);
+      .select('*, patient:core_patient(first_name, last_name, personnel_number, national_code, phone_number, company:core_company(name))')
+      .order('created_at', { ascending: false }).limit(100);
       
     if (type !== 'all') query = query.eq('record_type', type);
     const fromG = from ? jalaliToGregorian(from) : null;
@@ -283,15 +406,46 @@ async function loadList() {
       c.innerHTML = `<div class="fr-empty"><i class="bi bi-inbox"></i><div>موردی یافت نشد</div></div>`;
       return;
     }
-    c.innerHTML = `<div class="fr-list">${list.map(renderListItem).join('')}</div>`;
-    c.querySelectorAll('[data-fr-id]').forEach(el => {
-      el.onclick = () => {
-        const item = list.find(x => String(x.id) === String(el.dataset.frId));
+
+    c.innerHTML = `<div class="fr-list">${list.map(item => renderListItem(item)).join('')}</div>`;
+    
+    c.querySelectorAll('.fr-item').forEach(el => {
+      const id = el.dataset.frId;
+      
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.fr-check-wrap')) return; 
+        const item = list.find(x => String(x.id) === String(id));
         if (item) openDetail(item);
-      };
+      });
+
+      const checkbox = el.querySelector('.fr-checkbox');
+      if (checkbox) {
+        if (selectedItemsForPrint.has(id)) checkbox.checked = true;
+
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) {
+            const item = list.find(x => String(x.id) === String(id));
+            selectedItemsForPrint.set(id, item);
+          } else {
+            selectedItemsForPrint.delete(id);
+          }
+          updateBulkPrintBar();
+        });
+      }
     });
   } catch (e) {
     c.innerHTML = `<div class="alert alert-danger">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function updateBulkPrintBar() {
+  const bar = $('frBulkPrintBar');
+  const count = $('frSelectedCount');
+  if (selectedItemsForPrint.size > 0) {
+    bar.classList.remove('d-none');
+    count.textContent = selectedItemsForPrint.size;
+  } else {
+    bar.classList.add('d-none');
   }
 }
 
@@ -316,13 +470,19 @@ function renderListItem(item) {
     smsBadge = '<span class="badge bg-secondary" style="font-size:0.6rem;">در انتظار</span>';
   }
 
+  let printBadge = item.is_printed ? `<span class="badge bg-info text-dark" style="font-size:0.6rem;"><i class="bi bi-printer"></i> چاپ شد</span>` : '';
+
   return `
-    <button class="fr-item ${meta.cls}" data-fr-id="${item.id}">
+    <div class="fr-item ${meta.cls}" data-fr-id="${item.id}">
+      <div class="fr-check-wrap" style="padding: 10px 0 10px 10px; display:flex; align-items:center;">
+        <input type="checkbox" class="fr-checkbox" style="width:20px; height:20px; cursor:pointer;">
+      </div>
       <div class="fr-item-icon ${meta.cls}"><i class="bi ${meta.icon}"></i></div>
       <div class="fr-item-body">
         <div class="fr-item-head">
           <span class="fr-item-type ${meta.cls}">${meta.label}</span>
-          <div class="d-flex gap-1 align-items-center">
+          <div class="d-flex gap-1 align-items-center flex-wrap">
+            ${printBadge}
             ${smsBadge}
             <span class="fr-item-date">${escapeHtml(dateStr)}</span>
           </div>
@@ -333,17 +493,16 @@ function renderListItem(item) {
         ${item.amount ? `<div class="fr-item-amount">${fmtMoney(item.amount)} ریال</div>` : ''}
       </div>
       <i class="bi bi-chevron-left fr-item-arrow"></i>
-    </button>
+    </div>
   `;
 }
 
 // ═══════════════════════════════════════════════════════
-// مودال جزئیات
+// مودال جزئیات (با دکمه چاپ تکی)
 // ═══════════════════════════════════════════════════════
 function openDetail(item) {
   const typeFa = { fine: 'جریمه', reward: 'تشویقی', warning: 'اخطار' }[item.record_type] || '—';
   const name = item.patient ? `${item.patient.first_name||''} ${item.patient.last_name||''}`.trim() : '—';
-  
   const deliveryDate = formatDateTime(item.sms_delivery_datetime);
 
   const sheet = document.createElement('div');
@@ -367,8 +526,9 @@ function openDetail(item) {
     ${item.sms_cost ? `<div class="fr-detail-row"><span>هزینه پیامک:</span><b>${fmtMoney(item.sms_cost)} ریال</b></div>` : ''}
     ${item.sms_error ? `<div class="fr-detail-row"><span>علت خطا:</span><b class="text-danger">${escapeHtml(item.sms_error)}</b></div>` : ''}
 
-    <div class="d-flex gap-2 mt-3">
-      ${item.sms_status !== 'sent' ? `<button class="btn btn-primary w-100" id="frResendSingle"><i class="bi bi-arrow-repeat"></i> ارسال مجدد پیامک</button>` : ''}
+    <div class="d-flex flex-column gap-2 mt-3">
+      <button class="btn btn-dark w-100" id="frPrintSingle"><i class="bi bi-printer"></i> چاپ فرم ${typeFa}</button>
+      ${item.sms_status !== 'sent' ? `<button class="btn btn-outline-primary w-100" id="frResendSingle"><i class="bi bi-arrow-repeat"></i> ارسال مجدد پیامک</button>` : ''}
       <button class="btn btn-light w-100" id="frCloseSheet">بستن</button>
     </div>
   `;
@@ -381,6 +541,11 @@ function openDetail(item) {
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
   sheet.querySelector('#frCloseSheet').onclick = close;
   
+  sheet.querySelector('#frPrintSingle').onclick = () => {
+    handlePrint([item]);
+    close();
+  };
+
   if (item.sms_status !== 'sent') {
     sheet.querySelector('#frResendSingle').onclick = async () => {
       const btn = sheet.querySelector('#frResendSingle');
@@ -404,7 +569,7 @@ function openDetail(item) {
 }
 
 // ═══════════════════════════════════════════════════════
-// تب ثبت جدید
+// تب ثبت جدید (با ثبت در آرشیو همزمان)
 // ═══════════════════════════════════════════════════════
 function renderAddForm() {
   const body = $('frBody');
@@ -531,7 +696,7 @@ function bindWorkerSearch() {
         if (error) throw error;
         if (!data?.length) { resultsEl.innerHTML = '<div class="fr-no-result">کارگری یافت نشد</div>'; return; }
         resultsEl.innerHTML = data.map(p => `
-          <button class="fr-worker-card" data-id="${p.id}" data-name="${escapeHtml((p.first_name||'')+' '+(p.last_name||''))}" data-personnel="${escapeHtml(p.personnel_number||'')}" data-national="${escapeHtml(p.national_code||'')}" data-phone="${escapeHtml(p.phone_number||'')}">
+          <button class="fr-worker-card" data-id="${p.id}" data-name="${escapeHtml((p.first_name||'')+' '+(p.last_name||''))}" data-personnel="${escapeHtml(p.personnel_number||'')}" data-national="${escapeHtml(p.national_code||'')}" data-phone="${escapeHtml(p.phone_number||'')}" data-company="${escapeHtml(p.company?.name||'')}">
             <div class="fr-worker-avatar">${escapeHtml((p.first_name||'?')[0]||'?')}</div>
             <div class="fr-worker-info">
               <div class="fr-worker-name">${escapeHtml((p.first_name||'')+' '+(p.last_name||''))}</div>
@@ -559,6 +724,7 @@ async function selectWorker(card, input, resultsEl, selectedEl, statsEl) {
   const personnel = card.dataset.personnel;
   const national = card.dataset.national;
   const phone = card.dataset.phone;
+  const company = card.dataset.company;
 
   const problems = [];
   if (!national) problems.push('کد ملی');
@@ -573,19 +739,20 @@ async function selectWorker(card, input, resultsEl, selectedEl, statsEl) {
         if (updated.national_code && !/^\d{10}$/.test(updated.national_code)) { toast('کد ملی نامعتبر', 'danger'); return false; }
         const { error } = await sb.from('core_patient').update(updated).eq('id', id);
         if (error) { toast('خطا: ' + error.message, 'danger'); return false; }
-        await finalizeSelection(id, name, personnel, updated.phone_number || phone, input, resultsEl, selectedEl, statsEl);
+        await finalizeSelection(id, name, personnel, updated.phone_number || phone, company, input, resultsEl, selectedEl, statsEl);
         return true;
       }
     });
     return;
   }
-  await finalizeSelection(id, name, personnel, phone, input, resultsEl, selectedEl, statsEl);
+  await finalizeSelection(id, name, personnel, phone, company, input, resultsEl, selectedEl, statsEl);
 }
 
-async function finalizeSelection(id, name, personnel, phone, input, resultsEl, selectedEl, statsEl) {
+async function finalizeSelection(id, name, personnel, phone, company, input, resultsEl, selectedEl, statsEl) {
   input.value = name;
   input.dataset.workerId = id;
   input.dataset.phone = phone;
+  input.dataset.company = company;
   resultsEl.innerHTML = '';
   selectedEl.style.display = 'block';
   selectedEl.innerHTML = `<div class="fr-selected-inner"><i class="bi bi-check-circle-fill"></i><div><div class="fr-selected-name">${escapeHtml(name)}</div><div class="fr-selected-meta">${personnel?'کد پرسنلی: '+escapeHtml(personnel):''}</div></div></div>`;
@@ -594,7 +761,6 @@ async function finalizeSelection(id, name, personnel, phone, input, resultsEl, s
   statsEl.innerHTML = '<div class="fr-loading">در حال بارگذاری آمار...</div>';
 
   try {
-    // ۱. آمار حوادث و جریمه‌ها
     const { count: incidentCount } = await sb.from('visits_visit')
       .select('id', { count: 'exact', head: true })
       .eq('patient_id', id)
@@ -608,7 +774,6 @@ async function finalizeSelection(id, name, personnel, phone, input, resultsEl, s
     const rewards = (records||[]).filter(r => r.record_type === 'reward').length;
     const warnings = (records||[]).filter(r => r.record_type === 'warning').length;
 
-    // ۲. محاسبه اسکور ایمنی
     let score = 5;
     score -= Math.min(3, incidentCount * 0.5);
     score -= Math.min(2, warnings * 0.4);
@@ -618,36 +783,23 @@ async function finalizeSelection(id, name, personnel, phone, input, resultsEl, s
     const stars = Math.round(score);
     const scoreText = stars >= 4 ? 'وضعیت مطلوب' : stars >= 3 ? 'نیاز به توجه' : 'وضعیت پرخطر';
 
-    // ⭐ ۳. دریافت اطلاعات طب کار (نظریه و شروط)
     let exam = null;
     try {
-      const { data: ex } = await sb.from('lab_results_periodicexamination')
-        .select('*')
-        .eq('patient_id', id)
-        .order('exam_date', { ascending: false })
-        .limit(1);
+      const { data: ex } = await sb.from('lab_results_periodicexamination').select('*').eq('patient_id', id).order('exam_date', { ascending: false }).limit(1);
       if (ex && ex.length) exam = ex[0];
-    } catch (err) { console.warn('[FR] exam query:', err); }
+    } catch (err) { }
 
-    // ⭐ ۴. دریافت اقدام اصلاحی از جدول جدید
     let correctiveAction = null;
     try {
-      const { data: ca } = await sb.from('occupational_corrective_actions')
-        .select('*')
-        .eq('patient_id', id)
-        .order('created_at', { ascending: false })
-        .limit(1);
+      const { data: ca } = await sb.from('occupational_corrective_actions').select('*').eq('patient_id', id).order('created_at', { ascending: false }).limit(1);
       if (ca && ca.length) correctiveAction = ca[0];
-    } catch (err) { console.warn('[FR] corrective action query:', err); }
+    } catch (err) { }
 
-    // ۵. استخراج مقادیر
     const opinion = exam?.final_opinion_text || exam?.final_opinion || exam?.opinion_text || '';
     const conditions = exam?.final_opinion_conditions || exam?.conditions || '';
-    // اولویت با اقدام اصلاحی جدید است، اگر نبود از جدول معاینه خوانده می‌شود
     const actions = correctiveAction?.action_text || exam?.corrective_actions || exam?.corrective_action || exam?.actions || '';
     const actionStatus = correctiveAction?.status || 'pending';
 
-    // ۶. رندر نهایی
     statsEl.innerHTML = `
       <div class="fr-stats-grid">
         <div class="fr-stat-box danger"><div class="fr-stat-num">${incidentCount}</div><div class="fr-stat-lbl">حادثه</div></div>
@@ -659,25 +811,11 @@ async function finalizeSelection(id, name, personnel, phone, input, resultsEl, s
         <div class="fr-score-stars">${'★'.repeat(stars)}${'☆'.repeat(5-stars)}</div>
         <div class="fr-score-text">اسکور ایمنی: ${stars}/5 — ${scoreText}</div>
       </div>
-      
-      <!-- ⭐ بخش بازگشته‌ی اطلاعات طب کار -->
       <div class="fr-occupational">
         <div class="fr-occupational-title"><i class="bi bi-clipboard2-pulse"></i> اطلاعات طب کار</div>
-        <div class="fr-oc-row">
-          <span>نظریه نهایی:</span>
-          <b>${escapeHtml(opinion || 'ندارد')}</b>
-        </div>
-        <div class="fr-oc-row">
-          <span>شروط:</span>
-          <b>${escapeHtml(conditions || 'ندارد')}</b>
-        </div>
-        <div class="fr-oc-row">
-          <span>اقدام اصلاحی:</span>
-          <b class="${actionStatus === 'pending' ? 'text-warning' : 'text-success'}">
-            ${escapeHtml(actions || 'ندارد')}
-            ${actions ? `<small>(${actionStatus === 'pending' ? 'در انتظار' : 'انجام شده'})</small>` : ''}
-          </b>
-        </div>
+        <div class="fr-oc-row"><span>نظریه نهایی:</span><b>${escapeHtml(opinion || 'ندارد')}</b></div>
+        <div class="fr-oc-row"><span>شروط:</span><b>${escapeHtml(conditions || 'ندارد')}</b></div>
+        <div class="fr-oc-row"><span>اقدام اصلاحی:</span><b class="${actionStatus === 'pending' ? 'text-warning' : 'text-success'}">${escapeHtml(actions || 'ندارد')} ${actions ? `<small>(${actionStatus === 'pending' ? 'در انتظار' : 'انجام شده'})</small>` : ''}</b></div>
       </div>
     `;
   } catch (e) {
@@ -718,6 +856,7 @@ async function saveRecord() {
   const workerId = input.dataset.workerId;
   const phone = input.dataset.phone;
   const patientName = input.value;
+  const companyName = input.dataset.company || '—';
   if (!workerId) { toast('ابتدا کارگر را انتخاب کنید', 'warning'); return; }
 
   const reason = $('frReason').value.trim();
@@ -751,6 +890,28 @@ async function saveRecord() {
     const { data: inserted, error } = await sb.from('safety_finereward').insert(record).select().single();
     if (error) throw error;
 
+    // ⭐️ ثبت در آرشیو فرم‌ها
+    try {
+      await sb.from('form_records').insert({
+        form_code: 'BR-FR-HS-07-00',
+        patient_id: parseInt(workerId, 10),
+        data: {
+          patient_name: patientName,
+          personnel_number: input.dataset.personnel || '—', 
+          company_name: companyName,
+          date: gregorianToJalali(isoDT.split('T')[0]),
+          time: isoDT.split('T')[1].slice(0,5),
+          reason: reason,
+          amount: amount,
+          record_type: $('frType').value
+        },
+        created_by: user?.id || null,
+        created_at: new Date().toISOString()
+      });
+    } catch (archiveErr) {
+      console.warn('خطا در ثبت آرشیو:', archiveErr);
+    }
+
     const smsText = buildSmsText(record, patientName);
     const smsResult = await sendSMS(phone, smsText);
     
@@ -769,7 +930,7 @@ async function saveRecord() {
 }
 
 // ═══════════════════════════════════════════════════════
-// تب مالی
+// تب مالی و پیامک‌ها
 // ═══════════════════════════════════════════════════════
 async function renderFinance() {
   const body = $('frBody');
@@ -880,23 +1041,12 @@ function exportFinance(records, format) {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// تب پیامک‌ها (تفکیک، فیلتر و خروجی)
-// ═══════════════════════════════════════════════════════
 async function renderSMSStatus() {
   const body = $('frBody');
   
   let creditInfo = null;
   const statusRes = await getAccountStatus();
   if (statusRes.success) creditInfo = statusRes.data;
-
-  let lastExportDate = '—';
-  try {
-    const { data: lastExp } = await sb.from('safety_finereward')
-      .select('sms_exported_at').not('sms_exported_at', 'is', null)
-      .order('sms_exported_at', { ascending: false }).limit(1);
-    if (lastExp && lastExp.length) lastExportDate = gregorianToJalali(lastExp[0].sms_exported_at.split('T')[0]);
-  } catch(e) {}
 
   body.innerHTML = `
     <div class="card mb-3" style="background:#f8fafc; border:none; border-radius:12px;">
@@ -1035,10 +1185,6 @@ async function loadSMSStatusList() {
         r.incident_datetime ? gregorianToJalali(r.incident_datetime.split('T')[0]) : '',
       ]);
       exportToExcel(headers, rows, `sms-report-${todayJalali().replace(/\//g,'-')}.xlsx`);
-      
-      const ids = list.map(r => r.id);
-      await sb.from('safety_finereward').update({ sms_exported_at: new Date().toISOString() }).in('id', ids);
-      toast('✅ خروجی اکسل ذخیره شد', 'success');
     };
 
     $('frExportFailedPDF').onclick = () => {
@@ -1086,7 +1232,6 @@ async function loadSMSStatusList() {
   }
 }
 
-// ⭐ تابع استعلام وضعیت تحویل (با منطق دقیق DeliveryType)
 async function checkAllDeliveries() {
   const btn = $('frCheckDeliveryBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال استعلام...';
@@ -1102,6 +1247,7 @@ async function checkAllDeliveries() {
     if (error) throw error;
     if (!pendingList || pendingList.length === 0) {
       toast('هیچ پیامک در انتظار تحویلی وجود ندارد', 'info');
+      lastSmsCheckTime = Date.now(); // ⭐️ ثبت زمان حتی اگر لیست خالی باشد
       btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
       return;
     }
@@ -1152,18 +1298,17 @@ async function checkAllDeliveries() {
 
     const deliveries = res.data?.Data ?? res.data?.data;
     if (!Array.isArray(deliveries)) throw new Error('ساختار پاسخ دلیوری آموت قابل شناسایی نیست');
-    if (deliveries.length === 0) {
-      toast('آموت برای این شناسه‌ها رکورد دلیوری برنگرداند', 'warning');
-      btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
-      return;
+    
+    if (deliveries.length > 0) {
+      for (const del of deliveries) {
+        if (!del || del.MessageID == null || del.Status == null) continue;
+        await processDelivery(del);
+        updatedCount++;
+      }
     }
 
-    for (const del of deliveries) {
-      if (!del || del.MessageID == null || del.Status == null) continue;
-      await processDelivery(del);
-      updatedCount++;
-    }
-
+    // ⭐️ ثبت زمان استعلام برای شرط ۵ دقیقه چاپ
+    lastSmsCheckTime = Date.now();
     toast(`استعلام پایان یافت. ${updatedCount} پیامک بررسی شد.`, 'success');
     loadSMSStatusList();
 
@@ -1173,4 +1318,26 @@ async function checkAllDeliveries() {
   } finally {
     btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> استعلام';
   }
+}
+
+// ═══════════════════════════════════════════════════════
+// قالب پیامک
+// ═══════════════════════════════════════════════════════
+function buildSmsText(record, customName) {
+  const type = record.record_type;
+  const amount = fmtMoney(record.amount);
+  const reason = record.reason || '—';
+  
+  const cleanName = customName && customName.trim() !== '' ? customName.trim() : '';
+  const prefix = cleanName ? `آقای ${cleanName}` : 'همکار گرامی';
+  
+  const SIGN = 'واحد ایمنی گندله سازی بهاباد';
+
+  if (type === "fine") {
+    return `اطلاعیه ایمنی! ${prefix} مبلغ ${amount} ریال جریمه به علت ${reason} برای شما ثبت گردید. ${SIGN}`;
+  }
+  if (type === "reward") {
+    return `اطلاعیه ایمنی! ${prefix} مبلغ ${amount} ریال پاداش به علت ${reason} برای شما ثبت گردید. ${SIGN}`;
+  }
+  return `${prefix} اخطار ایمنی به علت ${reason} برای شما ثبت گردید. ${SIGN}`;
 }
