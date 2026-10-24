@@ -1,25 +1,12 @@
 // js/alert-center.js
 import { sb } from './sb.js';
-import { $, escapeHtml, gregorianToJalali, toast } from './utils.js';
+import { $, escapeHtml, gregorianToJalali } from './utils.js';
 
 let currentUserUuid = null;
 let alertCenterChannel = null;
 let mapInstance = null;
 let incidentChannel = null;
 let locationPollInterval = null;
-let liveMarker = null; // ⭐️ مارکر سراسری برای آپدیت بدون پرش
-
-// ⭐️ محاسبه فاصله به متر (برای شعاع ۵۰ متری)
-function getDistanceInMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371e3;
-  const φ1 = lat1 * Math.PI / 180;
-  const φ2 = lat2 * Math.PI / 180;
-  const Δφ = (lat2 - lat1) * Math.PI / 180;
-  const Δλ = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return Math.round(R * c);
-}
 
 export async function initAlertCenter() {
   try {
@@ -167,31 +154,17 @@ async function loadTab(tab) {
       };
     });
   } else {
+    // بخش ارجاع (کد قبلی)
     content.innerHTML = '<div class="text-center muted py-5">بخش ارجاع در دسترس است.</div>';
   }
 }
 
+// ⭐️ صفحه اختصاصی حادثه
 export async function openIncidentScreen(alertId) {
   purgeAllModals();
-  liveMarker = null; // ریست مارکر
 
   const { data: alert, error } = await sb.from('incident_alerts').select('*').eq('id', alertId).single();
-  if (error || !alert) return toast('خطا در بارگذاری حادثه', 'danger');
-
-  // جستجوی مکان ثبت‌شده (شعاع ۵۰ متر)
-  let knownLocationName = null;
-  if (alert.latitude && alert.longitude) {
-    const { data: knownLocs } = await sb.from('known_locations').select('*');
-    if (knownLocs && knownLocs.length > 0) {
-      for (const loc of knownLocs) {
-        const dist = getDistanceInMeters(alert.latitude, alert.longitude, loc.latitude, loc.longitude);
-        if (dist <= 50) { // ⭐️ شعاع ۵۰ متر
-          knownLocationName = loc.name;
-          break;
-        }
-      }
-    }
-  }
+  if (error || !alert) return alert('خطا در بارگذاری حادثه');
 
   const overlay = document.createElement('div');
   overlay.id = 'incidentScreen';
@@ -204,32 +177,19 @@ export async function openIncidentScreen(alertId) {
     </div>
   `;
 
-  let locationBanner = '';
-  if (knownLocationName) {
-    locationBanner = `
-      <div style="background: #d1fae5; color: #065f46; padding: 10px; border-radius: 8px; margin-bottom: 12px; font-weight: bold; border: 1px solid #10b981; display: flex; align-items: center; gap: 8px;">
-        <i class="bi bi-geo-alt-fill" style="font-size: 1.2rem;"></i> 
-        <span>مکان ثبت‌شده: ${escapeHtml(knownLocationName)}</span>
-      </div>`;
-  } else if (alert.location && alert.latitude && alert.longitude) {
-    locationBanner = `
-      <div style="background: #fef3c7; color: #92400e; padding: 10px; border-radius: 8px; margin-bottom: 12px; border: 1px solid #fbbf24; display: flex; justify-content: space-between; align-items: center;">
-        <div><i class="bi bi-info-circle"></i> این مکان در سیستم ثبت نشده است.</div>
-        <button id="btnSaveLocation" style="background: #d97706; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-family: inherit; font-size: 0.8rem; font-weight: bold; cursor: pointer;">📌 ثبت این مکان</button>
-      </div>`;
-  }
-
   const contentDiv = `
     <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
       <div id="incidentMap" style="flex: 1; background: #e2e8f0; z-index: 1;"></div>
       <div style="padding: 16px; background: #fff; border-top: 1px solid #e2e8f0; box-shadow: 0 -4px 12px rgba(0,0,0,0.05); padding-bottom: max(16px, env(safe-area-inset-bottom));">
-        ${locationBanner}
         <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
           <strong>گزارش‌دهنده:</strong> <span>${escapeHtml(alert.triggered_name || 'کاربر')}</span>
         </div>
         ${alert.patient_name ? `<div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><strong>بیمار:</strong> <span>${escapeHtml(alert.patient_name)}</span></div>` : ''}
-        <div id="liveLocationInfo" style="margin-top: 8px; padding: 10px; background: #f1f5f9; border-radius: 8px; font-size: 0.9rem; display: none; line-height: 1.5;"></div>
+        <div id="liveLocationInfo" style="margin-top: 8px; padding: 10px; background: #f1f5f9; border-radius: 8px; font-size: 0.9rem; display: none;">
+          <!-- اطلاعات مسیریابی اینجا می‌آید -->
+        </div>
         
+        <!-- ⭐️ اضافه شدن دکمه نقشه آنلاین در کنار بقیه دکمه‌ها -->
         <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
           ${alert.triggered_phone ? `<a href="tel:${alert.triggered_phone}" style="flex: 1; min-width:100px; text-align: center; background: #10b981; color: #fff; padding: 10px; border-radius: 8px; text-decoration: none; font-weight: bold;">📞 تماس</a>` : ''}
           <a href="https://nshn.ir/?lat=${alert.latitude || 31.871}&lng=${alert.longitude || 56.029}" target="_blank" style="flex: 1; min-width:100px; text-align: center; background: #0d6efd; color: #fff; padding: 10px; border-radius: 8px; text-decoration: none; font-weight: bold;">🌐 نقشه آنلاین</a>
@@ -250,80 +210,42 @@ export async function openIncidentScreen(alertId) {
     overlay.remove();
   };
 
-  if (!knownLocationName && alert.location && alert.latitude && alert.longitude) {
-    $('btnSaveLocation').onclick = async () => {
-      const btn = $('btnSaveLocation');
-      btn.disabled = true;
-      btn.innerHTML = 'در حال ثبت...';
-      
-      const { error: insErr } = await sb.from('known_locations').insert({
-        name: alert.location,
-        latitude: alert.latitude,
-        longitude: alert.longitude,
-        radius_m: 50, // ⭐️ شعاع ۵۰ متر
-        created_by: currentUserUuid
-      });
-
-      if (insErr) {
-        toast('خطا در ثبت مکان: ' + insErr.message, 'danger');
-        btn.disabled = false;
-        btn.innerHTML = '📌 ثبت این مکان';
-      } else {
-        toast('✅ مکان با موفقیت ثبت شد', 'success');
-        btn.parentElement.style.background = '#d1fae5';
-        btn.parentElement.style.color = '#065f46';
-        btn.parentElement.style.borderColor = '#10b981';
-        btn.parentElement.innerHTML = `<i class="bi bi-geo-alt-fill"></i> مکان ثبت‌شده: ${escapeHtml(alert.location)}`;
-      }
-    };
-  }
-
   initIncidentMap(alert);
   listenToIncidentUpdates(alertId);
 }
 
-// ⭐️ نقشه و کاشی‌های آفلاین (با رفع مشکل درخواست از شبکه)
+// ⭐️ نقشه و کاشی‌های آفلاین
 function initIncidentMap(alert) {
   const defaultLat = alert.latitude || 31.871;
   const defaultLng = alert.longitude || 56.029;
   
-  // ⭐️ محدوده دقیق کاشی‌هایی که دانلود کرده‌اید (بر اساس زوم ۱۶)
-  // این محدوده باعث می‌شود کاربر نتواند نقشه را به سمت مناطق خالی بکشد
-  const maxBounds = [
-    [31.81, 56.01], // گوشه جنوب غربی
-    [31.89, 56.10]  // گوشه شمال شرقی
-  ];
-
   mapInstance = L.map('incidentMap', { 
     zoomControl: false, 
     preferCanvas: true,
-    minZoom: 13,
-    maxZoom: 18,           // اجازه زوم تا ۱۸ را می‌دهیم
-    maxBounds: maxBounds,          // ⭐️ جلوگیری از پن کردن به بیرون
-    maxBoundsViscosity: 1.0        // ⭐️ قفل کردن مرزها (نمی‌تواند بیرون برود)
-  }).setView([defaultLat, defaultLng], 15); // ⭐️ زوم ۱۵ برای حادثه
+    minZoom: 12,
+    maxZoom: 20
+  }).setView([defaultLat, defaultLng], 16);
 
   L.control.zoom({ position: 'topright' }).addTo(mapInstance);
 
-  // ⭐️ تنظیمات لایه کاشی‌ها برای استفاده ۱۰۰٪ آفلاین
+  // ⭐️ اصلاح مسیر کاشی‌ها به مسیر نسبی `./` و برداشتن محدودیت سخت
   L.tileLayer('./map-tiles/{z}/{x}/{y}.png', {
-    minZoom: 13,
-    maxZoom: 18,           // اجازه زوم تا ۱۸ را می‌دهیم
-    maxNativeZoom: 17,     // ⭐️ اما بالاترین فایل موجود ۱۷ است (از درخواست زوم ۱۸ به نت جلوگیری می‌کند)
-    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', // تایل خالی در صورت ۴۰۴
-    updateWhenIdle: true,
-    updateWhenZooming: false
+    minZoom: 12,
+    maxZoom: 20,           
+    maxNativeZoom: 18,     // تصاویر تا زوم ۱۸ بزرگ‌نمایی می‌شوند و بیشتر از آن کشیده می‌شوند (تار نمی‌شود، خالی هم نمی‌ماند)
+    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' 
   }).addTo(mapInstance);
 
-  L.marker([defaultLat, defaultLng]).addTo(mapInstance)
+  const incidentMarker = L.marker([defaultLat, defaultLng]).addTo(mapInstance)
     .bindPopup(`<b>📍 ${escapeHtml(alert.location || 'محل حادثه')}</b>`).openPopup();
 
+  let liveMarker = null;
   let routeLine = null;
 
   $('btnMyLocation').onclick = () => {
-    if (!navigator.geolocation) return toast('GPS پشتیبانی نمی‌شود', 'warning');
+    if (!navigator.geolocation) return alert('GPS پشتیبانی نمی‌شود');
     
-    $('btnMyLocation').innerHTML = '<div class="spinner-border spinner-border-sm text-white"></div>';
+    $('btnMyLocation').innerHTML = 'در حال یافتن...';
     
     navigator.geolocation.getCurrentPosition(pos => {
       $('btnMyLocation').innerHTML = '<i class="bi bi-geo-alt-fill"></i> موقعیت من';
@@ -331,20 +253,23 @@ function initIncidentMap(alert) {
       const uLat = pos.coords.latitude;
       const uLng = pos.coords.longitude;
       
-      // جابه‌جایی مارکر موقعیت
-      if (liveMarker) {
-        liveMarker.setLatLng([uLat, uLng]);
-      } else {
-        liveMarker = L.circleMarker([uLat, uLng], { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.8, radius: 8 }).addTo(mapInstance);
-      }
-      
+      if (liveMarker) mapInstance.removeLayer(liveMarker);
       if (routeLine) mapInstance.removeLayer(routeLine);
+      
+      liveMarker = L.circleMarker([uLat, uLng], { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.8, radius: 8 }).addTo(mapInstance);
       routeLine = L.polyline([[uLat, uLng], [defaultLat, defaultLng]], { color: '#dc2626', dashArray: '5, 10', weight: 3 }).addTo(mapInstance);
       
-      const distance = getDistanceInMeters(uLat, uLng, defaultLat, defaultLng);
+      const R = 6371e3;
+      const φ1 = uLat * Math.PI/180;
+      const φ2 = defaultLat * Math.PI/180;
+      const Δφ = (defaultLat-uLat) * Math.PI/180;
       const Δλ = (defaultLng-uLng) * Math.PI/180;
-      const y = Math.sin(Δλ) * Math.cos(defaultLat * Math.PI/180);
-      const x = Math.cos(uLat * Math.PI/180)*Math.sin(defaultLat * Math.PI/180) - Math.sin(uLat * Math.PI/180)*Math.cos(defaultLat * Math.PI/180)*Math.cos(Δλ);
+      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      const distance = Math.round(R * c);
+
+      const y = Math.sin(Δλ) * Math.cos(φ2);
+      const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
       const brng = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
       
       const dirs = ['شمال', 'شمال شرق', 'شرق', 'جنوب شرق', 'جنوب', 'جنوب غرب', 'غرب', 'شمال غرب'];
@@ -363,16 +288,16 @@ function initIncidentMap(alert) {
         <div style="font-size:0.75rem; color:#64748b; margin-top:4px;">دقت GPS: ±${Math.round(pos.coords.accuracy)} متر</div>
       `;
       
-      mapInstance.fitBounds([[uLat, uLng], [defaultLat, defaultLng]], { padding: [50, 50], maxZoom: 16 });
+      mapInstance.fitBounds([[uLat, uLng], [defaultLat, defaultLng]], { padding: [50, 50], maxZoom: 18 });
       
     }, err => {
       $('btnMyLocation').innerHTML = '<i class="bi bi-geo-alt-fill"></i> موقعیت من';
-      toast('خطا در دریافت موقعیت: ' + err.message, 'danger');
+      alert('خطا در دریافت موقعیت: ' + err.message);
     }, { enableHighAccuracy: true, timeout: 10000 });
   };
 
   $('btnCenterIncident').onclick = () => {
-    mapInstance.setView([defaultLat, defaultLng], 15);
+    mapInstance.setView([defaultLat, defaultLng], 18);
   };
 }
 
@@ -395,19 +320,15 @@ function listenToIncidentUpdates(alertId) {
   }, 5000);
 }
 
-// ⭐️ آپدیت مختصات گیرنده بدون پرش نقشه
 function updateMapLocation(lat, lng, acc) {
   if (!mapInstance) return;
-  
-  // فقط مارکرِ موقعیت گیرنده را جابه‌جا کن، نه کل نقشه را
-  if (liveMarker) {
-    liveMarker.setLatLng([lat, lng]);
-  } else {
-    liveMarker = L.circleMarker([lat, lng], { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.8, radius: 8 }).addTo(mapInstance);
+  const currentCenter = mapInstance.getCenter();
+  // فقط در صورتی که تغییر مختصات زیاد بود، نقشه را جابه‌جا کن
+  if (Math.abs(currentCenter.lat - lat) > 0.001 || Math.abs(currentCenter.lng - lng) > 0.001) {
+    mapInstance.setView([lat, lng], 18);
   }
-
   if (acc) {
-    $('liveLocationInfo').innerHTML = `<div class="alert alert-info py-1 mb-0 small">موقعیت گیرنده ثبت شد (دقت ±${Math.round(acc)} متر)</div>`;
+    $('liveLocationInfo').innerHTML = `<div class="alert alert-info py-1 mb-0 small">موقعیت ثبت شد (دقت ±${Math.round(acc)} متر)</div>`;
     $('liveLocationInfo').style.display = 'block';
   }
 }
