@@ -2,21 +2,50 @@
 import { sb } from './sb.js';
 import { $, toast } from './utils.js';
 
+const QUEUE_KEY = 'incident_location_queue';
+
 export function initQuickIncidentButton() {
   const btn = $('btnQuickIncident');
   if (btn) btn.onclick = openQuickIncidentModal;
 }
 
-async function fetchPhoneNumber(user) {
-  let phone = user.phone || user.user_metadata?.phone || user.user_metadata?.mobile || null;
-  if (!phone) {
-    try {
-      const { data } = await sb.from('users').select('phone').eq('id', user.id).maybeSingle();
-      if (data && data.phone) phone = data.phone;
-    } catch (e) {}
-  }
-  return phone;
+// مدیریت صف آفلاین
+function addToQueue(alertId, lat, lng, accuracy) {
+  try {
+    const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+    queue.push({ alertId, lat, lng, accuracy, time: Date.now() });
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+  } catch (e) { console.error('Queue error:', e); }
 }
+
+export async function processOfflineQueue() {
+  try {
+    const queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+    if (!queue.length) return;
+    
+    const remaining = [];
+    for (const item of queue) {
+      const { error } = await sb.from('incident_alerts').update({
+        latitude: item.lat,
+        longitude: item.lng,
+        accuracy_m: item.accuracy,
+        location_updated_at: new Date(item.time).toISOString(),
+        location_source: 'gps_offline_sync'
+      }).eq('id', item.alertId);
+
+      if (error) remaining.push(item); // اگر خطا داد، در صف بماند
+    }
+    
+    if (remaining.length > 0) {
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
+    } else {
+      localStorage.removeItem(QUEUE_KEY);
+    }
+  } catch (e) { console.error(e); }
+}
+
+// وقتی اینترنت وصل شد، صف را خالی کن
+window.addEventListener('online', processOfflineQueue);
 
 function openQuickIncidentModal() {
   const existing = $('quickIncidentModal');
@@ -33,7 +62,7 @@ function openQuickIncidentModal() {
           <div class="modal-body">
             <div class="alert alert-danger small mb-3">
               <i class="bi bi-info-circle"></i>
-              با تایید، هشدار فوراً ارسال می‌شود. اطلاعات تکمیلی (موقعیت و شماره تماس) در پس‌زمینه ضمیمه خواهند شد.
+              با تایید، هشدار فوراً ارسال می‌شود. موقعیت مکانی در پس‌زمینه دقیق‌تر خواهد شد.
             </div>
             <div class="mb-3">
               <label class="form-label small">محل حادثه (اختیاری)</label>
@@ -42,14 +71,6 @@ function openQuickIncidentModal() {
             <div class="mb-3">
               <label class="form-label small">توضیح کوتاه (اختیاری)</label>
               <input type="text" class="form-control" id="qiNote" placeholder="مثال: سقوط از ارتفاع..." autocomplete="off">
-            </div>
-            
-            <!-- ⭐️ چک‌باکس لوکیشن مجدداً اضافه شد -->
-            <div class="form-check form-switch mt-3">
-              <input class="form-check-input" type="checkbox" id="qiSendLocation" checked>
-              <label class="form-check-label small" for="qiSendLocation">
-                ارسال موقعیت مکانی دقیق (GPS) برای ردیابی
-              </label>
             </div>
           </div>
           <div class="modal-footer">
@@ -71,20 +92,10 @@ function openQuickIncidentModal() {
   $('qiConfirm').onclick = async () => {
     const locationText = $('qiLocation').value.trim();
     const note = $('qiNote').value.trim();
-    const wantsLocation = $('qiSendLocation') ? $('qiSendLocation').checked : true;
 
     const btn = $('qiConfirm');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ارسال...';
-
-    // ⭐️ ۱. درخواست لوکیشن به محض کلیک (برای باز شدن پنجره اجازه مرورگر)
-    let geoPromise = null;
-    if (wantsLocation && navigator.geolocation) {
-      console.log('[QuickIncident] Requesting GPS permission immediately...');
-      geoPromise = new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 15000, enableHighAccuracy: true });
-      });
-    }
 
     try {
       const { data: { user } } = await sb.auth.getUser();
@@ -93,8 +104,7 @@ function openQuickIncidentModal() {
       const userName = user.user_metadata?.full_name || user.email || 'کاربر';
       const fullLocation = [locationText, note].filter(Boolean).join(' | ');
 
-      // ⭐️ ۲. ارسال فوری هشدار (بدون معطل شدن)
-      console.log('[QuickIncident] Sending FAST alert now...');
+      // ⭐️ ۱. ارسال فوری هشدار بدون معطلی برای لوکیشن
       const { data: alertData, error } = await sb.from('incident_alerts').insert({
         triggered_by:    user.id,
         triggered_name:  userName,
@@ -103,46 +113,53 @@ function openQuickIncidentModal() {
       }).select('id').single();
 
       if (error) throw error;
-
-      toast('🚨 هشدار ارسال شد. در حال دریافت اطلاعات تکمیلی...', 'success');
-      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
       modal.hide();
 
-      // ⭐️ ۳. دریافت لوکیشن و شماره در پس‌زمینه و آپدیت دیتابیس
+      toast('🚨 هشدار ارسال شد. در حال دریافت موقعیت دقیق...', 'success');
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+
+      // ⭐️ ۲. دریافت لوکیشن در پس‌زمینه (اول سریع، بعد دقیق)
       if (alertData?.id) {
-        (async () => {
-          let lat = null, lng = null;
+        const alertId = alertData.id;
+        let watchId = null;
+        let bestAccuracy = Infinity;
+
+        const updateLocation = async (lat, lng, accuracy, source) => {
+          if (accuracy > bestAccuracy) return; // اگر دقتش بدتر از قبلیه، آپدیت نکن
+          bestAccuracy = accuracy;
           
-          if (geoPromise) {
-            try {
-              const pos = await geoPromise;
-              lat = pos.coords.latitude;
-              lng = pos.coords.longitude;
-              console.log('[QuickIncident] Location found:', lat, lng);
-            } catch (e) {
-              console.warn('[QuickIncident] Geolocation failed or denied:', e);
-            }
-          }
+          const payload = {
+            latitude: lat,
+            longitude: lng,
+            accuracy_m: accuracy,
+            location_updated_at: new Date().toISOString(),
+            location_source: source
+          };
 
-          const phone = await fetchPhoneNumber(user);
-          console.log('[QuickIncident] Phone found:', phone);
+          const { error: upErr } = await sb.from('incident_alerts').update(payload).eq('id', alertId);
+          if (upErr) addToQueue(alertId, lat, lng, accuracy);
+        };
 
-          const updatePayload = {};
-          if (phone) updatePayload.triggered_phone = phone;
-          if (lat) updatePayload.latitude = lat;
-          if (lng) updatePayload.longitude = lng;
+        // فاز اول: Fix سریع و کم‌دقت (برای اینکه سریع جواب بگیریم)
+        navigator.geolocation.getCurrentPosition(
+          (pos) => updateLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy, 'gps_fast'),
+          (err) => console.warn('Fast GPS failed:', err),
+          { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+        );
 
-          if (Object.keys(updatePayload).length > 0) {
-            await sb.from('incident_alerts').update(updatePayload).eq('id', alertData.id);
-            console.log('[QuickIncident] ✅ Supplemental info updated in DB.');
-          }
+        // فاز دوم: WatchPosition با دقت بالا (تا ۳۰ ثانیه)
+        if (navigator.geolocation) {
+          watchId = navigator.geolocation.watchPosition(
+            (pos) => updateLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy, 'gps_high_accuracy'),
+            (err) => console.warn('High acc GPS failed:', err),
+            { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
+          );
 
-          if (!phone || (!lat && wantsLocation)) {
-            toast('⚠️ نتوانستیم همه اطلاعات تکمیلی (شماره یا لوکیشن) را دریافت کنیم.', 'warning', 5000);
-          }
-        })();
+          setTimeout(() => {
+            if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+          }, 30000);
+        }
       }
-
     } catch (e) {
       console.error(e);
       alert('❌ خطا: ' + e.message);

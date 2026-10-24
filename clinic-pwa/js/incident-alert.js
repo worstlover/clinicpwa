@@ -1,6 +1,6 @@
 // js/incident-alert.js
 import { sb } from './sb.js';
-import { showOfflineMapModal } from './alert-center.js';
+import { openIncidentScreen } from './alert-center.js'; // ⭐️ ایمپورت صفحه اختصاصی جدید
 
 const ALLOWED_ROLES = ['Nurse', 'doctor', 'safety', 'Supervisor'];
 const ALERT_MP3_QUICK = './sounds/incident-alert1.mp3';
@@ -132,10 +132,6 @@ export async function broadcastIncidentAlert({ patientName, patientId, visitId, 
           await sb.from('incident_alerts').update(updatePayload).eq('id', alertData.id);
           console.log('[IncidentAlert] ✅ Supplemental info updated in DB.');
         }
-
-        if (!info.phone) {
-          toast('⚠️ نتوانستیم شماره تلفن را به طور کامل دریافت کنیم.', 'warning', 5000);
-        }
       })();
     }
   } catch (e) { console.error(e); }
@@ -151,43 +147,10 @@ function handleNewAlert(alert) {
   playIncidentAlert(alert);
 }
 
+// ⭐️ در معماری جدید، نیازی به آپدیت UI بنر با دکمه‌های جدید نیست.
+// صفحه اختصاصی (`openIncidentScreen`) خودش به Realtime متصل است و اطلاعات را زنده می‌گیرد.
 function handleUpdateAlert(alert) {
-  const banner = document.querySelector('.incident-alert-banner');
-  if (!banner) return;
-  const actionBtns = banner.querySelector('.action-btns');
-  if (!actionBtns) return;
-
-  if (alert.triggered_phone && !actionBtns.querySelector('.call-employee-btn')) {
-    actionBtns.insertAdjacentHTML('beforeend', `
-      <a href="tel:${alert.triggered_phone}" class="call-employee-btn" style="background:#10b981; color:#fff; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; gap:6px;">
-        📞 تماس با گزارش‌دهنده
-      </a>
-    `);
-  }
-
-  if (alert.patient_phone && !actionBtns.querySelector('.call-patient-btn')) {
-    actionBtns.insertAdjacentHTML('beforeend', `
-      <a href="tel:${alert.patient_phone}" class="call-patient-btn" style="background:#3b82f6; color:#fff; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; gap:6px;">
-        📞 تماس با بیمار
-      </a>
-    `);
-  }
-
-  // دکمه نقشه فقط اگر مختصات وجود داشته باشد (برای ویزیت نمایش داده نمی‌شود)
-  if (alert.latitude && alert.longitude && !actionBtns.querySelector('.map-btn')) {
-    actionBtns.insertAdjacentHTML('beforeend', `
-      <div style="display:flex; flex-direction:column; gap:2px;">
-        <button onclick="window.showOfflineMap('${alert.latitude}', '${alert.longitude}')" class="map-btn" style="background:#fff; color:#dc2626; border:none; padding:6px 12px; border-radius:8px; cursor:pointer; font-family:inherit; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; justify-content:center; gap:4px;">
-          📍 نقشه آفلاین
-        </button>
-        <span style="font-size:9px; color:rgba(255,255,255,0.8); text-align:center;">(مخصوص داخل سایت)</span>
-      </div>
-      
-      <a href="https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}" target="_blank" class="map-btn" style="background:rgba(255,255,255,0.2); color:#fff; border:1px solid rgba(255,255,255,0.4); padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; justify-content:center;">
-        🌐 نقشه آنلاین
-      </a>
-    `);
-  }
+  console.log('[IncidentAlert] Alert updated in DB, details screen will handle it.', alert.id);
 }
 
 function playIncidentAlert(alert) {
@@ -292,36 +255,9 @@ function playTtsAlert(alert) {
   if (window.speechSynthesis.getVoices().length === 0) { window.speechSynthesis.onvoiceschanged = () => trySpeak(); setTimeout(trySpeak, 500); } else trySpeak();
 }
 
+// ⭐️ بنر ساده‌شده با فقط یک دکمه «مشاهده»
 function showIncidentBanner(alert) {
   document.querySelectorAll('.incident-alert-banner').forEach(el => el.remove());
-
-  let actionBtnsHtml = '<div class="action-btns" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:8px;">';
-  
-  if (alert.triggered_phone) {
-    actionBtnsHtml += `<a href="tel:${alert.triggered_phone}" class="call-employee-btn" style="background:#10b981; color:#fff; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem;">📞 تماس با گزارش‌دهنده</a>`;
-  }
-  
-  if (alert.patient_phone) {
-    actionBtnsHtml += `<a href="tel:${alert.patient_phone}" class="call-patient-btn" style="background:#3b82f6; color:#fff; padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem;">📞 تماس با بیمار</a>`;
-  }
-
-  // دکمه نقشه فقط اگر مختصات وجود داشته باشد
-  if (alert.latitude && alert.longitude) {
-    actionBtnsHtml += `
-      <div style="display:flex; flex-direction:column; gap:2px;">
-        <button onclick="window.showOfflineMap('${alert.latitude}', '${alert.longitude}')" class="map-btn" style="background:#fff; color:#dc2626; border:none; padding:6px 12px; border-radius:8px; cursor:pointer; font-family:inherit; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; justify-content:center; gap:4px;">
-          📍 نقشه آفلاین
-        </button>
-        <span style="font-size:9px; color:rgba(255,255,255,0.8); text-align:center;">(مخصوص داخل سایت)</span>
-      </div>
-      
-      <a href="https://nshn.ir/?lat=${alert.latitude}&lng=${alert.longitude}" target="_blank" class="map-btn" style="background:rgba(255,255,255,0.2); color:#fff; border:1px solid rgba(255,255,255,0.4); padding:6px 12px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:0.85rem; display:inline-flex; align-items:center; justify-content:center;">
-        🌐 نقشه آنلاین
-      </a>
-    `;
-  }
-  
-  actionBtnsHtml += '</div>';
 
   const banner = document.createElement('div');
   banner.className = 'incident-alert-banner';
@@ -334,7 +270,12 @@ function showIncidentBanner(alert) {
         ${alert.patient_name ? `<div class="incident-alert-line">بیمار: <strong>${escapeHtmlSafe(alert.patient_name)}</strong></div>` : ''}
         ${alert.location ? `<div class="incident-alert-line" style="background:rgba(255,255,255,0.15);padding:5px 8px;border-radius:6px;margin-top:6px;">📍 محل: <strong>${escapeHtmlSafe(alert.location)}</strong></div>` : ''}
         
-        ${actionBtnsHtml}
+        <!-- دکمه مشاهده جزئیات و نقشه -->
+        <div style="margin-top:12px;">
+          <button id="btnViewIncidentBanner" style="background:#fff; color:#dc2626; border:none; padding:8px 16px; border-radius:8px; cursor:pointer; font-family:inherit; font-weight:bold; font-size:0.9rem; display:inline-flex; align-items:center; justify-content:center; gap:6px; width:100%; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <i class="bi bi-eye-fill"></i> مشاهده جزئیات و نقشه
+          </button>
+        </div>
         
         <div class="incident-alert-time">${new Date(alert.created_at).toLocaleTimeString('fa-IR')}</div>
       </div>
@@ -354,7 +295,7 @@ function showIncidentBanner(alert) {
       .incident-alert-body { flex: 1; }
       .incident-alert-title { font-size: 1.15rem; font-weight: 800; margin-bottom: 4px; }
       .incident-alert-line { font-size: 0.9rem; margin-top: 3px; opacity: 0.95; }
-      .incident-alert-time { font-size: 0.75rem; opacity: 0.75; margin-top: 5px; }
+      .incident-alert-time { font-size: 0.75rem; opacity: 0.75; margin-top: 8px; }
       .incident-alert-close { background: rgba(255,255,255,0.2); border: none; color: #fff; width: 36px; height: 36px; border-radius: 50%; font-size: 1.2rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
       .incident-alert-close:active { background: rgba(255,255,255,0.35); }
     `;
@@ -362,7 +303,16 @@ function showIncidentBanner(alert) {
   }
 
   document.body.appendChild(banner);
+  
+  // دکمه بستن بنر
   banner.querySelector('.incident-alert-close').onclick = () => banner.remove();
+  
+  // ⭐️ دکمه مشاهده: بنر را بسته و صفحه اختصاصی حادثه را باز می‌کند
+  banner.querySelector('#btnViewIncidentBanner').onclick = () => {
+    banner.remove();
+    openIncidentScreen(alert.id);
+  };
+
   if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500, 200, 500]);
 }
 
