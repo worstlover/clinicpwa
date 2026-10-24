@@ -7,9 +7,9 @@ let alertCenterChannel = null;
 let mapInstance = null;
 let incidentChannel = null;
 let locationPollInterval = null;
-let liveMarker = null; // ⭐️ مارکر سراسری برای آپدیت بدون پرش
+let liveMarker = null; 
 
-// ⭐️ محاسبه فاصله به متر (برای شعاع ۵۰ متری)
+// ⭐️ محاسبه فاصله به متر
 function getDistanceInMeters(lat1, lon1, lat2, lon2) {
   const R = 6371e3;
   const φ1 = lat1 * Math.PI / 180;
@@ -173,7 +173,12 @@ async function loadTab(tab) {
 
 export async function openIncidentScreen(alertId) {
   purgeAllModals();
-  liveMarker = null; // ریست مارکر
+  
+  // ⭐️ حذف هرگونه صفحه قبلی که باز مانده باشد
+  const oldOverlay = document.getElementById('incidentScreen');
+  if (oldOverlay) oldOverlay.remove();
+
+  liveMarker = null; 
 
   const { data: alert, error } = await sb.from('incident_alerts').select('*').eq('id', alertId).single();
   if (error || !alert) return toast('خطا در بارگذاری حادثه', 'danger');
@@ -282,9 +287,8 @@ export async function openIncidentScreen(alertId) {
   listenToIncidentUpdates(alertId);
 }
 
-// ⭐️ نقشه و کاشی‌های آفلاین (پشتیبانی از زوم ۱۳ تا ۱۸ بدون پرش)
+// ⭐️ نقشه و کاشی‌های آفلاین
 function initIncidentMap(alert) {
-  // مختصات دقیق سایت
   const defaultLat = alert.latitude || 32.120055;
   const defaultLng = alert.longitude || 55.750778;
   
@@ -292,16 +296,15 @@ function initIncidentMap(alert) {
     zoomControl: false, 
     preferCanvas: true,
     minZoom: 13,
-    maxZoom: 18 // ⭐️ حداکثر زوم ۱۸ (مطابق فایل‌های دانلود شده)
-  }).setView([defaultLat, defaultLng], 15); // ⭐️ زوم اولیه روی ۱۵ (فقط یک بار)
+    maxZoom: 18
+  }).setView([defaultLat, defaultLng], 15);
 
   L.control.zoom({ position: 'topright' }).addTo(mapInstance);
 
-  // ⭐️ لایه کاشی‌ها با تنظیمات دقیق برای زوم ۱۳ تا ۱۸
   L.tileLayer('./map-tiles/{z}/{x}/{y}.png', {
     minZoom: 13,
     maxZoom: 18,
-    maxNativeZoom: 18, // ⭐️ چون تا ۱۸ دانلود کردید، اینجا ۱۸ گذاشتیم
+    maxNativeZoom: 18,
     errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
   }).addTo(mapInstance);
 
@@ -310,7 +313,6 @@ function initIncidentMap(alert) {
 
   let routeLine = null;
 
-  // دکمه موقعیت من
   $('btnMyLocation').onclick = () => {
     if (!navigator.geolocation) return toast('GPS پشتیبانی نمی‌شود', 'warning');
     
@@ -322,7 +324,6 @@ function initIncidentMap(alert) {
       const uLat = pos.coords.latitude;
       const uLng = pos.coords.longitude;
       
-      // فقط مارکر را جابه‌جا کن (نقشه را پن نکن)
       if (liveMarker) {
         liveMarker.setLatLng([uLat, uLng]);
       } else {
@@ -354,7 +355,6 @@ function initIncidentMap(alert) {
         <div style="font-size:0.75rem; color:#64748b; margin-top:4px;">دقت GPS: ±${Math.round(pos.coords.accuracy)} متر</div>
       `;
       
-      // ⭐️ فقط زمانی که کاربر دکمه را زده، نقشه را روی موقعیت کاربر ببر
       mapInstance.setView([uLat, uLng], 16);
       
     }, err => {
@@ -363,10 +363,14 @@ function initIncidentMap(alert) {
     }, { enableHighAccuracy: true, timeout: 10000 });
   };
 
-  // دکمه مرکز حادثه
   $('btnCenterIncident').onclick = () => {
-    mapInstance.setView([defaultLat, defaultLng], 15); // ⭐️ زوم روی ۱۵
+    mapInstance.setView([defaultLat, defaultLng], 15);
   };
+
+  // ⭐️ رفع باگ نمایش نقشه در صفحه‌های جدید
+  setTimeout(() => {
+    if (mapInstance) mapInstance.invalidateSize();
+  }, 300);
 }
 
 function listenToIncidentUpdates(alertId) {
@@ -388,11 +392,11 @@ function listenToIncidentUpdates(alertId) {
   }, 5000);
 }
 
-// ⭐️ آپدیت مختصات گیرنده بدون پرش نقشه (بدون setView)
+// ⭐️ آپدیت مختصات گیرنده بدون پرش نقشه
 function updateMapLocation(lat, lng, acc) {
   if (!mapInstance) return;
   
-  // فقط مارکرِ موقعیت گیرنده را جابه‌جا کن، نه کل نقشه را
+  // فقط مارکرِ موقعیت گیرنده را جابه‌جا کن، نه کل نقشه را (نقشه دیگر پرش و زوم نمی‌کند)
   if (liveMarker) {
     liveMarker.setLatLng([lat, lng]);
   } else {
