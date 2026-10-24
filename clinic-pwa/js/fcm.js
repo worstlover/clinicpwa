@@ -1,5 +1,4 @@
 // js/fcm.js
-
 import { VAPID_KEY, getMessagingInstance } from './firebase.js';
 import { sb } from './sb.js';
 import { toast } from './utils.js';
@@ -7,6 +6,7 @@ import { toast } from './utils.js';
 let currentToken = null;
 let isListenerAttached = false;
 
+// ابزار تبدیل VAPID Key
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
@@ -32,6 +32,7 @@ export function getPermissionStatus() {
   return Notification.permission;
 }
 
+// مجبور کردن مرورگر به ساخت Subscription
 async function forceSubscribePush(swReg) {
   try {
     let sub = await swReg.pushManager.getSubscription();
@@ -92,11 +93,7 @@ export async function requestPermissionAndInit() {
 export async function initFCM() {
   try {
     const permission = getPermissionStatus();
-    console.log('[FCM] initFCM — permission:', permission);
-
-    if (permission !== 'granted') {
-      return { ok: false, reason: permission };
-    }
+    if (permission !== 'granted') return { ok: false, reason: permission };
 
     const messaging = await getMessagingInstance();
     if (!messaging) return { ok: false, reason: 'no-messaging' };
@@ -123,11 +120,7 @@ export async function initFCM() {
       return { ok: true, token, reason: 'ok' };
     } else {
       const { data: { user } } = await sb.auth.getUser();
-      if (!user) {
-        console.log('[FCM] ⏳ token ready (will save after login)');
-        return { ok: true, token, reason: 'no-user-yet' };
-      }
-      console.warn('[FCM] ⚠️ token ready but DB save failed');
+      if (!user) return { ok: true, token, reason: 'no-user-yet' };
       return { ok: false, reason: 'save-failed' };
     }
   } catch (error) {
@@ -136,33 +129,53 @@ export async function initFCM() {
   }
 }
 
-// ⭐️ اصلاح نمایش نوتیف در فورگراند
+// ⭐️ تابع ساخت دستی توکن (که settings.js به آن نیاز دارد)
+export async function forceRegenerateToken() {
+  try {
+    const messaging = await getMessagingInstance();
+    if (!messaging) return { ok: false, reason: 'no-messaging' };
+
+    console.log('[FCM] Manual regeneration: Deleting old token...');
+    try { await messaging.deleteToken(); } catch(e) { console.warn(e); }
+
+    console.log('[FCM] Manual regeneration: Creating new subscription...');
+    const swReg = await getSWRegistration();
+    await forceSubscribePush(swReg);
+
+    const token = await messaging.getToken({ 
+      vapidKey: VAPID_KEY, 
+      serviceWorkerRegistration: swReg 
+    });
+
+    if (!token) return { ok: false, reason: 'no-token' };
+
+    currentToken = token;
+    const saved = await saveTokenToDB(token);
+    await setupMessageListener(messaging);
+
+    return { ok: saved, token, reason: saved ? 'ok' : 'save-failed' };
+  } catch (error) {
+    console.error('[FCM] forceRegenerateToken error:', error);
+    return { ok: false, reason: 'exception', error: error.message };
+  }
+}
+
 async function setupMessageListener(messaging) {
   if (isListenerAttached) return;
   try {
     messaging.onMessage(async (payload) => {
-      console.log('[FCM] message received (foreground):', payload);
-      
       const data = payload.data || {};
       const title = data.title || payload.notification?.title || 'پیام جدید';
       const body = data.body || payload.notification?.body || '';
 
-      // استفاده از showNotification مرورگر برای اندروید
       const reg = await navigator.serviceWorker.ready;
-      
-      // استخراج بیس‌آدرس پروژه
-      let base = window.location.href;
-      if (base.includes('index.html')) base = base.split('index.html')[0];
-      if (!base.endsWith('/')) base += '/';
-
       reg.showNotification(title, {
         body: body,
-        icon: new URL('icons/icon-192.png', base).href,
-        badge: new URL('icons/badge-96.png', base).href,
+        icon: './icons/icon-192.png',
+        badge: './icons/badge-96.png',
         vibrate: [200, 100, 200],
         data: data
       });
-
       toast(`🔔 ${title}: ${body}`, 'info');
     });
     isListenerAttached = true;
@@ -171,18 +184,17 @@ async function setupMessageListener(messaging) {
   }
 }
 
-// ⭐️ اصلاح ثبت توکن با upsert (جلوگیری از رکورد تکراری)
 async function saveTokenToDB(token) {
   try {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return false;
 
     const now = new Date().toISOString();
-    
-    // پاک کردن توکن مشابه از کاربران دیگر (برای امنیت)
+
+    // پاک کردن توکن مشابه از کاربران دیگر
     await sb.from('fcm_tokens').delete().eq('token', token).neq('user_id', user.id);
 
-    // Upsert: اگر وجود دارد آپدیت، اگر ندارد درج کند
+    // ثبت یا آپدیت توکن برای کاربر فعلی
     const { error } = await sb.from('fcm_tokens').upsert({
       user_id: user.id,
       token: token,
@@ -199,8 +211,18 @@ async function saveTokenToDB(token) {
       console.error('[FCM] upsert token error:', error);
       return false;
     }
+
+    // محدودیت ۲ توکن: توکن‌های قدیمی‌تر را پاک کن
+    const { data: userTokens } = await sb.from('fcm_tokens')
+      .select('id')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false });
+
+    if (userTokens && userTokens.length > 2) {
+      const tokensToDelete = userTokens.slice(2).map(t => t.id);
+      await sb.from('fcm_tokens').delete().in('id', tokensToDelete);
+    }
     
-    console.log('[FCM] ✅ token upserted successfully');
     return true;
   } catch (err) {
     console.error('[FCM] saveTokenToDB unexpected:', err);
