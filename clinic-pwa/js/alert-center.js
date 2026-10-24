@@ -282,35 +282,37 @@ export async function openIncidentScreen(alertId) {
   listenToIncidentUpdates(alertId);
 }
 
+// ⭐️ نقشه و کاشی‌های آفلاین (با رفع مشکل درخواست از شبکه)
 function initIncidentMap(alert) {
   const defaultLat = alert.latitude || 31.871;
   const defaultLng = alert.longitude || 56.029;
   
+  // ⭐️ محدوده دقیق کاشی‌هایی که دانلود کرده‌اید (بر اساس زوم ۱۶)
+  // این محدوده باعث می‌شود کاربر نتواند نقشه را به سمت مناطق خالی بکشد
+  const maxBounds = [
+    [31.81, 56.01], // گوشه جنوب غربی
+    [31.89, 56.10]  // گوشه شمال شرقی
+  ];
+
   mapInstance = L.map('incidentMap', { 
     zoomControl: false, 
     preferCanvas: true,
     minZoom: 13,
-    maxZoom: 18 // سقف زوم مجاز
+    maxZoom: 18,           // اجازه زوم تا ۱۸ را می‌دهیم
+    maxBounds: maxBounds,          // ⭐️ جلوگیری از پن کردن به بیرون
+    maxBoundsViscosity: 1.0        // ⭐️ قفل کردن مرزها (نمی‌تواند بیرون برود)
   }).setView([defaultLat, defaultLng], 15); // ⭐️ زوم ۱۵ برای حادثه
 
   L.control.zoom({ position: 'topright' }).addTo(mapInstance);
 
-  // ⭐️ مدیریت خطای ۴۰۴ (بازگشت به زوم قبلی)
-  let isReverting = false;
-  mapInstance.on('tileerror', function() {
-    if (isReverting) return;
-    const currentZoom = mapInstance.getZoom();
-    if (currentZoom > 13) {
-      isReverting = true;
-      mapInstance.setZoom(currentZoom - 1);
-      setTimeout(() => { isReverting = false; }, 1500); // جلوگیری از حلقه بی‌پایان
-    }
-  });
-
+  // ⭐️ تنظیمات لایه کاشی‌ها برای استفاده ۱۰۰٪ آفلاین
   L.tileLayer('./map-tiles/{z}/{x}/{y}.png', {
     minZoom: 13,
-    maxZoom: 18,
-    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+    maxZoom: 18,           // اجازه زوم تا ۱۸ را می‌دهیم
+    maxNativeZoom: 17,     // ⭐️ اما بالاترین فایل موجود ۱۷ است (از درخواست زوم ۱۸ به نت جلوگیری می‌کند)
+    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', // تایل خالی در صورت ۴۰۴
+    updateWhenIdle: true,
+    updateWhenZooming: false
   }).addTo(mapInstance);
 
   L.marker([defaultLat, defaultLng]).addTo(mapInstance)
@@ -329,7 +331,7 @@ function initIncidentMap(alert) {
       const uLat = pos.coords.latitude;
       const uLng = pos.coords.longitude;
       
-      // ⭐️ فقط مارکر را جابه‌جا یا ایجاد کن (بدون پرش نقشه)
+      // جابه‌جایی مارکر موقعیت
       if (liveMarker) {
         liveMarker.setLatLng([uLat, uLng]);
       } else {
@@ -361,7 +363,6 @@ function initIncidentMap(alert) {
         <div style="font-size:0.75rem; color:#64748b; margin-top:4px;">دقت GPS: ±${Math.round(pos.coords.accuracy)} متر</div>
       `;
       
-      // فقط یک بار زوم می‌کند تا هر دو نقطه را ببیند
       mapInstance.fitBounds([[uLat, uLng], [defaultLat, defaultLng]], { padding: [50, 50], maxZoom: 16 });
       
     }, err => {
@@ -371,7 +372,7 @@ function initIncidentMap(alert) {
   };
 
   $('btnCenterIncident').onclick = () => {
-    mapInstance.setView([defaultLat, defaultLng], 15); // ⭐️ مرکز حادثه با زوم ۱۵
+    mapInstance.setView([defaultLat, defaultLng], 15);
   };
 }
 
