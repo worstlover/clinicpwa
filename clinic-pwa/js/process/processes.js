@@ -42,7 +42,7 @@ export const PROCEDURES = [
           { n: 5, role: 'پرستار', text: 'بستری موقت', form: 'BR-FR-HS-34-00', condition: 'طبق دستور پزشک؛ ترک بهداری بدون دستور پزشک ممنوع است' },
           { n: 6, role: 'پرستار', text: 'درمان سرپایی' },
           { n: 7, role: 'پرستار', text: 'انجام اقدامات اورژانسی بر طبق دستورالعمل اورژانس کشوری' },
-          { n: 8, role: 'پرستار', text: 'ثبت اطلاعات فرد', form: 'BR-FR-HS-35-00', condition: 'در برنامه: همان «ثبت ویزیت»' },
+          { n: 8, role: 'پرستار', text: 'ثبت اطلاعات فرد', form: 'BR-FR-HS-35-00', condition: 'در برنامه: همان ثبت ویزیت' },
           { n: 9, role: 'پرستار', text: 'ثبت اقلام دارویی و پزشکی تجویز شده', form: 'BR-FR-HS-40-00' },
           { n: 10, role: 'پرستار', text: 'ترخیص مراجعه‌کننده از بهداری' },
           { n: 11, role: 'پزشک', text: 'تصمیم برای اعزام به مراکز درمانی (هوایی/زمینی)', form: 'BR-FR-HS-37-00', condition: 'فقط اگر نیاز به اعزام/ارجاع باشد' },
@@ -165,4 +165,71 @@ export const PROCEDURES = [
         code: 'BR-HS-10-04',
         title: 'معاینات جابه‌جایی شغلی',
         procedureCode: 'BR-HS-10-04-00',
-        quickAnswer: 'اطلاع‌رسانی جابه‌جایی به HSE، معرفی‌نامه
+        quickAnswer: 'اطلاع‌رسانی جابه‌جایی به HSE، معرفی‌نامه (فرم ۴۷)، دریافت نتایج و ارجاع (فرم ۴۸)، اعلام نتایج (فرم ۴۹)، تصمیم مشروط (فرم ۵۰) و ثبت نهایی (فرم ۵۱).',
+        forms: ['BR-FR-HS-47-00','BR-FR-HS-48-00','BR-FR-HS-49-00','BR-FR-HS-50-00','BR-FR-HS-51-00'],
+        steps: [
+          { n: 1, role: 'منابع انسانی', text: 'اطلاع‌رسانی جابه‌جایی به HSE' },
+          { n: 2, role: 'کارشناس بهداشت', text: 'معرفی‌نامه', form: 'BR-FR-HS-47-00' },
+          { n: 3, role: 'کارشناس بهداشت', text: 'دریافت نتایج و ارجاع', form: 'BR-FR-HS-48-00' },
+          { n: 4, role: 'کارشناس بهداشت', text: 'اعلام نتایج', form: 'BR-FR-HS-49-00' },
+          { n: 5, role: 'رئیس HSE', text: 'تصمیم (مشروط ← فرم ۵۰ / عدم همکاری ← BR-PR-HR-01)' },
+          { n: 6, role: 'کارشناس بهداشت', text: 'بایگانی و ثبت', form: 'BR-FR-HS-51-00' }
+        ]
+      }
+    ]
+  }
+];
+
+// ─── توابع کمکی ───
+export function formLabel(code) {
+  const f = FORMS_CATALOG.find(x => x.code === code);
+  return f ? `${f.title} — ${f.code}` : code;
+}
+
+export function findForm(code) {
+  return FORMS_CATALOG.find(x => x.code === code) || null;
+}
+
+export function findSubprocess(code) {
+  for (const p of PROCEDURES) {
+    for (const sp of p.subprocesses) {
+      if (sp.code === code) return { procedure: p, subprocess: sp };
+    }
+  }
+  return null;
+}
+
+export function findSubprocessByForm(formCode) {
+  for (const p of PROCEDURES) {
+    for (const sp of p.subprocesses) {
+      if (sp.forms.includes(formCode)) return { procedure: p, subprocess: sp };
+    }
+  }
+  return null;
+}
+
+// نگاشت فرم ← زیرفرآیند (برای form_records قدیمی)
+export const FORM_TO_SUBPROCESS = {
+  'BR-FR-HS-07-00': 'BR-HS-07-01',
+  'BR-FR-HS-34-00': 'BR-HS-07-01',
+  'BR-FR-HS-36-00': 'BR-HS-07-01',
+  'BR-FR-HS-37-00': 'BR-HS-07-01',
+  'BR-FR-HS-38-00': 'BR-HS-07-01',
+  'BR-FR-HS-39-00': 'BR-HS-07-01',
+  'BR-FR-HS-48-00': 'BR-HS-10-02',
+  'BR-FR-HS-49-00': 'BR-HS-10-02',
+  'BR-FR-HS-50-00': 'BR-HS-10-02'
+};
+
+// نرمال‌سازی فارسی برای جستجو
+export function normalizeFa(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/[يى]/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/[‌‏‎]/g, '')
+    .replace(/[۰-۹]/g, d => '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)])
+    .replace(/[٠-٩]/g, d => '0123456789'['٠١٢٣٤٥٦٧٨٩'.indexOf(d)])
+    .toLowerCase()
+    .trim();
+}
