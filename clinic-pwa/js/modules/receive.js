@@ -5,7 +5,7 @@ import {
   jalaliToGregorian, checkExpiry, toast, beep, makeBatchNumber
 } from '../utils.js';
 import { showScreen } from '../ui.js';
-import { isAdmin, currentUser } from '../auth.js'; // ⭐ ایمپورت isAdmin برای بررسی دسترسی
+import { isAdmin, currentUser } from '../auth.js';
 
 import * as SCANNER_MOD from '../scanner.js';
 import * as MODALS_MOD  from '../modals.js';
@@ -675,6 +675,7 @@ function renderReceiptRows() {
       <div class="mt-2">رسیدی یافت نشد</div></div>`;
     updatePager(); return;
   }
+  
   box.innerHTML = state.listRows.map(r => `
     <div class="item-card" data-id="${r.id}" style="cursor:pointer;">
       <div class="d-flex justify-content-between align-items-center">
@@ -694,6 +695,15 @@ function renderReceiptRows() {
         </div>
         <i class="bi bi-chevron-left text-muted"></i>
       </div>
+      
+      <!-- ⭐ دکمه گزارش مغایرت در لیست -->
+      ${r.status === 'final' ? `
+        <div class="mt-2 d-flex justify-content-end">
+          <button class="btn btn-sm btn-outline-danger" data-discrepancy="${r.id}">
+            <i class="bi bi-exclamation-diamond"></i> گزارش مغایرت
+          </button>
+        </div>
+      ` : ''}
     </div>`).join('');
 
   box.querySelectorAll('.item-card').forEach(el => {
@@ -702,6 +712,15 @@ function renderReceiptRows() {
       if (row) openReceiptDetail(row);
     };
   });
+  
+  box.querySelectorAll('[data-discrepancy]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const row = state.listRows.find(x => String(x.id) === btn.dataset.discrepancy);
+      if (row) openDiscrepancyReport(row);
+    };
+  });
+  
   updatePager();
 }
 
@@ -714,7 +733,6 @@ function updatePager() {
 async function openReceiptDetail(row) {
   const isDraft = !row.status || row.status === 'draft';
   
-  // ⭐ بررسی دسترسی برای حذف نهایی
   const role = currentUser?.user_metadata?.role || currentUser?.user_metadata?.user_role || '';
   const canManageFinal = isAdmin || role === 'supervisor' || role === 'manager' || role === 'admin';
 
@@ -770,7 +788,6 @@ async function openReceiptDetail(row) {
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
   backdrop.querySelector('#recvDetailClose').onclick = close;
 
-  // دکمه‌های عملیات
   if (isDraft) {
     backdrop.querySelector('#recvEditDraft').onclick = () => {
       close();
@@ -812,7 +829,6 @@ async function openReceiptDetail(row) {
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> در حال حذف...';
 
         try {
-          // ۱. گرفتن اقلام برای کسر از موجودی
           const { data: items } = await sb.from('drugs_receiptitem').select('*').eq('receipt_id', row.id);
           
           for (let it of items) {
@@ -824,7 +840,6 @@ async function openReceiptDetail(row) {
             }
           }
 
-          // ۲. حذف کامل از دیتابیس
           await sb.from('drugs_receiptitem').delete().eq('receipt_id', row.id);
           await sb.from('drugs_receipt').delete().eq('id', row.id);
           
@@ -925,7 +940,7 @@ async function loadDiscrepancyData(receiptId, invoiceId) {
   return { rows, invoiceLinked: !!invoiceId };
 }
 
-async function openDiscrepancyReport(receiptRow) {
+export async function openDiscrepancyReport(receiptRow) {
   const backdrop = document.createElement('div');
   backdrop.className = 'archive-backdrop';
   backdrop.innerHTML = `
@@ -941,7 +956,10 @@ async function openDiscrepancyReport(receiptRow) {
       <div class="archive-sheet-body" id="discBody">
         <div class="text-center py-4"><div class="spinner-border text-danger spinner-border-sm"></div> در حال بارگذاری...</div>
       </div>
-      <div class="archive-sheet-actions"><button class="btn btn-light w-100" id="discClose">بستن</button></div>
+      <div class="archive-sheet-actions" style="display:flex; gap:8px;">
+        <button class="btn btn-light flex-grow-1" id="discClose">بستن</button>
+        <button class="btn btn-primary flex-grow-1 hidden" id="discPrint"><i class="bi bi-printer"></i> چاپ گزارش</button>
+      </div>
     </div>`;
   document.body.appendChild(backdrop);
   const close = () => { backdrop.classList.add('closing'); setTimeout(() => backdrop.remove(), 200); };
@@ -954,6 +972,11 @@ async function openDiscrepancyReport(receiptRow) {
       backdrop.querySelector('#discBody').innerHTML = `<div class="alert alert-info m-3">هیچ قلمی ثبت نشده.</div>`;
       return;
     }
+    
+    const printBtn = backdrop.querySelector('#discPrint');
+    printBtn.classList.remove('hidden');
+    printBtn.onclick = () => printDiscrepancyReport(receiptRow, rows, invoiceLinked);
+
     const invoiceRows = rows.filter(r => r.has_invoice);
     const orderRows = rows.filter(r => r.has_order || r.received > 0);
     const fmt = n => faNum(Math.abs(n));
@@ -1034,6 +1057,126 @@ async function closeDrugOrders(drugId, drugName, btn) {
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-check2-square"></i> تکمیل سفارش';
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// چاپ گزارش مغایرت
+// ═══════════════════════════════════════════════════════════════════
+function printDiscrepancyReport(receiptRow, rows, invoiceLinked) {
+  const invoiceRows = rows.filter(r => r.has_invoice);
+  const orderRows = rows.filter(r => r.has_order || r.received > 0);
+  
+  const fmt = n => faNum(Math.abs(n));
+  const discText = (val) => {
+    if (val > 0) return `<span style="color:red;">${fmt(val)} کسری</span>`;
+    if (val < 0) return `<span style="color:orange;">${fmt(val)} مازاد</span>`;
+    return `<span style="color:green;">تطبیق</span>`;
+  };
+
+  let invoiceHTML = '';
+  if (invoiceLinked) {
+    invoiceHTML = `
+      <h3 style="color:#dc2626; border-bottom: 2px solid #dc2626; padding-bottom: 5px; margin-top: 20px;">مغایرت فاکتور</h3>
+      ${invoiceRows.length === 0 ? '<p>فاکتور قلمی ندارد.</p>' : `
+        <table style="width:100%; border-collapse:collapse; margin-top:10px; text-align:right;">
+          <thead>
+            <tr style="background:#fef2f2;">
+              <th style="border:1px solid #ccc; padding:8px;">دارو</th>
+              <th style="border:1px solid #ccc; padding:8px; text-align:center;">فاکتور</th>
+              <th style="border:1px solid #ccc; padding:8px; text-align:center;">دریافتی</th>
+              <th style="border:1px solid #ccc; padding:8px; text-align:center;">مغایرت</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${invoiceRows.map(r => `
+              <tr>
+                <td style="border:1px solid #ccc; padding:8px;">${escapeHtml(r.drug_name)} ${r.drug_form ? `(${escapeHtml(r.drug_form)})` : ''}</td>
+                <td style="border:1px solid #ccc; padding:8px; text-align:center;">${faNum(r.invoice_qty)}</td>
+                <td style="border:1px solid #ccc; padding:8px; text-align:center;">${faNum(r.received)}</td>
+                <td style="border:1px solid #ccc; padding:8px; text-align:center;">${discText(r.invoice_disc)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `}
+    `;
+  }
+
+  let orderHTML = '';
+  if (orderRows.length > 0) {
+    orderHTML = `
+      <h3 style="color:#d97706; border-bottom: 2px solid #d97706; padding-bottom: 5px; margin-top: 20px;">مغایرت سفارش</h3>
+      <table style="width:100%; border-collapse:collapse; margin-top:10px; text-align:right;">
+        <thead>
+          <tr style="background:#fffbeb;">
+            <th style="border:1px solid #ccc; padding:8px;">دارو</th>
+            <th style="border:1px solid #ccc; padding:8px; text-align:center;">دریافتی</th>
+            <th style="border:1px solid #ccc; padding:8px; text-align:center;">سفارش باز</th>
+            <th style="border:1px solid #ccc; padding:8px; text-align:center;">مغایرت</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${orderRows.map(r => `
+            <tr>
+              <td style="border:1px solid #ccc; padding:8px;">${escapeHtml(r.drug_name)} ${r.drug_form ? `(${escapeHtml(r.drug_form)})` : ''}</td>
+              <td style="border:1px solid #ccc; padding:8px; text-align:center;">${faNum(r.received)}</td>
+              <td style="border:1px solid #ccc; padding:8px; text-align:center;">${faNum(r.current_pending)}</td>
+              <td style="border:1px solid #ccc; padding:8px; text-align:center;">
+                ${r.current_pending > 0 ? `<span style="color:red;">${faNum(r.current_pending)} کسری</span>` : `<span style="color:green;">تأمین شده</span>`}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  const html = `
+    <!DOCTYPE html>
+    <html dir="rtl" lang="fa">
+    <head>
+      <meta charset="UTF-8">
+      <title>گزارش مغایرت - ${receiptRow.receipt_number}</title>
+      <style>
+        body { font-family: Tahoma, Arial, sans-serif; padding: 20px; font-size: 14px; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header img { width: 80px; margin-bottom: 10px; }
+        .header h2 { margin: 0; }
+        .header p { margin: 5px 0; color: #555; }
+        .footer { margin-top: 40px; text-align: left; font-size: 12px; color: #777; }
+        @media print {
+          body { padding: 0; }
+          button { display: none; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <img src="${window.location.origin}/icons/logo-transparent.png" alt="Logo">
+        <h2>گزارش مغایرت دریافت دارو</h2>
+        <p><strong>شماره سند:</strong> ${receiptRow.receipt_number || '-'} | <strong>تأمین‌کننده:</strong> ${escapeHtml(receiptRow.supplier_name || '-')}</p>
+        <p><strong>تاریخ سند:</strong> ${gregorianToJalali(receiptRow.date_received)}</p>
+      </div>
+      
+      ${invoiceHTML}
+      ${orderHTML}
+      
+      <div class="footer">
+        تاریخ چاپ: ${gregorianToJalali(new Date().toISOString().slice(0, 10))} - ساعت: ${new Date().toLocaleTimeString('fa-IR')}
+      </div>
+
+      <script>
+        window.onload = function() {
+          window.print();
+        }
+      </script>
+    </body>
+    </html>
+  `;
+
+  const printWindow = window.open('', '_blank');
+  printWindow.document.write(html);
+  printWindow.document.close();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1489,4 +1632,4 @@ async function finalize() {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> ثبت نهایی'; }
     state.isFinalizing = false;
   }
-  }
+}

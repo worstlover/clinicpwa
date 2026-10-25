@@ -4,6 +4,7 @@
 // ═══════════════════════════════════════════════════════
 
 export const FORMS_CATALOG = [
+  { code: 'BR-FR-HS-07-00', shortCode: '۰۷', title: 'فرم اخطار کتبی و جریمه HSE', implemented: true, original: 'assets/forms/BR-FR-HS-07-00.pdf' },
   { code: 'BR-FR-HS-34-00', shortCode: '۳۴', title: 'فرم بستری موقت مراجعه کننده', implemented: true, original: 'assets/forms/BR-FR-HS-34-00.docx' },
   { code: 'BR-FR-HS-35-00', shortCode: '۳۵', title: 'فرم ثبت اطلاعات مراجعین به بهداری', implemented: 'digital', original: 'assets/forms/BR-FR-HS-35-00.xlsx' },
   { code: 'BR-FR-HS-36-00', shortCode: '۳۶', title: 'فرم گزارش مراجعات حوادث ناشی از کار به بهداری', implemented: true, original: 'assets/forms/BR-FR-HS-36-00.docx' },
@@ -164,70 +165,4 @@ export const PROCEDURES = [
         code: 'BR-HS-10-04',
         title: 'معاینات جابه‌جایی شغلی',
         procedureCode: 'BR-HS-10-04-00',
-        quickAnswer: 'اطلاع‌رسانی جابه‌جایی به HSE، معرفی‌نامه (فرم ۴۷)، دریافت نتایج و ارجاع (فرم ۴۸)، اعلام نتایج (فرم ۴۹)، تصمیم مشروط (فرم ۵۰) و ثبت نهایی (فرم ۵۱).',
-        forms: ['BR-FR-HS-47-00','BR-FR-HS-48-00','BR-FR-HS-49-00','BR-FR-HS-50-00','BR-FR-HS-51-00'],
-        steps: [
-          { n: 1, role: 'منابع انسانی', text: 'اطلاع‌رسانی جابه‌جایی به HSE' },
-          { n: 2, role: 'کارشناس بهداشت', text: 'معرفی‌نامه', form: 'BR-FR-HS-47-00' },
-          { n: 3, role: 'کارشناس بهداشت', text: 'دریافت نتایج و ارجاع', form: 'BR-FR-HS-48-00' },
-          { n: 4, role: 'کارشناس بهداشت', text: 'اعلام نتایج', form: 'BR-FR-HS-49-00' },
-          { n: 5, role: 'رئیس HSE', text: 'تصمیم (مشروط ← فرم ۵۰ / عدم همکاری ← BR-PR-HR-01)' },
-          { n: 6, role: 'کارشناس بهداشت', text: 'بایگانی و ثبت', form: 'BR-FR-HS-51-00' }
-        ]
-      }
-    ]
-  }
-];
-
-// ─── توابع کمکی ───
-export function formLabel(code) {
-  const f = FORMS_CATALOG.find(x => x.code === code);
-  return f ? `${f.title} — ${f.code}` : code;
-}
-
-export function findForm(code) {
-  return FORMS_CATALOG.find(x => x.code === code) || null;
-}
-
-export function findSubprocess(code) {
-  for (const p of PROCEDURES) {
-    for (const sp of p.subprocesses) {
-      if (sp.code === code) return { procedure: p, subprocess: sp };
-    }
-  }
-  return null;
-}
-
-export function findSubprocessByForm(formCode) {
-  for (const p of PROCEDURES) {
-    for (const sp of p.subprocesses) {
-      if (sp.forms.includes(formCode)) return { procedure: p, subprocess: sp };
-    }
-  }
-  return null;
-}
-
-// نگاشت فرم ← زیرفرآیند (برای form_records قدیمی)
-export const FORM_TO_SUBPROCESS = {
-  'BR-FR-HS-34-00': 'BR-HS-07-01',
-  'BR-FR-HS-36-00': 'BR-HS-07-01',
-  'BR-FR-HS-37-00': 'BR-HS-07-01',
-  'BR-FR-HS-38-00': 'BR-HS-07-01',
-  'BR-FR-HS-39-00': 'BR-HS-07-01',
-  'BR-FR-HS-48-00': 'BR-HS-10-02',
-  'BR-FR-HS-49-00': 'BR-HS-10-02',
-  'BR-FR-HS-50-00': 'BR-HS-10-02'
-};
-
-// نرمال‌سازی فارسی برای جستجو
-export function normalizeFa(s) {
-  if (!s) return '';
-  return String(s)
-    .replace(/[يى]/g, 'ی')
-    .replace(/ك/g, 'ک')
-    .replace(/[‌‏‎]/g, '')
-    .replace(/[۰-۹]/g, d => '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)])
-    .replace(/[٠-٩]/g, d => '0123456789'['٠١٢٣٤٥٦٧٨٩'.indexOf(d)])
-    .toLowerCase()
-    .trim();
-}
+        quickAnswer: 'اطلاع‌رسانی جابه‌جایی به HSE، معرفی‌نامه

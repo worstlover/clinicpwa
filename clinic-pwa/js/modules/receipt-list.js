@@ -3,6 +3,7 @@ import { sb } from '../sb.js';
 import { $, faNum, escapeHtml, gregorianToJalali, jalaliToGregorian, toast } from '../utils.js';
 import { printA4 } from './list-print.js';
 import { currentUser, isAdmin } from '../auth.js'; 
+import { openDiscrepancyReport } from './receive.js'; // ⭐ ایمپورت گزارش مغایرت
 
 const PAGE_SIZE = 20;
 
@@ -16,7 +17,6 @@ const state = {
   loading: false,
 };
 
-// ⭐ تابع بررسی سطح دسترسی برای ویرایش/حذف رسیدهای نهایی
 function canManageFinalized() {
   if (isAdmin) return true;
   const role = currentUser?.user_metadata?.role || currentUser?.user_metadata?.user_role || '';
@@ -104,7 +104,7 @@ async function loadRows() {
 
   try {
     let q = sb.from('drugs_receipt')
-      .select('*', { count: 'exact' })
+      .select('*, supplier:drugs_supplier(name)', { count: 'exact' })
       .order('id', { ascending: false });
 
     if (state.query) {
@@ -135,7 +135,6 @@ function renderRows() {
   const canManage = canManageFinalized();
 
   body.innerHTML = state.rows.map(r => {
-    // ⭐ بررسی دقیق‌تر وضعیت برای نمایش دکمه‌ها
     const isDraft = !r.status || r.status === 'draft' || r.status === 'pending';
     const isFinal = r.status === 'final';
     const isVoid = r.status === 'void' || r.status === 'canceled';
@@ -146,11 +145,9 @@ function renderRows() {
     else if (isDraft) { badgeCls = 'bg-warning text-dark'; badgeText = 'پیش‌نویس'; }
     else if (isVoid) { badgeCls = 'bg-danger'; badgeText = 'باطل شده'; }
 
-    // ساخت دکمه‌ها بر اساس وضعیت و دسترسی
     let actionButtons = '';
 
     if (isDraft) {
-      // دکمه‌های پیش‌نویس (حذف کاملاً واضح با رنگ قرمز)
       actionButtons = `
         <div class="d-flex gap-2 w-100 mt-2">
           <button class="btn btn-sm btn-danger flex-grow-1" data-delete-draft="${r.id}"><i class="bi bi-trash"></i> حذف پیش‌نویس</button>
@@ -158,16 +155,24 @@ function renderRows() {
         </div>
       `;
     } else if (isFinal) {
+      // ⭐ دکمه گزارش مغایرت برای همه
+      let discBtn = `<button class="btn btn-sm btn-outline-danger w-100 mb-2" data-discrepancy="${r.id}"><i class="bi bi-exclamation-diamond"></i> گزارش مغایرت</button>`;
+      
       if (canManage) {
-        // دکمه‌های نهایی (ویرایش و حذف کامل)
         actionButtons = `
           <div class="d-flex flex-column gap-2 w-100 mt-2">
+            ${discBtn}
             <button class="btn btn-sm btn-outline-warning w-100" data-edit-final="${r.id}"><i class="bi bi-pencil"></i> ویرایش (برگشت به پیش‌نویس)</button>
             <button class="btn btn-sm btn-outline-danger w-100" data-delete-final="${r.id}"><i class="bi bi-trash"></i> حذف کامل (کسر از انبار)</button>
           </div>
         `;
       } else {
-        actionButtons = `<button class="btn btn-sm btn-outline-secondary w-100 mt-2" disabled><i class="bi bi-lock"></i> قفل شده (نیاز به دسترسی مدیر)</button>`;
+        actionButtons = `
+          <div class="d-flex flex-column gap-2 w-100 mt-2">
+            ${discBtn}
+            <button class="btn btn-sm btn-outline-secondary w-100" disabled><i class="bi bi-lock"></i> قفل شده (نیاز به دسترسی مدیر)</button>
+          </div>
+        `;
       }
     } else if (isVoid) {
       actionButtons = `<button class="btn btn-sm btn-outline-secondary w-100 mt-2" disabled><i class="bi bi-x-circle"></i> باطل شده</button>`;
@@ -180,9 +185,8 @@ function renderRows() {
           <span class="badge ${badgeCls}">${badgeText}</span>
         </div>
         <div class="list-row-body">
-          <div class="small"><i class="bi bi-truck text-muted"></i> ${escapeHtml(r.supplier_name || '-')}</div>
+          <div class="small"><i class="bi bi-truck text-muted"></i> ${escapeHtml(r.supplier_name || r.supplier?.name || '-')}</div>
           <div class="small text-muted mt-1"><i class="bi bi-calendar3"></i> ${gregorianToJalali(r.date_received)}</div>
-          
           ${actionButtons}
         </div>
       </div>
@@ -262,7 +266,16 @@ function bindRowEvents(body) {
     };
   });
 
-  // ۳. ویرایش نهایی شده (برگشت به پیش‌نویس با کسر موجودی)
+  // ⭐ ۳. گزارش مغایرت (دکمه جدید)
+  body.querySelectorAll('[data-discrepancy]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const row = state.rows.find(x => String(x.id) === btn.dataset.discrepancy);
+      if (row) openDiscrepancyReport(row);
+    };
+  });
+
+  // ۴. ویرایش نهایی شده (برگشت به پیش‌نویس با کسر موجودی)
   body.querySelectorAll('[data-edit-final]').forEach(btn => {
     btn.onclick = async () => {
       const id = btn.dataset.editFinal;
@@ -274,7 +287,6 @@ function bindRowEvents(body) {
       try {
         const { data: items } = await sb.from('drugs_receiptitem').select('*').eq('receipt_id', id);
         
-        // کسر موجودی
         for (let it of items) {
           const { data: batch } = await sb.from('drugs_drugbatch')
             .select('id, quantity').eq('drug_id', it.drug_id).eq('batch_number', it.batch_number).maybeSingle();
@@ -284,11 +296,9 @@ function bindRowEvents(body) {
           }
         }
 
-        // تغییر وضعیت به پیش‌نویس
         await sb.from('drugs_receipt').update({ status: 'draft' }).eq('id', id);
         toast('✅ سند به پیش‌نویس تبدیل شد. موجودی کسر گردید.', 'success');
         
-        // بستن لیست و رفتن به فرم دریافت
         document.getElementById('receiptListWrap').classList.remove('active');
         document.body.style.overflow = '';
         const { openReceive } = await import('./receive.js');
@@ -301,7 +311,7 @@ function bindRowEvents(body) {
     };
   });
 
-  // ⭐ ۴. حذف کامل نهایی شده (کسر موجودی + پاک کردن از دیتابیس)
+  // ۵. حذف کامل نهایی شده (کسر موجودی + پاک کردن از دیتابیس)
   body.querySelectorAll('[data-delete-final]').forEach(btn => {
     btn.onclick = async () => {
       const id = btn.dataset.deleteFinal;
@@ -314,7 +324,6 @@ function bindRowEvents(body) {
       try {
         const { data: items } = await sb.from('drugs_receiptitem').select('*').eq('receipt_id', id);
         
-        // ۱. کسر موجودی
         for (let it of items) {
           const { data: batch } = await sb.from('drugs_drugbatch')
             .select('id, quantity').eq('drug_id', it.drug_id).eq('batch_number', it.batch_number).maybeSingle();
@@ -324,7 +333,6 @@ function bindRowEvents(body) {
           }
         }
 
-        // ۲. پاک کردن کامل از دیتابیس
         await sb.from('drugs_receiptitem').delete().eq('receipt_id', id);
         await sb.from('drugs_receipt').delete().eq('id', id);
         
@@ -360,4 +368,4 @@ function printReceiptList() {
     rows: state.rows,
     signatures: ['مدیر انبار']
   });
-           }
+}

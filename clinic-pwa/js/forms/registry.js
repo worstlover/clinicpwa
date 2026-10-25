@@ -3,22 +3,33 @@
 // ثبت همه‌ی فرم‌ها. هر فرم: { code, title, processCode, source, load(ctx), render(data), fields, saveArchive? }
 // ═══════════════════════════════════════════════════════
 
-// ─── فرم‌های طب کار ───
 import { render as render48, load as load48, fields as fields48 } from './templates/form48.js';
 import { render as render49, load as load49, fields as fields49 } from './templates/form49.js';
 import { render as render50, load as load50, fields as fields50 } from './templates/form50.js';
 
-// ─── فرم‌های ویزیت و شیفت ───
 import { render as render34, load as load34, fields as fields34 } from './templates/form34.js';
 import { render as render36, load as load36, fields as fields36 } from './templates/form36.js';
 import { render as render37, load as load37, fields as fields37 } from './templates/form37.js';
 import { render as render38, load as load38, fields as fields38, saveArchive as save38 } from './templates/form38.js';
 import { render as render39, load as load39, fields as fields39 } from './templates/form39.js';
 
-// ─── فرم جریمه و اخطار ───
-import { render as render07, fields as fields07 } from './templates/form07.js';
+// فرم جدید HS-07
+import { render as renderHS07, load as loadHS07, fields as fieldsHS07 } from './templates/hs07.js';
 
 export const FORMS = {
+
+  // ═══════════════════════════════════════════════════════
+  // فرم اخطار کتبی و جریمه HSE
+  // ═══════════════════════════════════════════════════════
+  'BR-FR-HS-07-00': {
+    code: 'BR-FR-HS-07-00',
+    title: 'فرم اخطار کتبی و جریمه HSE',
+    processCode: null,
+    source: 'none',
+    load: loadHS07,
+    render: renderHS07,
+    fields: fieldsHS07
+  },
 
   // ═══════════════════════════════════════════════════════
   // فرم‌های طب کار (source: exam)
@@ -83,7 +94,7 @@ export const FORMS = {
   },
 
   // ═══════════════════════════════════════════════════════
-  // فرم شیفت
+  // فرم شیفت (source: shift)
   // ═══════════════════════════════════════════════════════
   'BR-FR-HS-38-00': {
     code: 'BR-FR-HS-38-00',
@@ -97,7 +108,7 @@ export const FORMS = {
   },
 
   // ═══════════════════════════════════════════════════════
-  // فرم بدون منبع
+  // فرم بدون منبع (source: none)
   // ═══════════════════════════════════════════════════════
   'BR-FR-HS-39-00': {
     code: 'BR-FR-HS-39-00',
@@ -107,21 +118,6 @@ export const FORMS = {
     load: load39,
     render: render39,
     fields: fields39
-  },
-
-  // ═══════════════════════════════════════════════════════
-  // ⭐️ فرم جدید: اخطار کتبی و جریمه
-  // ═══════════════════════════════════════════════════════
-  'BR-FR-HS-07-00': {
-    code: 'BR-FR-HS-07-00',
-    title: 'فرم اخطار کتبی و جریمه',
-    processCode: 'BR-HS-07-01', // متصل به فرآیند مدیریت مراجعین یا HSE
-    source: 'none', // این فرم از طریق آرشیو لود می‌شود
-    load: async (ctx) => {
-      return { data: ctx.data || {}, meta: {} };
-    },
-    render: render07,
-    fields: fields07
   }
 };
 
@@ -147,6 +143,9 @@ export function resolveProcessCode(formCode, examExtra) {
   return form.processCode || null;
 }
 
+// ═══════════════════════════════════════════════════════
+// لیست فرم‌ها
+// ═══════════════════════════════════════════════════════
 export function listForms() {
   return Object.values(FORMS).map(f => ({
     code: f.code,
