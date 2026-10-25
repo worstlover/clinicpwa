@@ -1,6 +1,8 @@
 // service-worker.js
-importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+
+// ⭐️ فایل‌های فایربیس به صورت لوکال لود می‌شوند (به جای gstatic)
+importScripts('/lib/firebase/firebase-app-compat.js');
+importScripts('/lib/firebase/firebase-messaging-compat.js');
 
 firebase.initializeApp({
   apiKey: "AIzaSyCKyUDeX2BYBz8sE64R44xpC1NgLy94obs",
@@ -13,8 +15,6 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// ⭐️ چون در Edge Function از notification استفاده می‌کنیم،
-// مرورگر خودش نوتیف را نمایش می‌دهد. فقط لاگ می‌گیریم.
 messaging.onBackgroundMessage((payload) => {
   console.log('[SW] Background message received:', payload);
 });
@@ -33,9 +33,10 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// کدهای Caching (بدون تغییر)
+// کدهای Caching
 // ═══════════════════════════════════════════════════════
-const APP_CACHE = 'clinic-app-v2';
+// ⭐️ نسخه کش را تغییر دادم تا مرورگر مجبور شود کش قدیمی خراب را پاک کند
+const APP_CACHE = 'clinic-app-v3'; 
 const TILE_CACHE = 'clinic-map-tiles-v1';
 
 const ASSETS = [
@@ -88,6 +89,7 @@ self.addEventListener('fetch', (e) => {
 
   if (url.origin !== self.location.origin) return;
 
+  // ⭐️ مدیریت بهتر خطای شبکه
   e.respondWith((async () => {
     try {
       const res = await fetch(req);
@@ -96,11 +98,18 @@ self.addEventListener('fetch', (e) => {
         caches.open(APP_CACHE).then(c => c.put(req, clone)).catch(() => {});
       }
       return res;
-    } catch {
+    } catch (error) {
+      // در صورت قطعی اینترنت یا خطا، از کش بخوان
       const cached = await caches.match(req);
       if (cached) return cached;
-      if (req.mode === 'navigate') return caches.match('./index.html');
-      return new Response('', { status: 503 });
+      
+      if (req.mode === 'navigate') {
+        const fallback = await caches.match('./index.html');
+        if (fallback) return fallback;
+      }
+      
+      // جلوگیری از خطای کامل سرویس‌ورکر با بازگرداندن یک پاسخ خالی
+      return new Response('', { status: 503, statusText: 'Network Error' });
     }
   })());
 });
