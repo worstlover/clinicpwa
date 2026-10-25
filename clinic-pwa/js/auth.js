@@ -7,7 +7,7 @@ import { initIncidentAlertListener } from './incident-alert.js';
 import { initReferralAlertListener } from './referral-alert.js';
 import { initAlertCenter } from './alert-center.js';
 import { initQuickIncidentButton } from './quick-incident.js';
-import { initFCM, removeFCMToken } from './fcm.js'; // ⭐ اضافه شدن removeFCMToken
+import { initFCM, removeFCMToken } from './fcm.js';
 import { openSettings } from './modules/settings.js';
 
 export let currentUser = null;
@@ -22,7 +22,6 @@ const RETRY_DELAY_MS = 2000;
 async function initAllListeners() {
   console.log('[AUTH] Starting background listeners...');
   
-  // اجرای همه به صورت موازی تا اگر یکی گیر کرد، بقیه ادامه دهند
   const tasks = [
     startSession().catch(e => console.error('[AUTH] session:', e)),
     initIncidentAlertListener().catch(e => console.error('[AUTH] incident:', e)),
@@ -77,11 +76,9 @@ export async function checkAuth() {
     currentUser = session.user;
     $('userEmail').textContent = currentUser.email;
     
-    // ⭐ ۱. نمایش فوری صفحه اصلی
     showScreen('Home');
     bindSettingsButton();
 
-    // ⭐ ۲. اجرای لیسنرها در پس‌زمینه
     loadAdminStatus().catch(e => console.error(e));
     initAllListeners().catch(e => console.error(e));
     
@@ -105,12 +102,16 @@ export async function checkAuth() {
 }
 
 // ═══════════════════════════════════════════════════════
-// لاگین
+// لاگین با لودینگ دکمه
 // ═══════════════════════════════════════════════════════
 export async function doLogin() {
   console.log('[AUTH] doLogin called');
   let email = $('loginEmail').value.trim();
   const pass = $('loginPass').value;
+  const btn = $('btnLogin');
+  const emailInput = $('loginEmail');
+  const passInput = $('loginPass');
+  const msgEl = $('loginMsg');
 
   if (!email || !pass) {
     toast('نام کاربری و رمز را وارد کنید', 'warning');
@@ -121,14 +122,25 @@ export async function doLogin() {
     email = email + '@clinic.local';
   }
 
-  const msgEl = $('loginMsg');
-  if (msgEl) msgEl.innerHTML = '<div class="alert alert-info py-2 small">در حال ورود...</div>';
+  // ⭐ ذخیره وضعیت اولیه دکمه و غیرفعال کردن آن
+  const originalBtnHtml = btn ? btn.innerHTML : 'ورود';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> در حال ورود...';
+  }
+  if (emailInput) emailInput.disabled = true;
+  if (passInput) passInput.disabled = true;
+  if (msgEl) msgEl.innerHTML = ''; 
   
   try {
     const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
     
     if (error) {
       if (msgEl) msgEl.innerHTML = `<div class="alert alert-danger py-2 small">${escapeHtml(error.message)}</div>`;
+      // بازگرداندن دکمه به حالت اول
+      if (btn) { btn.disabled = false; btn.innerHTML = originalBtnHtml; }
+      if (emailInput) emailInput.disabled = false;
+      if (passInput) passInput.disabled = false;
       return;
     }
     
@@ -136,16 +148,18 @@ export async function doLogin() {
     currentUser = data.user;
     $('userEmail').textContent = currentUser.email;
     
-    // ⭐ ۱. نمایش فوری صفحه اصلی
     showScreen('Home');
     bindSettingsButton();
     
-    // ⭐ ۲. اجرای پس‌زمینه
     loadAdminStatus().catch(e => console.error(e));
     initAllListeners().catch(e => console.error(e));
     
   } catch (err) {
     if (msgEl) msgEl.innerHTML = `<div class="alert alert-danger py-2 small">خطای ارتباط: ${escapeHtml(err.message)}</div>`;
+    // بازگرداندن دکمه به حالت اول در صورت خطای شبکه
+    if (btn) { btn.disabled = false; btn.innerHTML = originalBtnHtml; }
+    if (emailInput) emailInput.disabled = false;
+    if (passInput) passInput.disabled = false;
   }
 }
 
@@ -185,12 +199,27 @@ export async function loadAdminStatus() {
 }
 
 // ═══════════════════════════════════════════════════════
-// خروج از حساب (با پاک کردن توکن)
+// خروج از حساب با لودینگ تمام صفحه (مدرن)
 // ═══════════════════════════════════════════════════════
 export async function doLogout() {
   if (!confirm('از حساب خارج می‌شوید؟')) return;
+
+  // ⭐ ساخت لایه گرافیکی مدرن برای لودینگ خروج
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed; inset: 0; z-index: 9999999;
+    background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: white; font-family: inherit; animation: fadeIn 0.3s ease;
+  `;
+  overlay.innerHTML = `
+    <style>@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }</style>
+    <div class="spinner-border text-light mb-4" style="width: 3.5rem; height: 3.5rem; border-width: 0.25em;" role="status"></div>
+    <h4 class="fw-bold mb-2">در حال خروج...</h4>
+    <p class="text-light opacity-75" style="font-size: 0.9rem;">در حال پاک‌سازی اطلاعات نشست</p>
+  `;
+  document.body.appendChild(overlay);
   
-  // ⭐ توکن را قبل از خروج پاک کن
   try { 
     await removeFCMToken(); 
   } catch (e) { 
@@ -198,7 +227,13 @@ export async function doLogout() {
   }
 
   try { await endSession(); } catch (e) {}
-  await sb.auth.signOut();
+  
+  try {
+    await sb.auth.signOut();
+  } catch(e) {
+    console.error(e);
+  }
+  
   location.reload();
 }
 

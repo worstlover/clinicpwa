@@ -222,15 +222,12 @@ window._triggerInstall = async () => {
 };
 
 // ═══════════════════════════════════════════════════════
-// 🔔 مدیریت نوتیفیکیشن (FCM)
+// 🔔 مدیریت نوتیفیکیشن (FCM) با مدیریت Timeout
 // ═══════════════════════════════════════════════════════
 
 let __fcmInFlight = null;
 let __fcmLastResult = null;
 
-/**
- * تلاش برای راه‌اندازی FCM — با تشخیص دقیق وضعیت
- */
 async function tryInitFCM(reason = 'initial') {
   const perm = getPermissionStatus();
   console.log(`[APP-FCM] tryInit (${reason}) — permission: ${perm}`);
@@ -240,7 +237,6 @@ async function tryInitFCM(reason = 'initial') {
   }
 
   if (perm !== 'granted') {
-    // permission default یا denied → بنر نمایش بده
     showNotificationBanner(perm);
     return;
   }
@@ -250,10 +246,17 @@ async function tryInitFCM(reason = 'initial') {
   __fcmInFlight = (async () => {
     try {
       console.log(`[APP-FCM] calling initFCM (${reason})`);
-      const res = await initFCM();
+      
+      // ⭐️ اضافه کردن تایمر ۴ ثانیه‌ای برای جلوگیری از هنگ کردن برنامه
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('FCM_TIMEOUT')), 4000);
+      });
+
+      // مسابقه بین اجرای فایربیس و تایمر
+      const res = await Promise.race([initFCM(), timeoutPromise]);
+      
       __fcmLastResult = res;
 
-      // پشتیبانی از هر دو نوع return: void (قدیمی) یا {ok, reason} (جدید)
       const failed = res && res.ok === false;
       if (failed) {
         console.warn('[APP-FCM] initFCM failed:', res.reason);
@@ -266,7 +269,11 @@ async function tryInitFCM(reason = 'initial') {
       hideNotificationBanner();
       console.log('[APP-FCM] ✅ ready');
     } catch (e) {
-      console.error('[APP-FCM] initFCM threw:', e);
+      if (e.message === 'FCM_TIMEOUT') {
+        console.warn('[APP-FCM] ⚠️ Connection to Firebase timed out (likely blocked by network). App continues without notifications.');
+      } else {
+        console.error('[APP-FCM] initFCM threw:', e);
+      }
     } finally {
       __fcmInFlight = null;
     }
@@ -275,19 +282,14 @@ async function tryInitFCM(reason = 'initial') {
   return __fcmInFlight;
 }
 
-/**
- * بنر بالای صفحه برای مدیریت مجوز نوتیفیکیشن
- */
 function showNotificationBanner(perm) {
   const currentPerm = perm || getPermissionStatus();
 
-  // اگر مجوز داده شده یا پشتیبانی نمی‌شود → بنر نباید نمایش داده شود
   if (currentPerm === 'granted' || currentPerm === 'unsupported') {
     hideNotificationBanner();
     return;
   }
 
-  // اگر بنر قبلاً هست و وضعیت تغییر نکرده → دست نزن
   const existing = document.getElementById('notifBanner');
   if (existing && existing.dataset.perm === currentPerm) return;
   if (existing) existing.remove();
@@ -333,10 +335,7 @@ function showNotificationBanner(perm) {
         console.log('[APP-FCM] requestPermissionAndInit from banner');
         const res = await requestPermissionAndInit();
 
-        // پشتیبانی از هر دو نوع return
-        const ok = res === true
-          || res?.ok === true
-          || (typeof res === 'string' && res.length > 0);
+        const ok = res === true || res?.ok === true || (typeof res === 'string' && res.length > 0);
 
         if (ok) {
           b.remove();
@@ -352,7 +351,6 @@ function showNotificationBanner(perm) {
           return;
         }
 
-        // fallback: مجوز داده شد ولی مشکل دیگری هست
         if (getPermissionStatus() === 'granted') {
           b.remove();
           await tryInitFCM('banner-fallback');
@@ -376,7 +374,6 @@ function hideNotificationBanner() {
   document.getElementById('notifBanner')?.remove();
 }
 
-// ⭐ هر SIGNED_IN → دوباره init کن
 let __lastSignedInUser = null;
 sb.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_IN' && session?.user) {
